@@ -1,15 +1,78 @@
 {
-  "name": "drafto-electron",
+  "name": "drafto",
   "version": "1.0.0",
-  "description": "",
+  "description": "SLP Generator for Indian Supreme Court",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Your Name",
+  "license": "MIT",
   "devDependencies": {
-    "electron": "..."
+    "electron": "^32.2.10",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.drafto.app",
+    "productName": "Drafto",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../Firebase Files",
+        "to": "firebase-files",
+        "filter": [
+          "**/*",
+          "!.next/cache/**/*",
+          "!.git/**/*"
+        ]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Shrutanjaya",
+        "repo": "v1Drafto"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "icon.ico",
+      "sign": null,
+      "certificateSubjectName": null
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "icon.icns",
+      "category": "public.app-category.productivity"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Drafto"
+    },
+    "dmg": {
+      "title": "Drafto Installer",
+      "icon": "icon.icns"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
   }
 }
