@@ -55,5 +55,20 @@ contextBridge.exposeInMainWorld('electron', {
       return file;
     }
     return null;
-  }
+  },
+  
+  // Select directory dialog
+  selectDirectory: async () => {
+    const result = await ipcRenderer.invoke('select-directory');
+    if (result && result.length > 0) {
+      return result[0];
+    }
+    return null;
+  },
+  
+  // Save DOCX file
+  saveDocx: (data) => ipcRenderer.invoke('save-docx', data),
+  
+  // Save PDF file
+  savePdf: (data) => ipcRenderer.invoke('save-pdf', data),
 });
