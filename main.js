@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
-const { spawn, exec } = require('child_process');
+const { spawn, exec, execSync } = require('child_process');
 const { promisify } = require('util');
 
 const execAsync = promisify(exec);
@@ -582,10 +582,25 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  // Kill Next.js process
+  // Kill Next.js process and all its children
   if (nextProcess) {
     console.log('[Electron] Killing Next.js process...');
-    nextProcess.kill();
+    try {
+      if (process.platform === 'win32') {
+        // On Windows, use taskkill to kill the entire process tree
+        exec(`taskkill /pid ${nextProcess.pid} /T /F`, (error) => {
+          if (error) {
+            console.error('[Electron] Error killing Next.js process:', error);
+          }
+        });
+      } else {
+        // On Unix-like systems, kill the process group
+        process.kill(-nextProcess.pid);
+      }
+    } catch (error) {
+      console.error('[Electron] Failed to kill Next.js process:', error);
+    }
+    nextProcess = null;
   }
   
   if (process.platform !== 'darwin') {
@@ -600,8 +615,46 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
-  // Ensure Next.js process is killed
+  // Ensure Next.js process is killed before app quits
   if (nextProcess) {
-    nextProcess.kill();
+    console.log('[Electron] Cleaning up Next.js process before quit...');
+    try {
+      if (process.platform === 'win32') {
+        // Force kill the entire process tree on Windows
+        const { execSync } = require('child_process');
+        execSync(`taskkill /pid ${nextProcess.pid} /T /F`, { stdio: 'ignore' });
+      } else {
+        process.kill(-nextProcess.pid);
+      }
+    } catch (error) {
+      console.error('[Electron] Error during cleanup:', error);
+    }
+    nextProcess = null;
   }
+});
+
+// Handle unexpected exits - ensure Next.js is killed
+process.on('exit', () => {
+  if (nextProcess && nextProcess.pid) {
+    try {
+      if (process.platform === 'win32') {
+        execSync(`taskkill /pid ${nextProcess.pid} /T /F`, { stdio: 'ignore' });
+      } else {
+        process.kill(-nextProcess.pid);
+      }
+    } catch (error) {
+      // Ignore errors during exit cleanup
+    }
+  }
+});
+
+// Handle SIGINT (Ctrl+C) and SIGTERM
+process.on('SIGINT', () => {
+  console.log('[Electron] Received SIGINT, cleaning up...');
+  app.quit();
+});
+
+process.on('SIGTERM', () => {
+  console.log('[Electron] Received SIGTERM, cleaning up...');
+  app.quit();
 });
