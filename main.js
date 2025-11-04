@@ -219,6 +219,7 @@ async function startNextServer() {
         IS_ELECTRON: 'true',
       },
       shell: true,
+      windowsHide: true, // Hide console window on Windows
     });
 
     nextProcess.stdout.on('data', (data) => {
@@ -282,6 +283,68 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+}
+
+// Function to kill all processes using a specific port
+function killProcessOnPort(port) {
+  return new Promise((resolve) => {
+    if (process.platform === 'win32') {
+      // On Windows, find and kill process by port
+      exec(`netstat -ano | findstr :${port}`, (error, stdout) => {
+        if (!stdout) {
+          resolve();
+          return;
+        }
+        
+        const lines = stdout.split('\n');
+        const pids = new Set();
+        
+        lines.forEach(line => {
+          const match = line.match(/LISTENING\s+(\d+)/);
+          if (match) {
+            pids.add(match[1]);
+          }
+        });
+        
+        if (pids.size === 0) {
+          resolve();
+          return;
+        }
+        
+        // Kill each process found
+        pids.forEach(pid => {
+          try {
+            execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' });
+            console.log(`[Electron] Killed process ${pid} using port ${port}`);
+          } catch (err) {
+            console.error(`[Electron] Failed to kill process ${pid}:`, err.message);
+          }
+        });
+        
+        resolve();
+      });
+    } else {
+      // On Unix-like systems
+      exec(`lsof -ti:${port}`, (error, stdout) => {
+        if (!stdout) {
+          resolve();
+          return;
+        }
+        
+        const pids = stdout.trim().split('\n');
+        pids.forEach(pid => {
+          try {
+            process.kill(parseInt(pid), 'SIGKILL');
+            console.log(`[Electron] Killed process ${pid} using port ${port}`);
+          } catch (err) {
+            console.error(`[Electron] Failed to kill process ${pid}:`, err.message);
+          }
+        });
+        
+        resolve();
+      });
+    }
   });
 }
 
@@ -590,21 +653,36 @@ app.on('window-all-closed', () => {
         // On Windows, use taskkill to kill the entire process tree
         exec(`taskkill /pid ${nextProcess.pid} /T /F`, (error) => {
           if (error) {
-            console.error('[Electron] Error killing Next.js process:', error);
+            console.error('[Electron] Error killing Next.js process by PID:', error);
           }
+          // Also kill by port as fallback
+          killProcessOnPort(NEXT_PORT).then(() => {
+            console.log('[Electron] Next.js cleanup complete');
+          });
         });
       } else {
         // On Unix-like systems, kill the process group
-        process.kill(-nextProcess.pid);
+        try {
+          process.kill(-nextProcess.pid);
+        } catch (e) {
+          console.error('[Electron] Error killing process group:', e);
+        }
+        killProcessOnPort(NEXT_PORT);
       }
     } catch (error) {
       console.error('[Electron] Failed to kill Next.js process:', error);
+      // Try killing by port as last resort
+      killProcessOnPort(NEXT_PORT);
     }
     nextProcess = null;
+  } else {
+    // If nextProcess is null but port might still be in use
+    killProcessOnPort(NEXT_PORT);
   }
   
   if (process.platform !== 'darwin') {
-    app.quit();
+    // Small delay to ensure cleanup completes
+    setTimeout(() => app.quit(), 500);
   }
 });
 
@@ -621,7 +699,6 @@ app.on('before-quit', () => {
     try {
       if (process.platform === 'win32') {
         // Force kill the entire process tree on Windows
-        const { execSync } = require('child_process');
         execSync(`taskkill /pid ${nextProcess.pid} /T /F`, { stdio: 'ignore' });
       } else {
         process.kill(-nextProcess.pid);
@@ -631,6 +708,33 @@ app.on('before-quit', () => {
     }
     nextProcess = null;
   }
+  
+  // Kill by port synchronously as last resort
+  if (process.platform === 'win32') {
+    try {
+      const output = execSync(`netstat -ano | findstr :${NEXT_PORT}`, { encoding: 'utf8', stdio: 'pipe' });
+      const lines = output.split('\n');
+      const pids = new Set();
+      
+      lines.forEach(line => {
+        const match = line.match(/LISTENING\s+(\d+)/);
+        if (match) {
+          pids.add(match[1]);
+        }
+      });
+      
+      pids.forEach(pid => {
+        try {
+          execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' });
+          console.log(`[Electron] Force killed process ${pid} on port ${NEXT_PORT}`);
+        } catch (err) {
+          // Ignore errors
+        }
+      });
+    } catch (error) {
+      // Ignore if no processes found
+    }
+  }
 });
 
 // Handle unexpected exits - ensure Next.js is killed
@@ -639,6 +743,16 @@ process.on('exit', () => {
     try {
       if (process.platform === 'win32') {
         execSync(`taskkill /pid ${nextProcess.pid} /T /F`, { stdio: 'ignore' });
+        // Also kill by port
+        try {
+          const output = execSync(`netstat -ano | findstr :${NEXT_PORT}`, { encoding: 'utf8', stdio: 'pipe' });
+          const match = output.match(/LISTENING\s+(\d+)/);
+          if (match) {
+            execSync(`taskkill /PID ${match[1]} /T /F`, { stdio: 'ignore' });
+          }
+        } catch (e) {
+          // Ignore
+        }
       } else {
         process.kill(-nextProcess.pid);
       }
