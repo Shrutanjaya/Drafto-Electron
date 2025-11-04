@@ -1,10 +1,15 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
 const { spawn, exec } = require('child_process');
 const { promisify } = require('util');
 
 const execAsync = promisify(exec);
+
+// Configure auto-updater
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = true;
 
 // This helps prevent some graphics-related crashes
 app.disableHardwareAcceleration();
@@ -145,6 +150,12 @@ async function checkPdfConverter() {
 
 // Show PDF converter warning
 async function showPdfConverterWarning() {
+  // Check if window still exists before showing dialog
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    console.log('[Electron] Cannot show PDF converter warning - window is destroyed');
+    return;
+  }
+  
   await dialog.showMessageBox(mainWindow, {
     type: 'warning',
     title: 'PDF Converter Not Found',
@@ -175,8 +186,8 @@ const getPythonPath = () => {
   if (isDev) {
     return path.join(__dirname, '..', 'Firebase Files', 'python_scripts');
   }
-  // In production, Python is in resources
-  return path.join(process.resourcesPath, 'python');
+  // In production, Python scripts are bundled with Firebase Files
+  return path.join(getAppPath(), 'app', 'Firebase Files', 'python_scripts');
 };
 
 // Start Next.js server
@@ -259,16 +270,92 @@ function createWindow() {
 
   // Show window when ready
   mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+    }
   });
 
   // Open DevTools in development
-  if (isDev) {
+  if (isDev && mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.openDevTools();
   }
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+}
+
+// Auto-update functions
+function setupAutoUpdater() {
+  // Check for updates when app starts (after a delay)
+  setTimeout(() => {
+    if (!isDev) {
+      autoUpdater.checkForUpdates();
+    }
+  }, 5000); // Wait 5 seconds after app starts
+
+  // Auto-update event handlers
+  autoUpdater.on('checking-for-update', () => {
+    console.log('[Updater] Checking for updates...');
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('[Updater] Update available:', info.version);
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Update Available',
+        message: `A new version (${info.version}) is available!`,
+        detail: 'Would you like to download and install it now? The app will restart after installation.',
+        buttons: ['Download & Install', 'Later'],
+        defaultId: 0,
+        cancelId: 1
+      }).then((result) => {
+        if (result.response === 0) {
+          autoUpdater.downloadUpdate();
+        }
+      });
+    }
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('[Updater] App is up to date:', info.version);
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.error('[Updater] Error:', err);
+  });
+
+  autoUpdater.on('download-progress', (progressObj) => {
+    const message = `Downloading: ${Math.round(progressObj.percent)}%`;
+    console.log('[Updater]', message);
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setProgressBar(progressObj.percent / 100);
+    }
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[Updater] Update downloaded:', info.version);
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setProgressBar(-1); // Remove progress bar
+      
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Update Ready',
+        message: 'Update downloaded successfully!',
+        detail: 'The app will restart now to install the update.',
+        buttons: ['Restart Now', 'Restart Later'],
+        defaultId: 0,
+        cancelId: 1
+      }).then((result) => {
+        if (result.response === 0) {
+          autoUpdater.quitAndInstall(false, true);
+        }
+      });
+    }
   });
 }
 
@@ -480,6 +567,9 @@ app.whenReady().then(async () => {
     console.log('[Electron] Initialization complete');
     console.log('[Electron] Python ready:', pythonReady);
     console.log('[Electron] PDF converter:', converterCheck.found ? converterCheck.app : 'None');
+    
+    // Setup auto-updater (check for updates after app is ready)
+    setupAutoUpdater();
     
   } catch (error) {
     console.error('[Electron] Failed to start application:', error);
