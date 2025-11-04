@@ -1,261 +1,275 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
-const { autoUpdater } = require('electron-updater');
+const { spawn, exec } = require('child_process');
+const { promisify } = require('util');
+
+const execAsync = promisify(exec);
 
 // This helps prevent some graphics-related crashes
 app.disableHardwareAcceleration();
 
 let nextProcess = null;
 let mainWindow = null;
+const isDev = process.env.NODE_ENV === 'development';
+const NEXT_PORT = 9002;
 
-// Configure auto-updater
-autoUpdater.autoDownload = false; // Ask user before downloading
-autoUpdater.autoInstallOnAppQuit = true;
+// Python environment setup
+let pythonCommand = 'python';
+let pythonReady = false;
 
-// Auto-updater event handlers
-autoUpdater.on('checking-for-update', () => {
-  console.log('🔍 Checking for updates...');
-});
-
-autoUpdater.on('update-available', (info) => {
-  console.log('✅ Update available:', info.version);
+// Check if Python is available and get the right command
+async function checkPython() {
+  console.log('[Electron] Checking Python installation...');
   
-  dialog.showMessageBox(mainWindow, {
-    type: 'info',
-    title: 'Update Available',
-    message: `Version ${info.version} is available. Would you like to download it now?`,
-    detail: 'The update will be installed when you restart the app.',
-    buttons: ['Download', 'Later'],
-    defaultId: 0,
-    cancelId: 1
-  }).then((result) => {
-    if (result.response === 0) {
-      autoUpdater.downloadUpdate();
-    }
-  });
-});
-
-autoUpdater.on('update-not-available', () => {
-  console.log('✅ App is up to date');
-});
-
-autoUpdater.on('download-progress', (progress) => {
-  const percent = Math.round(progress.percent);
-  console.log(`📥 Download progress: ${percent}%`);
+  const commands = ['python3', 'python', 'py'];
   
-  // Update window title with progress
-  if (mainWindow) {
-    mainWindow.setTitle(`Drafto - Downloading update: ${percent}%`);
-  }
-});
-
-autoUpdater.on('update-downloaded', (info) => {
-  console.log('✅ Update downloaded:', info.version);
-  
-  // Reset window title
-  if (mainWindow) {
-    mainWindow.setTitle('Drafto');
-  }
-  
-  dialog.showMessageBox(mainWindow, {
-    type: 'info',
-    title: 'Update Ready',
-    message: 'Update has been downloaded. Restart now to install?',
-    detail: `Version ${info.version} is ready to install.`,
-    buttons: ['Restart Now', 'Later'],
-    defaultId: 0,
-    cancelId: 1
-  }).then((result) => {
-    if (result.response === 0) {
-      // Close Next.js before quitting
-      if (nextProcess) {
-        nextProcess.kill();
+  for (const cmd of commands) {
+    try {
+      const { stdout } = await execAsync(`${cmd} --version`, { timeout: 5000 });
+      console.log(`[Electron] Found Python: ${stdout.trim()} using command: ${cmd}`);
+      pythonCommand = cmd;
+      
+      // Check if docx2pdf is installed
+      try {
+        await execAsync(`${cmd} -c "import docx2pdf"`, { timeout: 5000 });
+        console.log('[Electron] docx2pdf is already installed');
+        pythonReady = true;
+        return { success: true, command: cmd };
+      } catch {
+        console.log('[Electron] docx2pdf not found, will need to install');
+        return { success: true, command: cmd, needsDocx2pdf: true };
       }
-      autoUpdater.quitAndInstall(false, true);
+    } catch (err) {
+      continue;
     }
-  });
-});
-
-autoUpdater.on('error', (error) => {
-  console.error('❌ Auto-updater error:', error);
-  
-  // Only show error dialog if window exists and error is significant
-  if (mainWindow && error.message && !error.message.includes('No published versions')) {
-    dialog.showMessageBox(mainWindow, {
-      type: 'warning',
-      title: 'Update Check Failed',
-      message: 'Could not check for updates. Please try again later.',
-      buttons: ['OK']
-    });
   }
-});
+  
+  return { success: false, error: 'Python not found' };
+}
 
-// Determine Next.js project path
-function getNextJsPath() {
-  if (app.isPackaged) {
-    // Production: Next.js is bundled in resources
-    return path.join(process.resourcesPath, 'firebase-files');
-  } else {
-    // Development: Next.js is in parent directory
-    return path.join(__dirname, '..', 'Firebase Files');
+// Install docx2pdf using pip
+async function installDocx2pdf() {
+  console.log('[Electron] Installing docx2pdf...');
+  
+  try {
+    const { stdout, stderr } = await execAsync(
+      `${pythonCommand} -m pip install docx2pdf`,
+      { timeout: 120000 } // 2 minute timeout for installation
+    );
+    console.log('[Electron] docx2pdf installation output:', stdout);
+    
+    if (stderr && !stderr.includes('Successfully installed') && !stderr.includes('Requirement already satisfied')) {
+      console.error('[Electron] docx2pdf installation stderr:', stderr);
+    }
+    
+    pythonReady = true;
+    return { success: true };
+  } catch (error) {
+    console.error('[Electron] Failed to install docx2pdf:', error);
+    return { success: false, error: error.message };
   }
 }
 
-// Start Next.js server
-function startNextServer() {
-  return new Promise((resolve, reject) => {
-    const nextPath = getNextJsPath();
-    console.log('Starting Next.js from:', nextPath);
+// Show Python setup dialog
+async function showPythonSetupDialog() {
+  const result = await dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    title: 'Python Setup Required',
+    message: 'Drafto requires Python and docx2pdf for PDF generation.',
+    detail: 'Python was not found on your system. Please install Python from python.org and restart the application.\n\nFor PDF conversion to work, you\'ll also need Microsoft Word or LibreOffice installed.',
+    buttons: ['Open Python Download Page', 'Continue Anyway', 'Quit'],
+    defaultId: 0,
+    cancelId: 2,
+  });
+  
+  if (result.response === 0) {
+    // Open Python download page
+    require('electron').shell.openExternal('https://www.python.org/downloads/');
+    app.quit();
+  } else if (result.response === 2) {
+    app.quit();
+  }
+  // If Continue Anyway (response === 1), app continues without Python
+}
 
-    // Determine the correct command based on OS and environment
-    let command, args;
+// Check MS Word/LibreOffice for PDF conversion
+async function checkPdfConverter() {
+  console.log('[Electron] Checking for PDF converter (MS Word/LibreOffice)...');
+  
+  if (process.platform === 'win32') {
+    // Check for MS Word on Windows
+    try {
+      // Check registry for Word installation
+      const { stdout } = await execAsync(
+        'reg query "HKEY_CLASSES_ROOT\\Word.Application" /ve',
+        { timeout: 5000 }
+      );
+      if (stdout) {
+        console.log('[Electron] Microsoft Word found');
+        return { found: true, app: 'Microsoft Word' };
+      }
+    } catch {
+      console.log('[Electron] Microsoft Word not found in registry');
+    }
     
-    if (process.platform === 'win32') {
-      command = 'cmd.exe';
-      args = ['/c', 'npm', 'run', app.isPackaged ? 'start' : 'dev'];
-    } else {
-      command = 'npm';
-      args = [app.isPackaged ? 'start' : 'dev'];
+    // Check for LibreOffice on Windows
+    const libreOfficePaths = [
+      'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
+      'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe',
+    ];
+    
+    for (const loPath of libreOfficePaths) {
+      if (fs.existsSync(loPath)) {
+        console.log('[Electron] LibreOffice found at:', loPath);
+        return { found: true, app: 'LibreOffice' };
+      }
+    }
+  } else if (process.platform === 'darwin') {
+    // Check for MS Word on Mac
+    if (fs.existsSync('/Applications/Microsoft Word.app')) {
+      console.log('[Electron] Microsoft Word found on Mac');
+      return { found: true, app: 'Microsoft Word' };
+    }
+    
+    // Check for LibreOffice on Mac
+    if (fs.existsSync('/Applications/LibreOffice.app')) {
+      console.log('[Electron] LibreOffice found on Mac');
+      return { found: true, app: 'LibreOffice' };
+    }
+  }
+  
+  console.log('[Electron] No PDF converter found');
+  return { found: false };
+}
+
+// Show PDF converter warning
+async function showPdfConverterWarning() {
+  await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    title: 'PDF Converter Not Found',
+    message: 'Microsoft Word or LibreOffice not detected',
+    detail: 'For PDF generation to work properly, you need either:\n\n• Microsoft Word (Office 365 or 2016+)\n• LibreOffice (free, open source)\n\nYou can continue using Drafto, but PDF generation may not work.',
+    buttons: ['OK'],
+  });
+}
+
+// Get the correct paths for production vs development
+const getAppPath = () => {
+  if (isDev) {
+    return path.join(__dirname, '..');
+  }
+  // In production, resources are in app.asar.unpacked or resources folder
+  return process.resourcesPath;
+};
+
+const getNextAppPath = () => {
+  if (isDev) {
+    return path.join(__dirname, '..', 'Firebase Files');
+  }
+  // In production, Next.js app is bundled with Electron
+  return path.join(getAppPath(), 'app', 'Firebase Files');
+};
+
+const getPythonPath = () => {
+  if (isDev) {
+    return path.join(__dirname, '..', 'Firebase Files', 'python_scripts');
+  }
+  // In production, Python is in resources
+  return path.join(process.resourcesPath, 'python');
+};
+
+// Start Next.js server
+async function startNextServer() {
+  return new Promise((resolve, reject) => {
+    const nextAppPath = getNextAppPath();
+    console.log('[Electron] Starting Next.js server from:', nextAppPath);
+    
+    if (!fs.existsSync(nextAppPath)) {
+      console.error('[Electron] Next.js app directory not found:', nextAppPath);
+      reject(new Error('Next.js application not found'));
+      return;
     }
 
-    nextProcess = spawn(command, args, {
-      cwd: nextPath,
-      env: { ...process.env, NODE_ENV: app.isPackaged ? 'production' : 'development' },
-      shell: true
+    // In production, we need to use the bundled Node.js and npm
+    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const nextCmd = isDev ? 'dev' : 'start';
+    
+    console.log(`[Electron] Running: npm run ${nextCmd} in ${nextAppPath}`);
+    
+    nextProcess = spawn(npmCmd, ['run', nextCmd], {
+      cwd: nextAppPath,
+      env: {
+        ...process.env,
+        PORT: NEXT_PORT.toString(),
+        NODE_ENV: isDev ? 'development' : 'production',
+        PYTHON_COMMAND: pythonCommand,
+        PYTHON_SCRIPTS_PATH: getPythonPath(),
+        IS_ELECTRON: 'true',
+      },
+      shell: true,
     });
-
-    let serverReady = false;
 
     nextProcess.stdout.on('data', (data) => {
       const output = data.toString();
-      console.log('Next.js:', output);
+      console.log('[Next.js]', output);
       
       // Check if server is ready
-      if (!serverReady && (output.includes('Ready') || output.includes('started server') || output.includes('localhost:9002'))) {
-        serverReady = true;
-        console.log('✅ Next.js server is ready!');
+      if (output.includes('Ready') || output.includes('started server') || output.includes(`localhost:${NEXT_PORT}`)) {
+        console.log('[Electron] Next.js server is ready!');
         resolve();
       }
     });
 
     nextProcess.stderr.on('data', (data) => {
-      console.error('Next.js Error:', data.toString());
+      console.error('[Next.js Error]', data.toString());
     });
 
     nextProcess.on('error', (error) => {
-      console.error('Failed to start Next.js:', error);
+      console.error('[Electron] Failed to start Next.js:', error);
       reject(error);
     });
 
-    nextProcess.on('close', (code) => {
-      console.log('Next.js process exited with code:', code);
+    nextProcess.on('exit', (code) => {
+      console.log(`[Electron] Next.js process exited with code ${code}`);
     });
 
-    // Fallback: resolve after 5 seconds even if we don't see "Ready" message
+    // Timeout fallback - assume ready after 15 seconds
     setTimeout(() => {
-      if (!serverReady) {
-        console.log('⚠️ Next.js ready message not detected, proceeding anyway...');
-        resolve();
-      }
-    }, 5000);
+      console.log('[Electron] Timeout reached, assuming Next.js is ready');
+      resolve();
+    }, 15000);
   });
 }
 
-async function createWindow() {
-  // Show loading window while Next.js starts
-  const loadingWindow = new BrowserWindow({
-    width: 400,
-    height: 300,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
     webPreferences: {
-      nodeIntegration: true
-    }
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+    show: false, // Don't show until ready
   });
 
-  loadingWindow.loadURL(`data:text/html;charset=utf-8,
-    <html>
-      <body style="margin:0; padding:0; background:linear-gradient(135deg, #667eea 0%, #764ba2 100%); display:flex; align-items:center; justify-content:center; font-family:system-ui;">
-        <div style="text-align:center; color:white;">
-          <h1 style="font-size:48px; margin:0;">Drafto</h1>
-          <p style="font-size:18px; margin:20px 0;">Loading...</p>
-          <div style="width:200px; height:4px; background:rgba(255,255,255,0.3); border-radius:2px; margin:0 auto; overflow:hidden;">
-            <div style="width:100%; height:100%; background:white; animation:loading 1.5s infinite;"></div>
-          </div>
-        </div>
-        <style>
-          @keyframes loading {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(100%); }
-          }
-        </style>
-      </body>
-    </html>
-  `);
+  // Load Next.js app
+  mainWindow.loadURL(`http://localhost:${NEXT_PORT}`);
 
-  try {
-    // Start Next.js server
-    console.log('Starting Next.js server...');
-    await startNextServer();
-    
-    // Wait a bit more to ensure server is fully ready
-    await new Promise(resolve => setTimeout(resolve, 2000));
+  // Show window when ready
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+  });
 
-    // Create main window
-    mainWindow = new BrowserWindow({
-      width: 1200,
-      height: 800,
-      show: false,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        preload: path.join(__dirname, 'preload.js')
-      }
-    });
-
-    // Load Next.js app
-    mainWindow.loadURL('http://localhost:9002');
-
-    // Show main window when ready and close loading window
-    mainWindow.once('ready-to-show', () => {
-      loadingWindow.close();
-      mainWindow.show();
-      
-      // Open DevTools in development mode only
-      if (!app.isPackaged) {
-        mainWindow.webContents.openDevTools();
-      }
-      
-      // Check for updates after app is fully loaded (only in production)
-      if (app.isPackaged) {
-        setTimeout(() => {
-          console.log('🔍 Checking for updates...');
-          autoUpdater.checkForUpdates().catch(err => {
-            console.log('Update check error (will retry on next launch):', err.message);
-          });
-        }, 3000);
-      }
-    });
-
-    // Handle window close
-    mainWindow.on('closed', () => {
-      mainWindow = null;
-    });
-
-  } catch (error) {
-    console.error('Error starting application:', error);
-    loadingWindow.close();
-    
-    dialog.showErrorBox(
-      'Startup Error',
-      'Failed to start Drafto. Please ensure Node.js is installed and try again.'
-    );
-    
-    app.quit();
+  // Open DevTools in development
+  if (isDev) {
+    mainWindow.webContents.openDevTools();
   }
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
 // Helper function to get a unique filename by adding numbers if file exists
@@ -263,14 +277,25 @@ function getUniqueFilePath(directory, baseName, extension) {
   const baseNameWithoutExt = baseName.replace(new RegExp(`\\.${extension}$`), '');
   let filePath = path.join(directory, `${baseNameWithoutExt}.${extension}`);
   let counter = 1;
-  
+
   while (fs.existsSync(filePath)) {
     filePath = path.join(directory, `${baseNameWithoutExt} ${counter}.${extension}`);
     counter++;
   }
-  
+
   return filePath;
 }
+
+// IPC Handlers
+
+// Get Python environment info
+ipcMain.handle('get-python-info', async () => {
+  return {
+    command: pythonCommand,
+    ready: pythonReady,
+    scriptsPath: getPythonPath(),
+  };
+});
 
 // Handle save project
 ipcMain.handle('save-project', async (event, { petitionerName, content, defaultPath }) => {
@@ -415,12 +440,61 @@ ipcMain.handle('save-pdf', async (event, { fileName, content, defaultPath }) => 
   return null;
 });
 
-app.whenReady().then(createWindow);
+
+app.whenReady().then(async () => {
+  try {
+    console.log('[Electron] App is ready, starting initialization...');
+    
+    // Check Python installation
+    const pythonCheck = await checkPython();
+    
+    if (!pythonCheck.success) {
+      // Python not found - show setup dialog
+      await startNextServer(); // Start Next.js first so we can show dialog
+      createWindow();
+      await showPythonSetupDialog();
+    } else if (pythonCheck.needsDocx2pdf) {
+      // Python found but docx2pdf not installed
+      console.log('[Electron] Attempting to install docx2pdf...');
+      const installResult = await installDocx2pdf();
+      
+      if (!installResult.success) {
+        console.error('[Electron] Failed to auto-install docx2pdf');
+        // Continue anyway, user can install manually
+      }
+    }
+    
+    // Check PDF converter (MS Word/LibreOffice)
+    const converterCheck = await checkPdfConverter();
+    
+    // Start Next.js server
+    await startNextServer();
+    console.log('[Electron] Next.js server started, creating window...');
+    createWindow();
+    
+    // Show warning if no PDF converter found (after window is created)
+    if (!converterCheck.found) {
+      setTimeout(() => showPdfConverterWarning(), 2000); // Delay to let window load
+    }
+    
+    console.log('[Electron] Initialization complete');
+    console.log('[Electron] Python ready:', pythonReady);
+    console.log('[Electron] PDF converter:', converterCheck.found ? converterCheck.app : 'None');
+    
+  } catch (error) {
+    console.error('[Electron] Failed to start application:', error);
+    dialog.showErrorBox(
+      'Startup Error',
+      'Failed to start the application. Please try again or contact support.\n\n' + error.message
+    );
+    app.quit();
+  }
+});
 
 app.on('window-all-closed', () => {
-  // Kill Next.js process when app closes
+  // Kill Next.js process
   if (nextProcess) {
-    console.log('Stopping Next.js server...');
+    console.log('[Electron] Killing Next.js process...');
     nextProcess.kill();
   }
   
@@ -432,5 +506,12 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
+  }
+});
+
+app.on('before-quit', () => {
+  // Ensure Next.js process is killed
+  if (nextProcess) {
+    nextProcess.kill();
   }
 });

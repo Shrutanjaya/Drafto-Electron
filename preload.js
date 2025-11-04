@@ -1,6 +1,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electron', {
+  // Get Python environment info
+  getPythonInfo: () => ipcRenderer.invoke('get-python-info'),
+  
   // Save project with file dialog
   saveProject: (data) => ipcRenderer.invoke('save-project', data),
   
