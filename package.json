@@ -23,7 +23,7 @@
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Shrutanjaya/v1Drafto.git"
+    "url": "https://github.com/Shrutanjaya/Drafto-Electron.git"
   },
   "build": {
     "appId": "com.drafto.app",
@@ -31,7 +31,7 @@
     "publish": {
       "provider": "github",
       "owner": "Shrutanjaya",
-      "repo": "v1Drafto"
+      "repo": "Drafto-Electron"
     },
     "directories": {
       "output": "dist",
