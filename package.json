@@ -1,6 +1,6 @@
 {
   "name": "drafto-electron",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Drafto - Supreme Court SLP Drafting Application",
   "main": "main.js",
   "scripts": {
@@ -28,6 +28,8 @@
   "build": {
     "appId": "com.drafto.app",
     "productName": "Drafto",
+    "asar": true,
+    "compression": "maximum",
     "publish": {
       "provider": "github",
       "owner": "Shrutanjaya",
@@ -60,8 +62,7 @@
       }
     ],
     "asarUnpack": [
-      "**/node_modules/**/*",
-      "resources/app/Firebase Files/**/*"
+      "resources/app/Firebase Files/python_scripts/**/*"
     ],
     "win": {
       "target": [
@@ -74,7 +75,10 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Drafto",
-      "license": "LICENSE.txt"
+      "license": "LICENSE.txt",
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": true
     },
     "mac": {
       "target": [
