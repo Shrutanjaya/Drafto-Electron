@@ -1,6 +1,6 @@
 {
   "name": "drafto-electron",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Drafto - Supreme Court SLP Drafting Application",
   "main": "main.js",
   "scripts": {
@@ -30,6 +30,7 @@
     "productName": "Drafto",
     "asar": true,
     "compression": "maximum",
+    "copyright": "Copyright © 2025 Drafto Team",
     "publish": {
       "provider": "github",
       "owner": "Shrutanjaya",
@@ -74,6 +75,22 @@
     "win": {
       "target": [
         "nsis"
+      ],
+      "verifyUpdateCodeSignature": false,
+      "publisherName": "Drafto Team",
+      "requestedExecutionLevel": "asInvoker",
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "legalTrademarks": "Drafto is a trademark of Drafto Team",
+      "companyName": "Drafto Team",
+      "fileVersion": "1.0.7.0",
+      "productVersion": "1.0.7",
+      "fileAssociations": [
+        {
+          "ext": "drafto",
+          "name": "Drafto Project",
+          "description": "Drafto Project File",
+          "icon": "build/icon.ico"
+        }
       ]
     },
     "nsis": {
@@ -85,7 +102,13 @@
       "license": "LICENSE.txt",
       "perMachine": false,
       "deleteAppDataOnUninstall": false,
-      "differentialPackage": true
+      "differentialPackage": true,
+      "runAfterFinish": false,
+      "menuCategory": true,
+      "allowElevation": false,
+      "installerLanguages": ["en_US"],
+      "language": "1033",
+      "warningsAsErrors": false
     },
     "mac": {
       "target": [
