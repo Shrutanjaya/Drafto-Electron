@@ -1,6 +1,6 @@
 {
   "name": "drafto-electron",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Drafto - Supreme Court SLP Drafting Application",
   "main": "main.js",
   "scripts": {
@@ -58,6 +58,13 @@
           "!README.md",
           "!.env.example",
           "!.env.local.template"
+        ]
+      },
+      {
+        "from": "python",
+        "to": "python",
+        "filter": [
+          "**/*"
         ]
       }
     ],

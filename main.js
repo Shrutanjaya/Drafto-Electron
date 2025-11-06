@@ -26,10 +26,49 @@ console.log('[Electron] App is packaged:', app.isPackaged);
 let pythonCommand = 'python';
 let pythonReady = false;
 
+// Get bundled Python path
+function getBundledPythonPath() {
+  if (isDev) {
+    // In development, use local python folder
+    return path.join(__dirname, 'python', 'python.exe');
+  } else {
+    // In production, use bundled python from resources
+    return path.join(process.resourcesPath, 'python', 'python.exe');
+  }
+}
+
 // Check if Python is available and get the right command
 async function checkPython() {
   console.log('[Electron] Checking Python installation...');
   
+  // First, check for bundled Python
+  const bundledPythonPath = getBundledPythonPath();
+  console.log('[Electron] Checking bundled Python at:', bundledPythonPath);
+  
+  if (fs.existsSync(bundledPythonPath)) {
+    try {
+      const { stdout } = await execAsync(`"${bundledPythonPath}" --version`, { timeout: 5000 });
+      console.log(`[Electron] Found bundled Python: ${stdout.trim()}`);
+      pythonCommand = `"${bundledPythonPath}"`;
+      
+      // Check if docx2pdf is installed in bundled Python
+      try {
+        await execAsync(`${pythonCommand} -c "import docx2pdf"`, { timeout: 5000 });
+        console.log('[Electron] docx2pdf is already installed in bundled Python');
+        pythonReady = true;
+        return { success: true, command: pythonCommand, bundled: true };
+      } catch {
+        console.log('[Electron] docx2pdf not found in bundled Python, will need to install');
+        return { success: true, command: pythonCommand, needsDocx2pdf: true, bundled: true };
+      }
+    } catch (err) {
+      console.error('[Electron] Bundled Python check failed:', err);
+    }
+  } else {
+    console.log('[Electron] Bundled Python not found, checking system Python...');
+  }
+  
+  // Fall back to system Python
   const commands = ['python3', 'python', 'py'];
   
   for (const cmd of commands) {
