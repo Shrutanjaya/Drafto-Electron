@@ -81,9 +81,6 @@
       "requestedExecutionLevel": "asInvoker",
       "artifactName": "${productName}-Setup-${version}.${ext}",
       "legalTrademarks": "Drafto is a trademark of Drafto Team",
-      "companyName": "Drafto Team",
-      "fileVersion": "1.0.7.0",
-      "productVersion": "1.0.7",
       "fileAssociations": [
         {
           "ext": "drafto",
