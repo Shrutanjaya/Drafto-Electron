@@ -16,8 +16,11 @@ app.disableHardwareAcceleration();
 
 let nextProcess = null;
 let mainWindow = null;
-const isDev = process.env.NODE_ENV === 'development';
+const isDev = !app.isPackaged; // True when running from source, false when packaged
 const NEXT_PORT = 9002;
+
+console.log('[Electron] Development mode:', isDev);
+console.log('[Electron] App is packaged:', app.isPackaged);
 
 // Python environment setup
 let pythonCommand = 'python';
