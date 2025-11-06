@@ -19,7 +19,7 @@
     "slp",
     "supreme-court"
   ],
-  "author": "Drafto Team",
+  "author": "Quindoph Legal Pvt. Ltd.",
   "license": "ISC",
   "repository": {
     "type": "git",
@@ -30,7 +30,7 @@
     "productName": "Drafto",
     "asar": true,
     "compression": "maximum",
-    "copyright": "Copyright © 2025 Drafto Team",
+    "copyright": "Copyright © 2025 Quindoph Legal Pvt. Ltd.",
     "publish": {
       "provider": "github",
       "owner": "Shrutanjaya",
