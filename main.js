@@ -296,6 +296,179 @@ async function startNextServer() {
   });
 }
 
+// Check if Next.js server is actually responding
+async function waitForServer(maxAttempts = 30) {
+  const http = require('http');
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    updateSplash(`Waiting for server... (${attempt}/${maxAttempts})`, 40 + (attempt * 2), `Checking http://localhost:${NEXT_PORT}`);
+    
+    try {
+      await new Promise((resolve, reject) => {
+        const req = http.get(`http://localhost:${NEXT_PORT}`, (res) => {
+          console.log(`[Electron] Server check attempt ${attempt}: Status ${res.statusCode}`);
+          if (res.statusCode === 200 || res.statusCode === 304) {
+            resolve(true);
+          } else {
+            reject(new Error(`Status ${res.statusCode}`));
+          }
+        });
+        
+        req.on('error', (err) => {
+          reject(err);
+        });
+        
+        req.setTimeout(1000, () => {
+          req.destroy();
+          reject(new Error('Timeout'));
+        });
+      });
+      
+      console.log('[Electron] Server is responding!');
+      updateSplash('Server ready!', 90, 'Server responded successfully');
+      return true;
+    } catch (err) {
+      if (attempt < maxAttempts) {
+        console.log(`[Electron] Server not ready yet (attempt ${attempt}/${maxAttempts}), waiting...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+  }
+  
+  console.error('[Electron] Server failed to respond after', maxAttempts, 'attempts');
+  updateSplash('Server failed to start', 0, 'Error: Server not responding');
+  return false;
+}
+
+// Splash window for showing startup progress
+let splashWindow = null;
+
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 500,
+    height: 350,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  splashWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <style>
+          * { margin: 0; padding: 0; box-sizing: border-box; }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+          }
+          .splash {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+            width: 100%;
+            color: white;
+          }
+          h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+            font-weight: 600;
+          }
+          .version {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 30px;
+          }
+          .status {
+            font-size: 16px;
+            margin: 20px 0;
+            min-height: 24px;
+          }
+          .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 2px;
+            overflow: hidden;
+            margin: 20px 0;
+          }
+          .progress-fill {
+            height: 100%;
+            background: white;
+            width: 0%;
+            transition: width 0.3s ease;
+          }
+          .details {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+            max-height: 60px;
+            overflow-y: auto;
+          }
+          .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+          }
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="splash">
+          <h1>DRAFTO</h1>
+          <div class="version">Version 1.0.8 (Diagnostic Build)</div>
+          <div class="status" id="status">
+            <span class="spinner"></span>
+            <span id="status-text">Starting application...</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress"></div>
+          </div>
+          <div class="details" id="details"></div>
+        </div>
+      </body>
+    </html>
+  `)}`);
+
+  return splashWindow;
+}
+
+function updateSplash(message, progress, details) {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.webContents.executeJavaScript(`
+      document.getElementById('status-text').textContent = '${message}';
+      document.getElementById('progress').style.width = '${progress}%';
+      ${details ? `document.getElementById('details').textContent = '${details.replace(/'/g, "\\'")}';` : ''}
+    `).catch(err => console.error('[Splash] Update failed:', err));
+  }
+}
+
+function closeSplash() {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close();
+    splashWindow = null;
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -309,12 +482,47 @@ function createWindow() {
   });
 
   // Load Next.js app
-  mainWindow.loadURL(`http://localhost:${NEXT_PORT}`);
+  const url = `http://localhost:${NEXT_PORT}`;
+  console.log('[Electron] Loading URL:', url);
+  mainWindow.loadURL(url);
+
+  // Handle page load failures
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.error('[Electron] Failed to load page:', errorCode, errorDescription, validatedURL);
+    
+    // Show error dialog
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.executeJavaScript(`
+        document.body.innerHTML = '<div style="font-family: Arial; padding: 40px; text-align: center;">' +
+          '<h1>Failed to Start Drafto</h1>' +
+          '<p style="color: #666;">The application failed to load. Error code: ${errorCode}</p>' +
+          '<p style="color: #666;">${errorDescription}</p>' +
+          '<p style="margin-top: 20px;">Please try:</p>' +
+          '<ul style="text-align: left; display: inline-block;">' +
+          '<li>Restarting the application</li>' +
+          '<li>Checking if port ${NEXT_PORT} is available</li>' +
+          '<li>Reinstalling the application</li>' +
+          '</ul>' +
+          '</div>';
+      `);
+      mainWindow.show();
+    }
+  });
+
+  // Log when page finishes loading
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('[Electron] Page loaded successfully');
+  });
 
   // Show window when ready
   mainWindow.once('ready-to-show', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.show();
+      updateSplash('Application ready!', 100, 'Opening main window...');
+      setTimeout(() => {
+        mainWindow.show();
+        closeSplash();
+        console.log('[Electron] Window shown, splash closed');
+      }, 500);
     }
   });
 
@@ -632,36 +840,121 @@ ipcMain.handle('save-pdf', async (event, { fileName, content, defaultPath }) => 
   return null;
 });
 
+ipcMain.handle('process-ocr', async (event, pdfBase64) => {
+  try {
+    console.log('[Electron] Starting OCR processing...');
+    
+    if (!pythonReady) {
+      throw new Error('Python is not ready');
+    }
+    
+    // Create temp files for input and output
+    const tempDir = path.join(app.getPath('temp'), 'drafto-ocr');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    const inputPdf = path.join(tempDir, `input_${Date.now()}.pdf`);
+    const outputPdf = path.join(tempDir, `output_${Date.now()}.pdf`);
+    
+    // Write input PDF
+    const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+    fs.writeFileSync(inputPdf, pdfBuffer);
+    
+    // Get path to OCR script
+    const scriptsPath = isDev
+      ? path.join(__dirname, '..', 'Firebase Files', 'python_scripts')
+      : path.join(process.resourcesPath, 'app', 'Firebase Files', 'python_scripts');
+    const ocrScript = path.join(scriptsPath, 'process_ocr.py');
+    
+    // Run OCR script
+    console.log('[Electron] Running OCR script:', ocrScript);
+    const { stdout, stderr } = await execAsync(
+      `${pythonCommand} "${ocrScript}" "${inputPdf}" "${outputPdf}"`,
+      { timeout: 300000 } // 5 minute timeout
+    );
+    
+    if (stderr) {
+      console.error('[Electron] OCR stderr:', stderr);
+    }
+    console.log('[Electron] OCR stdout:', stdout);
+    
+    // Read the OCR-processed PDF
+    if (fs.existsSync(outputPdf)) {
+      const ocrBuffer = fs.readFileSync(outputPdf);
+      const ocrBase64 = ocrBuffer.toString('base64');
+      
+      // Clean up temp files
+      try {
+        fs.unlinkSync(inputPdf);
+        fs.unlinkSync(outputPdf);
+      } catch (cleanupErr) {
+        console.error('[Electron] Cleanup error:', cleanupErr);
+      }
+      
+      return { success: true, pdf: ocrBase64 };
+    } else {
+      throw new Error('OCR output file not found');
+    }
+  } catch (error) {
+    console.error('[Electron] OCR processing error:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 
 app.whenReady().then(async () => {
   try {
     console.log('[Electron] App is ready, starting initialization...');
     
+    // Create splash window
+    createSplashWindow();
+    updateSplash('Initializing...', 5, 'Starting Drafto v1.0.8');
+    
     // Check Python installation
+    updateSplash('Checking Python...', 10, 'Looking for Python installation');
     const pythonCheck = await checkPython();
     
     if (!pythonCheck.success) {
       // Python not found - show setup dialog
+      updateSplash('Python not found', 15, 'Will prompt for installation');
       await startNextServer(); // Start Next.js first so we can show dialog
       createWindow();
+      closeSplash();
       await showPythonSetupDialog();
     } else if (pythonCheck.needsDocx2pdf) {
       // Python found but docx2pdf not installed
       console.log('[Electron] Attempting to install docx2pdf...');
+      updateSplash('Installing dependencies...', 20, 'Installing docx2pdf package');
       const installResult = await installDocx2pdf();
       
       if (!installResult.success) {
         console.error('[Electron] Failed to auto-install docx2pdf');
         // Continue anyway, user can install manually
       }
+    } else {
+      updateSplash('Python ready', 25, `Using: ${pythonCommand}`);
     }
     
     // Check PDF converter (MS Word/LibreOffice)
+    updateSplash('Checking PDF converter...', 30, 'Looking for MS Word or LibreOffice');
     const converterCheck = await checkPdfConverter();
+    updateSplash(converterCheck.found ? 'PDF converter found' : 'No PDF converter', 35, converterCheck.found ? converterCheck.app : 'Will show warning');
     
     // Start Next.js server
+    updateSplash('Starting server...', 40, 'Launching Next.js development server');
     await startNextServer();
-    console.log('[Electron] Next.js server started, creating window...');
+    console.log('[Electron] Next.js server started, waiting for server to respond...');
+    
+    // Wait for server to actually be ready (updates splash internally)
+    const serverReady = await waitForServer();
+    if (!serverReady) {
+      closeSplash();
+      throw new Error('Next.js server failed to start properly');
+    }
+    
+    console.log('[Electron] Server is ready, creating window...');
+    updateSplash('Creating window...', 95, 'Loading application interface');
     createWindow();
     
     // Show warning if no PDF converter found (after window is created)
@@ -678,9 +971,10 @@ app.whenReady().then(async () => {
     
   } catch (error) {
     console.error('[Electron] Failed to start application:', error);
+    closeSplash();
     dialog.showErrorBox(
-      'Startup Error',
-      'Failed to start the application. Please try again or contact support.\n\n' + error.message
+      'Startup Error - v1.0.8 Diagnostic',
+      `Failed to start the application.\n\nError: ${error.message}\n\nPlease check the console output or contact support with this information.`
     );
     app.quit();
   }

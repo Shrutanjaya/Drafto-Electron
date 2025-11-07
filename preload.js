@@ -74,4 +74,7 @@ contextBridge.exposeInMainWorld('electron', {
   
   // Save PDF file
   savePdf: (data) => ipcRenderer.invoke('save-pdf', data),
+  
+  // Process OCR on PDF
+  processOcr: (pdfBase64) => ipcRenderer.invoke('process-ocr', pdfBase64),
 });
