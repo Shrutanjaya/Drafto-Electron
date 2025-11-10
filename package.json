@@ -1,7 +1,7 @@
 {
   "name": "drafto-electron",
-  "version": "1.0.8",
-  "description": "Drafto - Supreme Court SLP Drafting Application (Diagnostic Build)",
+  "version": "1.0.9",
+  "description": "Drafto - Supreme Court SLP Drafting Application",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -48,17 +48,31 @@
     ],
     "extraResources": [
       {
-        "from": "../Firebase Files",
-        "to": "app/Firebase Files",
+        "from": "../Firebase Files/.next/standalone",
+        "to": "app/Firebase Files/.next/standalone",
         "filter": [
-          "**/*",
-          "!.next/cache/**/*",
-          "!out/**/*",
-          "!.git/**/*",
-          "!.gitignore",
-          "!README.md",
-          "!.env.example",
-          "!.env.local.template"
+          "**/*"
+        ]
+      },
+      {
+        "from": "../Firebase Files/.next/static",
+        "to": "app/Firebase Files/.next/static",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../Firebase Files/public",
+        "to": "app/Firebase Files/public",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../Firebase Files/python_scripts",
+        "to": "app/Firebase Files/python_scripts",
+        "filter": [
+          "**/*"
         ]
       },
       {
@@ -70,6 +84,7 @@
       }
     ],
     "asarUnpack": [
+      "resources/app/Firebase Files/.next/standalone/**/*",
       "resources/app/Firebase Files/python_scripts/**/*"
     ],
     "win": {

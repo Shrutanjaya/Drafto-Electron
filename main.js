@@ -244,14 +244,34 @@ async function startNextServer() {
       return;
     }
 
-    // In production, we need to use the bundled Node.js and npm
-    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const nextCmd = isDev ? 'dev' : 'start';
+    // In production, use standalone server; in development, use npm
+    let command, args, cwd;
     
-    console.log(`[Electron] Running: npm run ${nextCmd} in ${nextAppPath}`);
+    if (isDev) {
+      // Development mode: use npm
+      const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+      command = npmCmd;
+      args = ['run', 'dev'];
+      cwd = nextAppPath;
+    } else {
+      // Production mode: use standalone Node.js server
+      const standalonePath = path.join(nextAppPath, '.next', 'standalone');
+      const serverPath = path.join(standalonePath, 'server.js');
+      
+      if (!fs.existsSync(serverPath)) {
+        console.error('[Electron] Standalone server not found at:', serverPath);
+        reject(new Error('Next.js standalone server not found. Did you run npm run build?'));
+        return;
+      }
+      
+      command = process.execPath; // Use Electron's bundled Node.js
+      args = [serverPath];
+      cwd = standalonePath;
+      console.log(`[Electron] Running standalone server: ${command} ${serverPath}`);
+    }
     
-    nextProcess = spawn(npmCmd, ['run', nextCmd], {
-      cwd: nextAppPath,
+    nextProcess = spawn(command, args, {
+      cwd: cwd,
       env: {
         ...process.env,
         PORT: NEXT_PORT.toString(),
@@ -260,7 +280,7 @@ async function startNextServer() {
         PYTHON_SCRIPTS_PATH: getPythonPath(),
         IS_ELECTRON: 'true',
       },
-      shell: true,
+      shell: false,
       windowsHide: true, // Hide console window on Windows
     });
 
