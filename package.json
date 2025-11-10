@@ -1,6 +1,6 @@
 {
   "name": "drafto-electron",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "Drafto - Supreme Court SLP Drafting Application",
   "main": "main.js",
   "scripts": {
