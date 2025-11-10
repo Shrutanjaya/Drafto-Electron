@@ -1,6 +1,6 @@
 {
   "name": "drafto-electron",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Drafto - Supreme Court SLP Drafting Application",
   "main": "main.js",
   "scripts": {
@@ -56,14 +56,14 @@
       },
       {
         "from": "../Firebase Files/.next/static",
-        "to": "app/Firebase Files/.next/static",
+        "to": "app/Firebase Files/.next/standalone/.next/static",
         "filter": [
           "**/*"
         ]
       },
       {
         "from": "../Firebase Files/public",
-        "to": "app/Firebase Files/public",
+        "to": "app/Firebase Files/.next/standalone/public",
         "filter": [
           "**/*"
         ]
