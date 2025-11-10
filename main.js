@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('fs');
 const path = require('path');
-const { spawn, exec, execSync } = require('child_process');
+const { spawn, exec, execSync, fork } = require('child_process');
 const { promisify } = require('util');
 
 const execAsync = promisify(exec);
@@ -264,12 +264,56 @@ async function startNextServer() {
         return;
       }
       
-      command = process.execPath; // Use Electron's bundled Node.js
-      args = [serverPath];
-      cwd = standalonePath;
-      console.log(`[Electron] Running standalone server: ${command} ${serverPath}`);
+      // Use fork to run Node.js script with Electron's Node.js
+      console.log(`[Electron] Forking standalone server: ${serverPath}`);
+      nextProcess = fork(serverPath, [], {
+        cwd: standalonePath,
+        env: {
+          ...process.env,
+          PORT: NEXT_PORT.toString(),
+          NODE_ENV: 'production',
+          PYTHON_COMMAND: pythonCommand,
+          PYTHON_SCRIPTS_PATH: getPythonPath(),
+          IS_ELECTRON: 'true',
+        },
+        silent: true, // Capture stdout/stderr
+      });
+      
+      // Setup stdout/stderr handlers for forked process
+      nextProcess.stdout.on('data', (data) => {
+        const output = data.toString();
+        console.log('[Next.js]', output);
+        
+        // Check if server is ready
+        if (output.includes('Ready') || output.includes('started server') || output.includes(`localhost:${NEXT_PORT}`)) {
+          console.log('[Electron] Next.js server is ready!');
+          resolve();
+        }
+      });
+      
+      nextProcess.stderr.on('data', (data) => {
+        console.error('[Next.js Error]', data.toString());
+      });
+      
+      nextProcess.on('error', (error) => {
+        console.error('[Electron] Failed to start Next.js:', error);
+        reject(error);
+      });
+      
+      nextProcess.on('exit', (code) => {
+        console.log(`[Electron] Next.js process exited with code ${code}`);
+      });
+      
+      // Timeout fallback - assume ready after 15 seconds
+      setTimeout(() => {
+        console.log('[Electron] Timeout reached, assuming Next.js is ready');
+        resolve();
+      }, 15000);
+      
+      return; // Exit early since we set up handlers above
     }
     
+    // For development mode, use spawn with npm
     nextProcess = spawn(command, args, {
       cwd: cwd,
       env: {
@@ -929,7 +973,7 @@ app.whenReady().then(async () => {
     
     // Create splash window
     createSplashWindow();
-    updateSplash('Initializing...', 5, 'Starting Drafto v1.0.8');
+    updateSplash('Initializing...', 5, 'Starting Drafto v1.0.10');
     
     // Check Python installation
     updateSplash('Checking Python...', 10, 'Looking for Python installation');
@@ -993,7 +1037,7 @@ app.whenReady().then(async () => {
     console.error('[Electron] Failed to start application:', error);
     closeSplash();
     dialog.showErrorBox(
-      'Startup Error - v1.0.8 Diagnostic',
+      'Startup Error - v1.0.10',
       `Failed to start the application.\n\nError: ${error.message}\n\nPlease check the console output or contact support with this information.`
     );
     app.quit();
