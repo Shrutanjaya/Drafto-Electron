@@ -974,7 +974,7 @@ app.whenReady().then(async () => {
     
     // Create splash window
     createSplashWindow();
-    updateSplash('Initializing...', 5, 'Starting Drafto v1.0.12 (Fix #2)');
+    updateSplash('Initializing...', 5, 'Starting Drafto v1.0.13 (Security Fix)');
     
     // Check Python installation
     updateSplash('Checking Python...', 10, 'Looking for Python installation');
@@ -1038,7 +1038,7 @@ app.whenReady().then(async () => {
     console.error('[Electron] Failed to start application:', error);
     closeSplash();
     dialog.showErrorBox(
-      'Startup Error - v1.0.12',
+      'Startup Error - v1.0.13',
       `Failed to start the application.\n\nError: ${error.message}\n\nPlease check the console output or contact support with this information.`
     );
     app.quit();
