@@ -500,7 +500,6 @@ function createSplashWindow() {
       <body>
         <div class="splash">
           <h1>DRAFTO</h1>
-          <div class="version">Version 1.0.8 (Diagnostic Build)</div>
           <div class="status" id="status">
             <span class="spinner"></span>
             <span id="status-text">Starting application...</span>
@@ -974,7 +973,7 @@ app.whenReady().then(async () => {
     
     // Create splash window
     createSplashWindow();
-    updateSplash('Initializing...', 5, 'Starting Drafto v1.0.13 (Security Fix)');
+    updateSplash('Initializing...', 5, 'Starting Drafto v1.0.14');
     
     // Check Python installation
     updateSplash('Checking Python...', 10, 'Looking for Python installation');
@@ -1038,7 +1037,7 @@ app.whenReady().then(async () => {
     console.error('[Electron] Failed to start application:', error);
     closeSplash();
     dialog.showErrorBox(
-      'Startup Error - v1.0.13',
+      'Startup Error - v1.0.14',
       `Failed to start the application.\n\nError: ${error.message}\n\nPlease check the console output or contact support with this information.`
     );
     app.quit();
