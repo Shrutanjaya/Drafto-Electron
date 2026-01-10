@@ -69,6 +69,15 @@ contextBridge.exposeInMainWorld('electron', {
     return null;
   },
   
+  // List all .drafto files
+  listDraftoFiles: () => ipcRenderer.invoke('list-drafto-files'),
+  
+  // Load a specific .drafto file
+  loadDraftoFile: (fileName) => ipcRenderer.invoke('load-drafto-file', fileName),
+  
+  // Open projects folder in file explorer
+  openProjectsFolder: () => ipcRenderer.invoke('open-projects-folder'),
+  
   // Save DOCX file
   saveDocx: (data) => ipcRenderer.invoke('save-docx', data),
   

@@ -762,27 +762,21 @@ ipcMain.handle('get-python-info', async () => {
 });
 
 // Handle save project
-ipcMain.handle('save-project', async (event, { petitionerName, content, defaultPath }) => {
-  let filePath;
+ipcMain.handle('save-project', async (event, { petitionerName, content }) => {
+  // Use userData/projects directory
+  const projectsDir = path.join(app.getPath('userData'), 'projects');
   
-  if (defaultPath) {
-    // Use default path and find unique filename
-    const fileName = `${petitionerName}.drafto`;
-    filePath = getUniqueFilePath(defaultPath, fileName, 'drafto');
-  } else {
-    // Show dialog only if no default path
-    const result = await dialog.showSaveDialog({
-      defaultPath: `${petitionerName}.drafto`,
-      filters: [{ name: 'Drafto Project', extensions: ['drafto'] }]
-    });
-    filePath = result.filePath;
+  // Ensure directory exists
+  if (!fs.existsSync(projectsDir)) {
+    fs.mkdirSync(projectsDir, { recursive: true });
   }
   
-  if (filePath) {
-    fs.writeFileSync(filePath, content, 'utf-8');
-    return filePath;
-  }
-  return null;
+  const fileName = `${petitionerName}.drafto`;
+  const filePath = path.join(projectsDir, fileName);
+  
+  // Overwrite if exists (no versioning)
+  fs.writeFileSync(filePath, content, 'utf-8');
+  return filePath;
 });
 
 // Open file dialog for selecting PDFs
@@ -834,6 +828,69 @@ ipcMain.handle('create-file-from-path', async (event, filePath) => {
   } catch (error) {
     throw new Error(`Could not read file: ${error.message}`);
   }
+});
+
+// List all .drafto files in projects directory
+ipcMain.handle('list-drafto-files', async () => {
+  const projectsDir = path.join(app.getPath('userData'), 'projects');
+  
+  // Create directory if it doesn't exist
+  if (!fs.existsSync(projectsDir)) {
+    fs.mkdirSync(projectsDir, { recursive: true });
+    return [];
+  }
+  
+  try {
+    const files = fs.readdirSync(projectsDir)
+      .filter(file => file.endsWith('.drafto'))
+      .map(file => {
+        const filePath = path.join(projectsDir, file);
+        const stats = fs.statSync(filePath);
+        return {
+          name: file.replace('.drafto', ''),
+          fileName: file,
+          path: filePath,
+          modifiedDate: stats.mtime.toISOString(),
+          size: stats.size
+        };
+      });
+    
+    // Sort by date modified (newest first) by default
+    return files.sort((a, b) => new Date(b.modifiedDate) - new Date(a.modifiedDate));
+  } catch (error) {
+    console.error('Error listing drafto files:', error);
+    return [];
+  }
+});
+
+// Load a specific .drafto file
+ipcMain.handle('load-drafto-file', async (event, fileName) => {
+  const projectsDir = path.join(app.getPath('userData'), 'projects');
+  const filePath = path.join(projectsDir, fileName);
+  
+  if (!fs.existsSync(filePath)) {
+    throw new Error('File not found');
+  }
+  
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    return content;
+  } catch (error) {
+    throw new Error(`Could not read file: ${error.message}`);
+  }
+});
+
+// Open projects folder in file explorer
+ipcMain.handle('open-projects-folder', async () => {
+  const projectsDir = path.join(app.getPath('userData'), 'projects');
+  
+  // Create directory if it doesn't exist
+  if (!fs.existsSync(projectsDir)) {
+    fs.mkdirSync(projectsDir, { recursive: true });
+  }
+  
+  // Open in file explorer
+  require('electron').shell.openPath(projectsDir);
 });
 
 // Select directory dialog
@@ -973,7 +1030,7 @@ app.whenReady().then(async () => {
     
     // Create splash window
     createSplashWindow();
-    updateSplash('Initializing...', 5, 'Starting Drafto v1.0.14');
+    updateSplash('Initializing...', 5, 'Starting Drafto v1.0.15');
     
     // Check Python installation
     updateSplash('Checking Python...', 10, 'Looking for Python installation');
@@ -1037,7 +1094,7 @@ app.whenReady().then(async () => {
     console.error('[Electron] Failed to start application:', error);
     closeSplash();
     dialog.showErrorBox(
-      'Startup Error - v1.0.14',
+      'Startup Error - v1.0.15',
       `Failed to start the application.\n\nError: ${error.message}\n\nPlease check the console output or contact support with this information.`
     );
     app.quit();
