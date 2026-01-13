@@ -671,14 +671,7 @@ function killProcessOnPort(port) {
 
 // Auto-update functions
 function setupAutoUpdater() {
-  // Check for updates when app starts (after a delay)
-  setTimeout(() => {
-    if (!isDev) {
-      autoUpdater.checkForUpdates();
-    }
-  }, 5000); // Wait 5 seconds after app starts
-
-  // Auto-update event handlers
+  // Register event handlers FIRST (before checking for updates)
   autoUpdater.on('checking-for-update', () => {
     console.log('[Updater] Checking for updates...');
   });
@@ -700,6 +693,8 @@ function setupAutoUpdater() {
           autoUpdater.downloadUpdate();
         }
       });
+    } else {
+      console.warn('[Updater] Cannot show update dialog - main window not available');
     }
   });
 
@@ -741,6 +736,17 @@ function setupAutoUpdater() {
       });
     }
   });
+
+  // Check for updates when app starts (after a delay)
+  // Event handlers are now registered, so they won't miss any events
+  setTimeout(() => {
+    if (!isDev) {
+      console.log('[Updater] Starting update check...');
+      autoUpdater.checkForUpdates();
+    } else {
+      console.log('[Updater] Skipping update check (development mode)');
+    }
+  }, 2000); // Wait 2 seconds after app starts
 }
 
 // Helper function to get a unique filename by adding numbers if file exists
@@ -1037,7 +1043,7 @@ app.whenReady().then(async () => {
     
     // Create splash window
     createSplashWindow();
-    updateSplash('Initializing...', 5, 'Starting Drafto v1.0.18');
+    updateSplash('Initializing...', 5, 'Starting Drafto v1.0.19');
     
     // Check Python installation
     updateSplash('Checking Python...', 10, 'Looking for Python installation');
@@ -1101,7 +1107,7 @@ app.whenReady().then(async () => {
     console.error('[Electron] Failed to start application:', error);
     closeSplash();
     dialog.showErrorBox(
-      'Startup Error - v1.0.18',
+      'Startup Error - v1.0.19',
       `Failed to start the application.\n\nError: ${error.message}\n\nPlease check the console output or contact support with this information.`
     );
     app.quit();

@@ -1,6 +1,6 @@
 {
   "name": "drafto-electron",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "description": "Drafto - Supreme Court SLP Drafting Application",
   "main": "main.js",
   "scripts": {
@@ -27,7 +27,7 @@
   },
   "build": {
     "appId": "com.drafto.app",
-    "productName": "Drafto",
+    "productName": "DraftoSLP",
     "asar": true,
     "compression": "maximum",
     "copyright": "Copyright © 2025 Quindoph Legal Pvt. Ltd.",
