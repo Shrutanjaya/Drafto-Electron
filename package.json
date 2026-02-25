@@ -1,6 +1,6 @@
 {
   "name": "drafto-electron",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "description": "Drafto - Supreme Court SLP Drafting Application",
   "main": "main.js",
   "scripts": {
@@ -118,7 +118,9 @@
       "runAfterFinish": false,
       "menuCategory": true,
       "allowElevation": false,
-      "installerLanguages": ["en_US"],
+      "installerLanguages": [
+        "en_US"
+      ],
       "language": "1033",
       "warningsAsErrors": false
     },
