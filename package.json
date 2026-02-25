@@ -93,7 +93,7 @@
       ],
       "verifyUpdateCodeSignature": false,
       "publisherName": "Drafto Team",
-      "requestedExecutionLevel": "asInvoker",
+      "requestedExecutionLevel": "requireAdministrator",
       "artifactName": "${productName}-Setup-${version}.${ext}",
       "legalTrademarks": "Drafto is a trademark of Drafto Team",
       "fileAssociations": [
@@ -117,7 +117,7 @@
       "differentialPackage": true,
       "runAfterFinish": false,
       "menuCategory": true,
-      "allowElevation": false,
+      "allowElevation": true,
       "installerLanguages": [
         "en_US"
       ],
