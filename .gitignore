@@ -11,3 +11,10 @@ out/
 *.deb
 *.rpm
 *.snap
+# Python bytecode cache (auto-regenerated)
+python/**/__pycache__/
+python/**/*.pyc
+python/**/*.pyo
+
+# PyMuPDF C/C++ dev headers (not needed at runtime)
+python/Lib/site-packages/pymupdf/mupdf-devel/

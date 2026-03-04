@@ -26,6 +26,66 @@ console.log('[Electron] App is packaged:', app.isPackaged);
 let pythonCommand = 'python';
 let pythonReady = false;
 
+// Find Tesseract installation directory
+function getTesseractDir() {
+  const userProfile = process.env.USERPROFILE || '';
+  const localAppData = process.env.LOCALAPPDATA || '';
+  const candidates = [
+    // Bundled alongside the app's Python (checked first)
+    isDev
+      ? path.join(__dirname, 'python', 'tesseract', 'tesseract.exe')
+      : path.join(process.resourcesPath, 'python', 'tesseract', 'tesseract.exe'),
+    // Standard system install locations
+    'C:\\Program Files\\Tesseract-OCR\\tesseract.exe',
+    'C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe',
+    path.join(localAppData, 'Programs', 'Tesseract-OCR', 'tesseract.exe'),
+    path.join(localAppData, 'Tesseract-OCR', 'tesseract.exe'),
+    path.join(userProfile, 'AppData', 'Local', 'Programs', 'Tesseract-OCR', 'tesseract.exe'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      return path.dirname(candidate);   // return the directory, not the exe
+    }
+  }
+  return null;
+}
+
+// Find Ghostscript bin directory
+function getGhostscriptDir() {
+  // Bundled alongside the app's Python (checked first)
+  const bundledGs = isDev
+    ? path.join(__dirname, 'python', 'ghostscript', 'bin', 'gswin64c.exe')
+    : path.join(process.resourcesPath, 'python', 'ghostscript', 'bin', 'gswin64c.exe');
+  if (fs.existsSync(bundledGs)) return path.dirname(bundledGs);
+
+  // System install: C:\Program Files\gs\gs<version>\bin\gswin64c.exe
+  const gsRoot = 'C:\\Program Files\\gs';
+  if (fs.existsSync(gsRoot)) {
+    try {
+      const versions = fs.readdirSync(gsRoot).filter(d => d.startsWith('gs'));
+      // Sort descending to get the latest version first
+      versions.sort().reverse();
+      for (const ver of versions) {
+        const candidate = path.join(gsRoot, ver, 'bin', 'gswin64c.exe');
+        if (fs.existsSync(candidate)) return path.dirname(candidate);
+      }
+    } catch (e) { /* ignore */ }
+  }
+  // 32-bit fallback
+  const gsRoot32 = 'C:\\Program Files (x86)\\gs';
+  if (fs.existsSync(gsRoot32)) {
+    try {
+      const versions = fs.readdirSync(gsRoot32).filter(d => d.startsWith('gs'));
+      versions.sort().reverse();
+      for (const ver of versions) {
+        const candidate = path.join(gsRoot32, ver, 'bin', 'gswin32c.exe');
+        if (fs.existsSync(candidate)) return path.dirname(candidate);
+      }
+    } catch (e) { /* ignore */ }
+  }
+  return null;
+}
+
 // Get bundled Python path
 function getBundledPythonPath() {
   if (isDev) {
@@ -1001,11 +1061,47 @@ ipcMain.handle('process-ocr', async (event, pdfBase64) => {
       : path.join(process.resourcesPath, 'app', 'Firebase Files', 'python_scripts');
     const ocrScript = path.join(scriptsPath, 'process_ocr.py');
     
+    // Locate Tesseract and Ghostscript; add both to PATH for the subprocess
+    const tesseractDir = getTesseractDir();
+    if (!tesseractDir) {
+      return {
+        success: false,
+        error: 'Tesseract OCR engine not found. Please contact support or reinstall DraftoSLP.'
+      };
+    }
+    console.log('[Electron] Found Tesseract at:', tesseractDir);
+
+    const ghostscriptDir = getGhostscriptDir();
+    // Ghostscript is optional - only needed if ocrmypdf falls back to GS for some PDFs
+    if (ghostscriptDir) {
+      console.log('[Electron] Found Ghostscript at:', ghostscriptDir);
+    }
+
+    // Build env with Tesseract on PATH (+ Ghostscript if available)
+    const extraDirs = [tesseractDir, ghostscriptDir].filter(Boolean);
+    const extraPaths = extraDirs.join(path.delimiter);
+    // GS_LIB tells Ghostscript where its lib/ and Resource/ directories are
+    // (needed when running from a bundled/portable location without registry entries)
+    const gsRoot = ghostscriptDir ? path.dirname(ghostscriptDir) : null;
+    const gsLib = gsRoot
+      ? [
+          path.join(gsRoot, 'lib'),
+          path.join(gsRoot, 'Resource', 'Init'),
+          path.join(gsRoot, 'Resource'),
+        ].join(path.delimiter)
+      : undefined;
+    const ocrEnv = {
+      ...process.env,
+      PATH: `${extraPaths}${path.delimiter}${process.env.PATH || ''}`,
+      TESSDATA_PREFIX: path.join(tesseractDir, 'tessdata'),
+      ...(gsLib ? { GS_LIB: gsLib } : {}),
+    };
+    
     // Run OCR script
     console.log('[Electron] Running OCR script:', ocrScript);
     const { stdout, stderr } = await execAsync(
       `${pythonCommand} "${ocrScript}" "${inputPdf}" "${outputPdf}"`,
-      { timeout: 300000 } // 5 minute timeout
+      { timeout: 1800000, env: ocrEnv } // 30 minute timeout for large PDFs
     );
     
     if (stderr) {
@@ -1052,7 +1148,7 @@ app.whenReady().then(async () => {
     if (!pythonCheck.success) {
       // Python not found - show setup dialog
       updateSplash('Python not found', 15, 'Will prompt for installation');
-      await startNextServer(); // Start Next.js first so we can show dialog
+      if (!isDev) await startNextServer(); // In dev, server is already running
       createWindow();
       closeSplash();
       await showPythonSetupDialog();
@@ -1075,9 +1171,15 @@ app.whenReady().then(async () => {
     const converterCheck = await checkPdfConverter();
     updateSplash(converterCheck.found ? 'PDF converter found' : 'No PDF converter', 35, converterCheck.found ? converterCheck.app : 'Will show warning');
     
-    // Start Next.js server
+    // Start Next.js server (in dev mode, skip if already running)
     updateSplash('Starting server...', 40, 'Launching Next.js development server');
-    await startNextServer();
+    if (isDev) {
+      // In dev mode, `npm run dev` is always started externally before `npm run start`.
+      // Never try to start the server here – it would cause EADDRINUSE.
+      console.log('[Electron] Dev mode: assuming Next.js dev server is already running on port', NEXT_PORT);
+    } else {
+      await startNextServer();
+    }
     console.log('[Electron] Next.js server started, waiting for server to respond...');
     
     // Wait for server to actually be ready (updates splash internally)
