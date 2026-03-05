@@ -1,4 +1,4 @@
-name: Build macOS Installer
+﻿name: Build macOS Installer
 
 # Runs automatically when a GitHub Release is published.
 # Can also be triggered manually via Actions tab for any existing release tag.
