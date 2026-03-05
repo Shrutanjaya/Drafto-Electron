@@ -69,9 +69,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ── 6. Upload .dmg to the release ─────────────────────────────────────
-      - name: Upload DMG to GitHub Release
+      - name: Determine release tag
+        id: tag
         run: |
-          TAG=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
-          gh release upload "$TAG" Drafto-Electron/dist/*.dmg --clobber
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "value=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload DMG to GitHub Release
+        run: gh release upload "${{ steps.tag.outputs.value }}" Drafto-Electron/dist/*.dmg --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
