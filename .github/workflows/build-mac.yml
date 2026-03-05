@@ -1,0 +1,69 @@
+name: Build macOS Installer
+
+# Runs automatically when a GitHub Release is published.
+# Builds the .dmg and uploads it to that same release.
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+
+    steps:
+      # ── 1. Check out both repos side-by-side ──────────────────────────────
+      - name: Checkout Drafto-Electron
+        uses: actions/checkout@v4
+        with:
+          path: Drafto-Electron
+
+      - name: Checkout Firebase Files (v1Drafto)
+        uses: actions/checkout@v4
+        with:
+          repository: Shrutanjaya/v1Drafto
+          token: ${{ secrets.GH_PAT }}
+          path: Firebase Files
+
+      # ── 2. Node.js ────────────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # ── 3. Firebase environment variables for Next.js build ───────────────
+      - name: Create .env.production
+        run: |
+          cat > "Firebase Files/.env.production" <<EOF
+          NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyANHtnyFUEJiKQhQQykZJhtU4jzKLeZRBs
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=draftoslp.firebaseapp.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID=draftoslp
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=draftoslp.firebasestorage.app
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=109929006113
+          NEXT_PUBLIC_FIREBASE_APP_ID=1:109929006113:web:1c180e213b9b9cf33bcf60
+          EOF
+
+      # ── 4. Build Next.js ──────────────────────────────────────────────────
+      - name: Install Firebase Files dependencies
+        working-directory: Firebase Files
+        run: npm install
+
+      - name: Build Next.js app
+        working-directory: Firebase Files
+        run: npm run build
+
+      # ── 5. Build macOS DMG ────────────────────────────────────────────────
+      - name: Install Drafto-Electron dependencies
+        working-directory: Drafto-Electron
+        run: npm install
+
+      - name: Build macOS DMG
+        working-directory: Drafto-Electron
+        run: npm run dist:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 6. Upload .dmg to the release ─────────────────────────────────────
+      - name: Upload DMG to GitHub Release
+        run: gh release upload ${{ github.ref_name }} Drafto-Electron/dist/*.dmg --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
