@@ -69,6 +69,6 @@ jobs:
           else
             RELEASE_TAG="${{ github.ref_name }}"
           fi
-          gh release upload "$RELEASE_TAG" Drafto-Electron/dist/*.dmg --clobber
+          gh release upload "$RELEASE_TAG" Drafto-Electron/dist/*.dmg --clobber --repo Shrutanjaya/Drafto-Electron
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
