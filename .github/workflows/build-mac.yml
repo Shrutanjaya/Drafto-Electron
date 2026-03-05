@@ -71,4 +71,4 @@ jobs:
           fi
           gh release upload "$RELEASE_TAG" Drafto-Electron/dist/*.dmg --clobber --repo Shrutanjaya/Drafto-Electron
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
