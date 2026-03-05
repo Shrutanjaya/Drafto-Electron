@@ -17,7 +17,6 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      # ── 1. Check out both repos side-by-side ──────────────────────────────
       - name: Checkout Drafto-Electron
         uses: actions/checkout@v4
         with:
@@ -30,25 +29,22 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           path: Firebase Files
 
-      # ── 2. Node.js ────────────────────────────────────────────────────────
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # ── 3. Firebase environment variables for Next.js build ───────────────
       - name: Create .env.production
         run: |
-          cat > "Firebase Files/.env.production" <<EOF
-          NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyANHtnyFUEJiKQhQQykZJhtU4jzKLeZRBs
-          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=draftoslp.firebaseapp.com
-          NEXT_PUBLIC_FIREBASE_PROJECT_ID=draftoslp
-          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=draftoslp.firebasestorage.app
-          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=109929006113
-          NEXT_PUBLIC_FIREBASE_APP_ID=1:109929006113:web:1c180e213b9b9cf33bcf60
-          EOF
+          {
+            echo "NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSyANHtnyFUEJiKQhQQykZJhtU4jzKLeZRBs"
+            echo "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=draftoslp.firebaseapp.com"
+            echo "NEXT_PUBLIC_FIREBASE_PROJECT_ID=draftoslp"
+            echo "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=draftoslp.firebasestorage.app"
+            echo "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=109929006113"
+            echo "NEXT_PUBLIC_FIREBASE_APP_ID=1:109929006113:web:1c180e213b9b9cf33bcf60"
+          } > "Firebase Files/.env.production"
 
-      # ── 4. Build Next.js ──────────────────────────────────────────────────
       - name: Install Firebase Files dependencies
         working-directory: Firebase Files
         run: npm install
@@ -57,7 +53,6 @@ jobs:
         working-directory: Firebase Files
         run: npm run build
 
-      # ── 5. Build macOS DMG ────────────────────────────────────────────────
       - name: Install Drafto-Electron dependencies
         working-directory: Drafto-Electron
         run: npm install
@@ -68,17 +63,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 6. Upload .dmg to the release ─────────────────────────────────────
-      - name: Determine release tag
-        id: tag
+      - name: Upload DMG to GitHub Release
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "value=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+            RELEASE_TAG="${{ github.event.inputs.tag }}"
           else
-            echo "value=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+            RELEASE_TAG="${{ github.ref_name }}"
           fi
-
-      - name: Upload DMG to GitHub Release
-        run: gh release upload "${{ steps.tag.outputs.value }}" Drafto-Electron/dist/*.dmg --clobber
+          gh release upload "$RELEASE_TAG" Drafto-Electron/dist/*.dmg --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
