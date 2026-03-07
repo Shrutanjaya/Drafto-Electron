@@ -74,7 +74,7 @@
         "filter": [
           "**/*"
         ]
-      },
+      }
     ],
     "asarUnpack": [
       "resources/app/Firebase Files/.next/standalone/**/*",
