@@ -9,11 +9,11 @@ exports.default = async function afterSign(context) {
   const appPath = path.join(appOutDir, `${appName}.app`);
 
   const keyId = process.env.APPLE_API_KEY_ID;
-  const issuerId = process.env.APPLE_API_ISSUER_ID;
-  const keyPath = process.env.APPLE_API_KEY_PATH;
+  const issuerId = process.env.APPLE_API_ISSUER;
+  const keyPath = process.env.APPLE_API_KEY;
 
   if (!keyId || !issuerId || !keyPath) {
-    console.log('Skipping notarization: APPLE_API_KEY_ID, APPLE_API_ISSUER_ID, or APPLE_API_KEY_PATH not set');
+    console.log('Skipping notarization: APPLE_API_KEY, APPLE_API_KEY_ID, or APPLE_API_ISSUER not set');
     return;
   }
 
