@@ -69,6 +69,24 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
           security list-keychains -d user -s build.keychain $(security list-keychains -d user | sed s/\"//g)
 
+      - name: Create entitlements plist
+        working-directory: Drafto-Electron
+        run: |
+          cat > build/entitlements.mac.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+            <dict>
+              <key>com.apple.security.cs.allow-jit</key>
+              <true/>
+              <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+              <true/>
+              <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+              <true/>
+            </dict>
+          </plist>
+          EOF
+
       - name: Build macOS DMG (signed)
         working-directory: Drafto-Electron
         run: npm run dist:mac
