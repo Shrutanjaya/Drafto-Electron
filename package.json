@@ -75,13 +75,6 @@
           "**/*"
         ]
       },
-      {
-        "from": "python",
-        "to": "python",
-        "filter": [
-          "**/*"
-        ]
-      }
     ],
     "asarUnpack": [
       "resources/app/Firebase Files/.next/standalone/**/*",
@@ -90,6 +83,15 @@
     "win": {
       "target": [
         "nsis"
+      ],
+      "extraResources": [
+        {
+          "from": "python",
+          "to": "python",
+          "filter": [
+            "**/*"
+          ]
+        }
       ],
       "verifyUpdateCodeSignature": false,
       "publisherName": "Drafto Team",
