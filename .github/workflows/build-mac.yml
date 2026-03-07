@@ -56,26 +56,44 @@ jobs:
         working-directory: Drafto-Electron
         run: npm install
 
-      - name: Build macOS DMG
+      - name: Import Apple certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
+          security list-keychains -d user -s build.keychain $(security list-keychains -d user | sed s/\"//g)
+
+      - name: Build macOS DMG (signed)
         working-directory: Drafto-Electron
         run: npm run dist:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ../certificate.p12
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      - name: Ad-hoc sign the app (removes "cannot be opened" Gatekeeper error)
+      - name: Notarize and staple DMG
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
         run: |
-          APP_PATH=$(find Drafto-Electron/dist/mac-arm64 -name "*.app" | head -1)
-          echo "Signing: $APP_PATH"
-          codesign --force --deep --sign - "$APP_PATH"
-
-      - name: Re-package DMG after signing
-        working-directory: Drafto-Electron
-        run: |
-          APP_PATH=$(find dist/mac-arm64 -name "*.app" | head -1)
-          DMG_NAME=$(ls dist/*.dmg | head -1 | xargs basename)
-          rm -f "dist/$DMG_NAME"
-          hdiutil create -volname "DraftoSLP" -srcfolder "$APP_PATH" -ov -format UDZO "dist/$DMG_NAME"
-          echo "Repackaged: dist/$DMG_NAME"
+          echo "$APPLE_API_KEY" | base64 --decode > "AuthKey_${APPLE_API_KEY_ID}.p8"
+          DMG_PATH=$(ls Drafto-Electron/dist/*.dmg | head -1)
+          echo "Notarizing: $DMG_PATH"
+          xcrun notarytool submit "$DMG_PATH" \
+            --key "AuthKey_${APPLE_API_KEY_ID}.p8" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "$DMG_PATH"
+          echo "Notarization and stapling complete"
 
       - name: Upload DMG to GitHub Release
         run: |
