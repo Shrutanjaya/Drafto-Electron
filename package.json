@@ -28,6 +28,7 @@
   "build": {
     "appId": "com.drafto.app",
     "productName": "DraftoSLP",
+    "afterSign": "afterSign.js",
     "asar": true,
     "compression": "maximum",
     "copyright": "Copyright © 2025 Quindoph Legal Pvt. Ltd.",
@@ -165,7 +166,8 @@
   },
   "devDependencies": {
     "electron": "^28.0.0",
-    "electron-builder": "^24.9.1"
+    "electron-builder": "^24.9.1",
+    "@electron/notarize": "^2.3.0"
   },
   "dependencies": {
     "electron-updater": "^6.6.2"

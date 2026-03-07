@@ -88,7 +88,10 @@ jobs:
           </plist>
           EOF
 
-      - name: Build macOS DMG (signed)
+      - name: Write API key file for notarization
+        run: echo "${{ secrets.APPLE_API_KEY }}" | base64 --decode > "AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8"
+
+      - name: Build macOS DMG (signed + notarized)
         working-directory: Drafto-Electron
         run: npm run dist:mac
         env:
@@ -96,41 +99,15 @@ jobs:
           CSC_LINK: ../certificate.p12
           CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-      - name: Notarize and staple DMG
-        timeout-minutes: 30
-        env:
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_PATH: ../AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8
+
+      - name: Staple notarization ticket to DMG
         run: |
-          echo "$APPLE_API_KEY" | base64 --decode > "AuthKey_${APPLE_API_KEY_ID}.p8"
           DMG_PATH=$(ls Drafto-Electron/dist/*.dmg | head -1)
-          echo "Notarizing: $DMG_PATH"
-          for attempt in 1 2 3; do
-            echo "Notarization attempt $attempt..."
-            SUBMISSION=$(xcrun notarytool submit "$DMG_PATH" \
-              --key "AuthKey_${APPLE_API_KEY_ID}.p8" \
-              --key-id "$APPLE_API_KEY_ID" \
-              --issuer "$APPLE_API_ISSUER_ID" \
-              --output-format json 2>&1)
-            echo "$SUBMISSION"
-            SUBMISSION_ID=$(echo "$SUBMISSION" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])" 2>/dev/null)
-            if [ -z "$SUBMISSION_ID" ]; then
-              echo "Failed to get submission ID, retrying..."
-              sleep 10
-              continue
-            fi
-            echo "Submission ID: $SUBMISSION_ID"
-            xcrun notarytool wait "$SUBMISSION_ID" \
-              --key "AuthKey_${APPLE_API_KEY_ID}.p8" \
-              --key-id "$APPLE_API_KEY_ID" \
-              --issuer "$APPLE_API_ISSUER_ID" \
-              --timeout 25m && break || echo "Wait failed, retrying..."
-            sleep 15
-          done
           xcrun stapler staple "$DMG_PATH"
-          echo "Notarization and stapling complete"
+          echo "Stapling complete: $DMG_PATH"
 
       - name: Upload DMG to GitHub Release
         run: |
