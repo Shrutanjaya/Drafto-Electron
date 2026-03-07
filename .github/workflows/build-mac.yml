@@ -62,6 +62,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Ad-hoc sign the app (removes "cannot be opened" Gatekeeper error)
+        run: |
+          APP_PATH=$(find Drafto-Electron/dist/mac-arm64 -name "*.app" | head -1)
+          echo "Signing: $APP_PATH"
+          codesign --force --deep --sign - "$APP_PATH"
+
+      - name: Re-package DMG after signing
+        working-directory: Drafto-Electron
+        run: |
+          APP_PATH=$(find dist/mac-arm64 -name "*.app" | head -1)
+          DMG_NAME=$(ls dist/*.dmg | head -1 | xargs basename)
+          rm -f "dist/$DMG_NAME"
+          hdiutil create -volname "DraftoSLP" -srcfolder "$APP_PATH" -ov -format UDZO "dist/$DMG_NAME"
+          echo "Repackaged: dist/$DMG_NAME"
+
       - name: Upload DMG to GitHub Release
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
