@@ -1168,12 +1168,14 @@ app.whenReady().then(async () => {
       if (process.platform === 'darwin') {
         // On macOS, detect LibreOffice soffice as a Python-free PDF conversion fallback
         const foundSoffice = findSoffice();
-        if (foundSoffice) {
-          sofficeCommand = foundSoffice;
-          console.log('[Electron] macOS: using LibreOffice soffice for PDF conversion:', sofficeCommand);
-          updateSplash('Using LibreOffice for PDF', 25, `soffice: ${sofficeCommand}`);
+        const hasMsWord = fs.existsSync('/Applications/Microsoft Word.app');
+        if (foundSoffice || hasMsWord) {
+          if (foundSoffice) sofficeCommand = foundSoffice;
+          const converterName = foundSoffice ? 'LibreOffice' : 'Microsoft Word';
+          console.log(`[Electron] macOS: Python not found, will use ${converterName} for PDF conversion`);
+          updateSplash(`Using ${converterName} for PDF`, 25, 'No Python needed');
         } else {
-          // No Python and no LibreOffice - warn the user
+          // No Python and no office suite - warn the user
           updateSplash('Python not found', 15, 'Will prompt for installation');
           if (!isDev) await startNextServer();
           createWindow();
