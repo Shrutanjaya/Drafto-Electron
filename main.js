@@ -25,6 +25,7 @@ console.log('[Electron] App is packaged:', app.isPackaged);
 // Python environment setup
 let pythonCommand = 'python';
 let pythonReady = false;
+let sofficeCommand = null; // macOS LibreOffice fallback for PDF conversion
 
 // Find Tesseract installation directory
 function getTesseractDir() {
@@ -184,7 +185,9 @@ async function showPythonSetupDialog() {
     type: 'info',
     title: 'Python Setup Required',
     message: 'Drafto requires Python and docx2pdf for PDF generation.',
-    detail: 'Python was not found on your system. Please install Python from python.org and restart the application.\n\nFor PDF conversion to work, you\'ll also need Microsoft Word or LibreOffice installed.',
+    detail: process.platform === 'darwin'
+      ? 'Python was not found on your system. Please install Python 3 from python.org, then run:\n\n  pip3 install docx2pdf\n\nYou also need Microsoft Word or LibreOffice for conversion. Restart the app after installing.'
+      : 'Python was not found on your system. Please install Python from python.org and restart the application.\n\nFor PDF conversion to work, you\'ll also need Microsoft Word or LibreOffice installed.',
     buttons: ['Open Python Download Page', 'Continue Anyway', 'Quit'],
     defaultId: 0,
     cancelId: 2,
@@ -248,6 +251,19 @@ async function checkPdfConverter() {
   
   console.log('[Electron] No PDF converter found');
   return { found: false };
+}
+
+// Find LibreOffice soffice binary on macOS (used when Python is unavailable)
+function findSoffice() {
+  const candidates = [
+    '/Applications/LibreOffice.app/Contents/MacOS/soffice',
+    '/usr/local/bin/soffice',
+    '/opt/homebrew/bin/soffice',
+  ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
 }
 
 // Show PDF converter warning
@@ -335,6 +351,7 @@ async function startNextServer() {
           NODE_ENV: 'production',
           PYTHON_COMMAND: pythonCommand,
           PYTHON_SCRIPTS_PATH: getPythonPath(),
+          SOFFICE_PATH: sofficeCommand || '',
           IS_ELECTRON: 'true',
         },
         silent: true, // Capture stdout/stderr
@@ -383,6 +400,7 @@ async function startNextServer() {
         NODE_ENV: isDev ? 'development' : 'production',
         PYTHON_COMMAND: pythonCommand,
         PYTHON_SCRIPTS_PATH: getPythonPath(),
+        SOFFICE_PATH: sofficeCommand || '',
         IS_ELECTRON: 'true',
       },
       shell: false,
@@ -1147,12 +1165,30 @@ app.whenReady().then(async () => {
     const pythonCheck = await checkPython();
     
     if (!pythonCheck.success) {
-      // Python not found - show setup dialog
-      updateSplash('Python not found', 15, 'Will prompt for installation');
-      if (!isDev) await startNextServer(); // In dev, server is already running
-      createWindow();
-      closeSplash();
-      await showPythonSetupDialog();
+      if (process.platform === 'darwin') {
+        // On macOS, detect LibreOffice soffice as a Python-free PDF conversion fallback
+        const foundSoffice = findSoffice();
+        if (foundSoffice) {
+          sofficeCommand = foundSoffice;
+          console.log('[Electron] macOS: using LibreOffice soffice for PDF conversion:', sofficeCommand);
+          updateSplash('Using LibreOffice for PDF', 25, `soffice: ${sofficeCommand}`);
+        } else {
+          // No Python and no LibreOffice - warn the user
+          updateSplash('Python not found', 15, 'Will prompt for installation');
+          if (!isDev) await startNextServer();
+          createWindow();
+          closeSplash();
+          await showPythonSetupDialog();
+          return; // Skip further init — user will quit or continue without PDF
+        }
+      } else {
+        // Windows/Linux: Python not found - show setup dialog
+        updateSplash('Python not found', 15, 'Will prompt for installation');
+        if (!isDev) await startNextServer(); // In dev, server is already running
+        createWindow();
+        closeSplash();
+        await showPythonSetupDialog();
+      }
     } else if (pythonCheck.needsDocx2pdf) {
       // Python found but docx2pdf not installed
       console.log('[Electron] Attempting to install docx2pdf...');
