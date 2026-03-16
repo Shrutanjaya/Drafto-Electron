@@ -539,7 +539,7 @@ ipcMain.handle("process-ocr", async (_event, pdfBase64) => {
     };
 
     return await new Promise((resolve) => {
-      const cmd = `${pythonCommand} "${ocrScript}" "${inputPdf}" "${outputPdf}"`;
+      const cmd = `"${pythonCommand}" "${ocrScript}" "${inputPdf}" "${outputPdf}"`;
       activeOcrProcess = exec(cmd, { timeout: 1800000, env: ocrEnv }, (err) => {
         activeOcrProcess = null;
         if (err) {
