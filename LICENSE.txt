@@ -1,7 +1,126 @@
-DRAFTO SOFTWARE LICENSE AGREEMENT
+DRAFTO - SOFTWARE LICENSE AGREEMENT
 
-Copyright (c) 2025 Drafto Team. All rights reserved.
+Copyright (c) 2026 Quindoph Legal Solutions Pvt. Ltd.  All rights reserved.
 
-This software is provided "as is" without warranty of any kind, express or implied.
+IMPORTANT - PLEASE READ CAREFULLY BEFORE INSTALLING OR USING THIS SOFTWARE.
+BY CLICKING "I AGREE" OR BY INSTALLING, COPYING, OR USING DRAFTO ("SOFTWARE"),
+YOU AGREE TO BE BOUND BY THE TERMS OF THIS AGREEMENT.  IF YOU DO NOT AGREE,
+DO NOT INSTALL OR USE THE SOFTWARE.
 
-For the full terms and conditions, please visit: https://drafto.app/license
+
+1. GRANT OF LICENCE
+
+Quindoph Legal Solutions Pvt. Ltd. ("Licensor"), a company incorporated under
+the laws of India with its registered office in New Delhi, grants you a limited,
+non-exclusive, non-transferable, revocable licence to install and use the
+Software on a single device for your personal or internal business purposes,
+subject to payment of applicable subscription fees and compliance with these
+terms.
+
+
+2. SUBSCRIPTION AND FEES
+
+Use of the Software requires payment of subscription fees as published at
+quindoph.com.  Fees are subject to revision from time to time; the then-current
+fees will be reflected on the website.  Continued use of the Software after any
+fee revision constitutes your acceptance of the revised fees.  Subscription fees
+are non-refundable except as required by applicable law.  Access may be
+suspended or terminated for non-payment.
+
+
+3. RESTRICTIONS
+
+You shall not:
+  (a) copy, modify, adapt, or create derivative works of the Software;
+  (b) reverse engineer, decompile, or disassemble the Software;
+  (c) sell, sublicence, rent, lease, or transfer the Software to any third party;
+  (d) remove or alter any proprietary notices or marks on the Software; or
+  (e) use the Software for any unlawful purpose.
+
+
+4. INTELLECTUAL PROPERTY
+
+All intellectual property rights in the Software vest exclusively in Quindoph
+Legal Solutions Pvt. Ltd. and are protected under Indian and international law.
+This Agreement does not transfer any intellectual property rights to you.
+
+
+5. DISCLAIMER OF WARRANTIES
+
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.  TO THE MAXIMUM
+EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSOR EXPRESSLY DISCLAIMS ALL
+WARRANTIES, EXPRESS OR IMPLIED, INCLUDING ANY IMPLIED WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT.  THE
+LICENSOR DOES NOT WARRANT THAT THE SOFTWARE WILL BE ERROR-FREE OR THAT DEFECTS
+WILL BE CORRECTED.
+
+
+6. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSOR SHALL NOT BE
+LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE
+DAMAGES, OR ANY LOSS OF PROFITS, REVENUE, DATA, OR BUSINESS OPPORTUNITY,
+ARISING OUT OF OR IN CONNECTION WITH YOUR USE OF OR INABILITY TO USE THE
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+THE LICENSOR'S TOTAL CUMULATIVE LIABILITY ARISING OUT OF OR RELATED TO THIS
+AGREEMENT SHALL NOT EXCEED THE SUBSCRIPTION FEES PAID BY YOU TO THE LICENSOR
+IN THE THREE (3) MONTHS IMMEDIATELY PRECEDING THE CLAIM.
+
+
+7. DOCUMENT OUTPUT - USER VERIFICATION RESPONSIBILITY
+
+THE SOFTWARE IS A DRAFTING AND FORMATTING AID ONLY.  ALL OUTPUT - INCLUDING
+DOCUMENTS, DRAFTS, FORMS, AND SUMMARIES - IS PROVIDED FOR REFERENCE PURPOSES
+ONLY.  YOU ARE SOLELY AND ENTIRELY RESPONSIBLE FOR REVIEWING, VERIFYING, AND
+CONFIRMING THE ACCURACY, COMPLETENESS, AND LEGAL CORRECTNESS OF ALL OUTPUT
+BEFORE ANY USE, RELIANCE, FILING, OR SUBMISSION.  THE LICENSOR ACCEPTS NO
+LIABILITY WHATSOEVER FOR ANY LOSS OR DAMAGE ARISING FROM RELIANCE ON SOFTWARE
+OUTPUT.
+
+
+8. DATA AND PRIVACY
+
+The Software does not collect, store, or transmit any personal data or document
+contents.  Only aggregate usage statistics (count of paperbooks and DOCX files
+generated) are recorded locally for service monitoring purposes.  No document
+text, personal identifiers, or confidential information is transmitted to the
+Licensor or any third party.
+
+
+9. NO SUPPORT
+
+The Software is provided on a self-service basis.  No customer support,
+technical assistance, maintenance, updates, or bug fixes are guaranteed or
+provided under this Agreement.
+
+
+10. TERMINATION
+
+This Agreement terminates automatically and without notice upon your breach of
+any term hereof.  Upon termination, you must immediately cease all use of the
+Software and destroy all copies in your possession.
+
+
+11. GOVERNING LAW AND JURISDICTION
+
+This Agreement is governed by and construed in accordance with the laws of
+India.  All disputes arising out of or relating to this Agreement shall be
+subject to the exclusive jurisdiction of the courts of New Delhi, India.  You
+irrevocably consent to the personal jurisdiction of such courts.
+
+
+12. ENTIRE AGREEMENT
+
+This Agreement constitutes the entire agreement between you and Quindoph Legal
+Solutions Pvt. Ltd. with respect to the Software and supersedes all prior or
+contemporaneous understandings on the same subject matter.  If any provision is
+held unenforceable, it will be enforced to the maximum extent possible and the
+remaining provisions will remain in full force and effect.
+
+
+-------------------------------------------------------------------------
+Quindoph Legal Solutions Pvt. Ltd.
+New Delhi, India
+quindoph.com
+-------------------------------------------------------------------------

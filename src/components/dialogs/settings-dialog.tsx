@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
 import { getGenerationCounts, type UsageCounts } from "@/lib/firebase/usage-service";
+import { LICENSE_TEXT, TERMS_TEXT } from "@/lib/legal";
 
 type FontSize = 'small' | 'medium' | 'large';
 type SlpTabView = 'splitter' | 'navigation';
@@ -279,6 +280,27 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
               <p className="text-xs text-muted-foreground mt-0.5">DOCX Files Generated</p>
             </div>
           </div>
+        </div>
+
+        {/* Legal */}
+        <div className="border-t pt-3 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Legal</p>
+          <details className="rounded-md border">
+            <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium rounded-md hover:bg-muted/40">
+              Software License Agreement
+            </summary>
+            <div className="border-t px-3 pt-2 pb-3 overflow-y-auto max-h-52 text-[10px] leading-relaxed text-muted-foreground whitespace-pre-wrap font-mono">
+              {LICENSE_TEXT}
+            </div>
+          </details>
+          <details className="rounded-md border">
+            <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium rounded-md hover:bg-muted/40">
+              Terms &amp; Conditions
+            </summary>
+            <div className="border-t px-3 pt-2 pb-3 overflow-y-auto max-h-52 text-[10px] leading-relaxed text-muted-foreground whitespace-pre-wrap font-mono">
+              {TERMS_TEXT}
+            </div>
+          </details>
         </div>
 
         <div className="flex justify-end gap-2">
