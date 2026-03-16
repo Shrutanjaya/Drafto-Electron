@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/providers/auth-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { ProtectedRoute } from "@/components/auth/protected-route";
@@ -13,7 +13,7 @@ const DraftoClient = React.lazy(() =>
 const LoginPage = React.lazy(() => import("@/pages/login"));
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <BrowserRouter>
+  <HashRouter>
     <AuthProvider>
       <Routes>
         <Route path="/login" element={
@@ -29,5 +29,5 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       </Routes>
       <Toaster />
     </AuthProvider>
-  </BrowserRouter>
+  </HashRouter>
 );
