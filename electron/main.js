@@ -540,12 +540,15 @@ ipcMain.handle("process-ocr", async (_event, pdfBase64) => {
 
     return await new Promise((resolve) => {
       const cmd = `"${pythonCommand}" "${ocrScript}" "${inputPdf}" "${outputPdf}"`;
-      activeOcrProcess = exec(cmd, { timeout: 1800000, env: ocrEnv }, (err) => {
+      activeOcrProcess = exec(cmd, { timeout: 1800000, maxBuffer: 10 * 1024 * 1024, env: ocrEnv }, (err, stdout, stderr) => {
         activeOcrProcess = null;
+        if (stdout) console.log("[OCR stdout]", stdout.trim());
+        if (stderr) console.warn("[OCR stderr]", stderr.trim());
         if (err) {
           fs.unlink(inputPdf, () => {});
           if (err.killed || err.signal) return resolve({ success: false, error: "cancelled" });
-          return resolve({ success: false, error: err.message });
+          const detail = stderr ? `\n${stderr.trim()}` : "";
+          return resolve({ success: false, error: err.message + detail });
         }
         if (fs.existsSync(outputPdf)) {
           const result = fs.readFileSync(outputPdf).toString("base64");
