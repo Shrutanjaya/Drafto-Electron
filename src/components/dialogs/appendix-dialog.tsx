@@ -21,6 +21,7 @@ import { Textarea } from "../ui/textarea"
 import { Checkbox } from "../ui/checkbox"
 import { Paperclip } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { pickFile } from "@/lib/utils/pick-file"
 
 export function AppendixDialog() {
   const form = useFormContext<DraftoProject>()
@@ -31,19 +32,11 @@ export function AppendixDialog() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleFileClick = async () => {
-    // If running in Electron, use native file dialog
     if (window.electron?.openFileDialog) {
-      try {
-        const file = await window.electron.openFileDialog();
-        
-        if (file) {
-          form.setValue('appendixFile', file, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
-          if ((file as any).path) {
-            form.setValue('appendixFilePath', (file as any).path);
-          }
-        }
-      } catch (err) {
-        console.error('Error opening file dialog:', err);
+      const file = await pickFile();
+      if (file) {
+        form.setValue('appendixFile', file, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
+        form.setValue('appendixFilePath', (file as any).path);
       }
     } else {
       // Fallback to browser file input

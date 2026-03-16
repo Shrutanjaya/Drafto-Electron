@@ -13,8 +13,8 @@ const DraftoClient = React.lazy(() =>
 const LoginPage = React.lazy(() => import("@/pages/login"));
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <AuthProvider>
-    <BrowserRouter>
+  <BrowserRouter>
+    <AuthProvider>
       <Routes>
         <Route path="/login" element={
           <React.Suspense fallback={null}><LoginPage /></React.Suspense>
@@ -27,7 +27,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           </ProtectedRoute>
         } />
       </Routes>
-    </BrowserRouter>
-    <Toaster />
-  </AuthProvider>
+      <Toaster />
+    </AuthProvider>
+  </BrowserRouter>
 );

@@ -29,6 +29,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { pickFile } from "@/lib/utils/pick-file";
 
 interface AnnexureDialogProps {
   lodIndex: number;
@@ -48,26 +49,16 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
 
 
   const handleIconClick = async (index: number, isTyped: boolean = false) => {
-    // If running in Electron, use native file dialog
     if (window.electron?.openFileDialog) {
-      try {
-        const file = await window.electron.openFileDialog();
-        
-        if (file) {
-          const fieldName = isTyped 
-            ? `listOfDates.${lodIndex}.annexures.${index}.typedOrTranslatedFile`
-            : `listOfDates.${lodIndex}.annexures.${index}.file`;
-          
-          if (isTyped) {
-            form.setValue(`listOfDates.${lodIndex}.annexures.${index}.typedOrTranslatedFile`, file, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
-            form.setValue(`listOfDates.${lodIndex}.annexures.${index}.typedOrTranslatedFilePath`, (file as any).path);
-          } else {
-            form.setValue(`listOfDates.${lodIndex}.annexures.${index}.file`, file, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
-            form.setValue(`listOfDates.${lodIndex}.annexures.${index}.filePath`, (file as any).path);
-          }
+      const file = await pickFile();
+      if (file) {
+        if (isTyped) {
+          form.setValue(`listOfDates.${lodIndex}.annexures.${index}.typedOrTranslatedFile`, file, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
+          form.setValue(`listOfDates.${lodIndex}.annexures.${index}.typedOrTranslatedFilePath`, (file as any).path);
+        } else {
+          form.setValue(`listOfDates.${lodIndex}.annexures.${index}.file`, file, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
+          form.setValue(`listOfDates.${lodIndex}.annexures.${index}.filePath`, (file as any).path);
         }
-      } catch (err) {
-        console.error('Error opening file dialog:', err);
       }
     } else {
       // Fallback to browser file input

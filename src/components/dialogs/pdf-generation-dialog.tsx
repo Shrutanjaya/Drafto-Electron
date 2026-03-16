@@ -1,7 +1,7 @@
 
 "use client"
 
-import React, { useMemo, useState, useRef, useEffect } from "react";
+import React, { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import { useForm, FormProvider, useFormContext, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -20,8 +20,10 @@ import {
 import {
     AlertDialog,
     AlertDialogAction,
+    AlertDialogCancel,
     AlertDialogContent,
     AlertDialogDescription,
+    AlertDialogFooter,
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
@@ -39,11 +41,13 @@ import { getIaList } from "@/lib/ia-list-utils";
 import { useToast } from "@/hooks/use-toast";
 import { generatePdf } from "@/lib/actions";
 import { getSettings } from "./settings-dialog";
+import { incrementGenerationCount } from "@/lib/firebase/usage-service";
 import { Upload, Loader2, Info, Lock, CheckCircle2, AlertCircle, Settings2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FormControl, FormField, FormItem } from "@/components/ui/form";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import { pickFile } from "@/lib/utils/pick-file";
 
 
 // ─── Pre-generation validation ─────────────────────────────────────────────
@@ -191,12 +195,15 @@ const capitalize = (s: string) => {
 };
 const annexDate = (date: string) => date ? ` dated ${date}` : '';
 
-function PdfGenerationDialogContent({ onClose }: { onClose: () => void }) {
+function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: () => void; onGeneratingChange?: (v: boolean) => void }) {
     const mainForm = useFormContext<DraftoProject>();
     const { toast } = useToast();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [showCloseConfirm, setShowCloseConfirm] = useState(false);
     const [progress, setProgress] = useState(0);
+    const cancelledRef = useRef(false);
+    const abortControllerRef = useRef<AbortController | null>(null);
     const [isProcessingOcr, setIsProcessingOcr] = useState(false);
     const [enableOcr, setEnableOcr] = useState(false);
     const [activeUploadIndex, setActiveUploadIndex] = useState<number | null>(null);
@@ -465,6 +472,24 @@ function PdfGenerationDialogContent({ onClose }: { onClose: () => void }) {
         resetUploadForm({ mergeItems: initialMergeItems });
     }, [componentList, resetUploadForm, mainForm]);
 
+    // Cancel on unmount: fires for every close path (X, Escape, backdrop, Back)
+    useEffect(() => {
+        return () => {
+            cancelledRef.current = true;
+            abortControllerRef.current?.abort();
+            window.electron?.cancelOcr?.();
+        };
+    }, []);
+
+    // Notify parent of generating state; block Electron window close while generating
+    useEffect(() => {
+        onGeneratingChange?.(isGenerating);
+        if (!isGenerating) return;
+        const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+        window.addEventListener('beforeunload', handler);
+        return () => window.removeEventListener('beforeunload', handler);
+    }, [isGenerating, onGeneratingChange]);
+
     // Progress timer: 0% to 90% over 60 seconds
     useEffect(() => {
         let interval: NodeJS.Timeout;
@@ -489,7 +514,19 @@ function PdfGenerationDialogContent({ onClose }: { onClose: () => void }) {
     const watchedItems = watchUploadForm('mergeItems');
 
     const handleBack = () => {
+        if (isGenerating) {
+            setShowCloseConfirm(true);
+            return;
+        }
         // Save current state to main form before closing
+        const currentState = getValues('mergeItems');
+        mainForm.setValue('pdfMergeItems', currentState, { shouldDirty: false });
+        onClose();
+    };
+
+    const confirmClose = () => {
+        setShowCloseConfirm(false);
+        // cancelledRef + OCR kill are handled by the unmount cleanup effect
         const currentState = getValues('mergeItems');
         mainForm.setValue('pdfMergeItems', currentState, { shouldDirty: false });
         onClose();
@@ -573,30 +610,18 @@ function PdfGenerationDialogContent({ onClose }: { onClose: () => void }) {
     };
     
     const triggerFileUpload = async (index: number) => {
-        // Use Electron file dialog if available (so we get the file path)
         if (typeof window !== 'undefined' && window.electron?.openFileDialog) {
-            try {
-                const file = await window.electron.openFileDialog();
-                if (file) {
-                    setValue(`mergeItems.${index}.userFile`, file, { shouldDirty: true });
-                    if (watchedItems[index].useSystem) {
-                        setValue(`mergeItems.${index}.useSystem`, false);
-                    }
-                    syncFileToMainForm(watchedItems[index].id, file);
-                    
-                    // Sync state to main form immediately after file upload
-                    setTimeout(() => {
-                        const currentState = getValues('mergeItems');
-                        mainForm.setValue('pdfMergeItems', currentState, { shouldDirty: false });
-                    }, 0);
+            const file = await pickFile();
+            if (file) {
+                setValue(`mergeItems.${index}.userFile`, file, { shouldDirty: true });
+                if (watchedItems[index].useSystem) {
+                    setValue(`mergeItems.${index}.useSystem`, false);
                 }
-            } catch (err) {
-                console.error('Error opening file dialog:', err);
-                toast({ 
-                    variant: "destructive", 
-                    title: "Error", 
-                    description: "Could not open file dialog" 
-                });
+                syncFileToMainForm(watchedItems[index].id, file);
+                setTimeout(() => {
+                    const currentState = getValues('mergeItems');
+                    mainForm.setValue('pdfMergeItems', currentState, { shouldDirty: false });
+                }, 0);
             }
         } else {
             // Fallback to browser file input
@@ -630,8 +655,15 @@ function PdfGenerationDialogContent({ onClose }: { onClose: () => void }) {
         formData.append('settings', JSON.stringify(getSettings()));
         formData.append('enableOcr', String(enableOcr));
         
+        cancelledRef.current = false;
+        abortControllerRef.current = new AbortController();
+        const { signal } = abortControllerRef.current;
+        
         try {
-            const result = await generatePdf(formData);
+            const result = await generatePdf(formData, signal);
+
+            // Abort if user cancelled while generation was running
+            if (cancelledRef.current) return;
 
             if (result.success && result.pdf) {
                 setProgress(100);
@@ -642,12 +674,16 @@ function PdfGenerationDialogContent({ onClose }: { onClose: () => void }) {
                     setIsProcessingOcr(true);
                     try {
                         const ocrResult = await window.electron.processOcr(result.pdf);
+                        // Abort if user cancelled during OCR
+                        if (cancelledRef.current) return;
                         if (!ocrResult.success) {
+                            if (ocrResult.error === 'cancelled') return;
                             throw new Error(ocrResult.error || 'OCR processing failed');
                         }
                         // Use OCR-processed PDF
                         result.pdf = ocrResult.pdf;
                     } catch (ocrError) {
+                        if (cancelledRef.current) return;
                         console.error('OCR processing failed:', ocrError);
                         const ocrMsg = ocrError instanceof Error ? ocrError.message : 'OCR processing failed. Saving original PDF.';
                         toast({ 
@@ -659,7 +695,10 @@ function PdfGenerationDialogContent({ onClose }: { onClose: () => void }) {
                         setIsProcessingOcr(false);
                     }
                 }
-                
+
+                // Final abort check before saving
+                if (cancelledRef.current) return;
+
                 // Generate filename based on petitioner name
                 const petitioners = projectData.petitioners;
                 const petitionerName =
@@ -679,6 +718,7 @@ function PdfGenerationDialogContent({ onClose }: { onClose: () => void }) {
                         });
                         if (savedPath) {
                             setProgress(100);
+                            incrementGenerationCount('paperbook');
                             toast({ title: "PDF Generated", description: `Saved to ${savedPath}` });
                             onClose();
                             return;
@@ -698,12 +738,14 @@ function PdfGenerationDialogContent({ onClose }: { onClose: () => void }) {
                 const blob = new Blob([byteArray], { type: "application/pdf" });
                 saveAs(blob, baseFileName);
                 setProgress(100);
+                incrementGenerationCount('paperbook');
                 toast({ title: "PDF Generated", description: "Your paper book has been downloaded." });
             } else {
                  setErrorMessage(result.message || "An unknown error occurred.");
                  setErrorDialogOpen(true);
             }
         } catch (error) {
+            if (cancelledRef.current) return;
             const errorMessageStr = error instanceof Error ? error.message : "An unknown error occurred during PDF generation.";
             setErrorMessage(errorMessageStr);
             setErrorDialogOpen(true);
@@ -960,6 +1002,21 @@ function PdfGenerationDialogContent({ onClose }: { onClose: () => void }) {
                     </AlertDialogAction>
                 </AlertDialogContent>
             </AlertDialog>
+
+            <AlertDialog open={showCloseConfirm} onOpenChange={setShowCloseConfirm}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>PDF Generation in Progress</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This action will terminate the PDF generation process. Continue?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmClose}>Continue</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </DialogContent>
     );
 }
@@ -969,7 +1026,13 @@ export function PdfGenerationDialog({ children }: { children: React.ReactNode })
     const [isOpen, setIsOpen] = useState(false);
     const [preCheckOpen, setPreCheckOpen] = useState(false);
     const [validation, setValidation] = useState<ValidationResult>({ warnings: [], issues: [] });
+    const isGeneratingRef = useRef(false);
+    const [showOuterCloseConfirm, setShowOuterCloseConfirm] = useState(false);
     const mainForm = useFormContext<DraftoProject>();
+
+    const handleGeneratingChange = useCallback((v: boolean) => {
+        isGeneratingRef.current = v;
+    }, []);
 
     const handleTriggerClick = () => {
         const data = mainForm.getValues();
@@ -1038,9 +1101,30 @@ export function PdfGenerationDialog({ children }: { children: React.ReactNode })
             </Dialog>
 
             {/* Main PDF generation dialog */}
-            <Dialog open={isOpen} onOpenChange={setIsOpen}>
-                {isOpen && <PdfGenerationDialogContent onClose={() => setIsOpen(false)} />}
+            <Dialog open={isOpen} onOpenChange={(open) => {
+                if (!open && isGeneratingRef.current) {
+                    setShowOuterCloseConfirm(true);
+                    return;
+                }
+                setIsOpen(open);
+            }}>
+                {isOpen && <PdfGenerationDialogContent onClose={() => setIsOpen(false)} onGeneratingChange={handleGeneratingChange} />}
             </Dialog>
+
+            <AlertDialog open={showOuterCloseConfirm} onOpenChange={setShowOuterCloseConfirm}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>PDF Generation in Progress</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This action will terminate the PDF generation process. Continue?
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setShowOuterCloseConfirm(false)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => { setShowOuterCloseConfirm(false); setIsOpen(false); }}>Continue</AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </>
     );
 }

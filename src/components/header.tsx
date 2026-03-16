@@ -36,7 +36,9 @@ import { PdfGenerationDialog } from "./dialogs/pdf-generation-dialog";
 import { LoadProjectDialog } from "./dialogs/load-project-dialog";
 import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
 import { getIaList } from "@/lib/ia-list-utils";
+import { restoreFileFromPath } from "@/lib/utils/pick-file";
 import { useAuthContext } from "@/providers/auth-provider";
+import { incrementGenerationCount } from "@/lib/firebase/usage-service";
 
 interface HeaderProps {
     undo: () => void;
@@ -105,173 +107,69 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   }, []);
   
   // Helper function to extract file paths from File objects for Electron
-  const extractFilePaths = async (data: any): Promise<any> => {
-    if (!window.electron?.getFilePath) {
-      // Not in Electron, return data as-is
-      return data;
+  // Reads the .path property that pickFile() attaches to every File object,
+  // strips the binary File from the serialised data, and saves the path string.
+  const extractFilePaths = (data: any): any => {
+    // Deep-clone via JSON, which drops non-serialisable File objects to undefined/null.
+    const cloned = JSON.parse(JSON.stringify(data, (_key, value) =>
+      value instanceof File ? undefined : value
+    ));
+
+    const getPath = (f: any): string | undefined =>
+      f instanceof File ? (f as any).path ?? undefined : undefined;
+
+    // listOfDates annexures
+    for (let i = 0; i < (data.listOfDates ?? []).length; i++) {
+      for (let j = 0; j < (data.listOfDates[i].annexures ?? []).length; j++) {
+        const annex = data.listOfDates[i].annexures[j];
+        const p = getPath(annex.file);
+        if (p) cloned.listOfDates[i].annexures[j].filePath = p;
+        const tp = getPath(annex.typedOrTranslatedFile);
+        if (tp) cloned.listOfDates[i].annexures[j].typedOrTranslatedFilePath = tp;
+      }
     }
 
-    const processedData = JSON.parse(JSON.stringify(data, (key, value) => {
-      // Replace File objects with null during stringify - we'll handle them separately
-      if (value instanceof File) {
-        return null;
-      }
-      return value;
-    }));
-
-    // Process listOfDates annexures
-    if (data.listOfDates && Array.isArray(data.listOfDates)) {
-      for (let i = 0; i < data.listOfDates.length; i++) {
-        const lod = data.listOfDates[i];
-        if (lod.annexures && Array.isArray(lod.annexures)) {
-          for (let j = 0; j < lod.annexures.length; j++) {
-            const annex = lod.annexures[j];
-            if (annex.file instanceof File) {
-              try {
-                const path = await window.electron!.getFilePath(annex.file);
-                if (processedData.listOfDates?.[i]?.annexures?.[j]) {
-                  processedData.listOfDates[i].annexures[j].filePath = path;
-                }
-              } catch (err) {
-                console.warn(`Could not extract path for file: ${annex.file.name}`, err);
-              }
-            }
-            if (annex.typedOrTranslatedFile instanceof File) {
-              try {
-                const path = await window.electron!.getFilePath(annex.typedOrTranslatedFile);
-                if (processedData.listOfDates?.[i]?.annexures?.[j]) {
-                  processedData.listOfDates[i].annexures[j].typedOrTranslatedFilePath = path;
-                }
-              } catch (err) {
-                console.warn(`Could not extract path for typed/translated file: ${annex.typedOrTranslatedFile.name}`, err);
-              }
-            }
-          }
+    // customIas grounds annexures
+    for (let i = 0; i < (data.customIas ?? []).length; i++) {
+      for (let j = 0; j < (data.customIas[i].grounds ?? []).length; j++) {
+        for (let k = 0; k < (data.customIas[i].grounds[j].annexures ?? []).length; k++) {
+          const annex = data.customIas[i].grounds[j].annexures[k];
+          const p = getPath(annex.file);
+          if (p) cloned.customIas[i].grounds[j].annexures[k].filePath = p;
         }
       }
     }
 
-    // Process IA annexures
-    const processIaAnnexures = async (iaList: any[]) => {
-      if (!iaList || !Array.isArray(iaList)) return;
-      
-      for (let i = 0; i < iaList.length; i++) {
-        const ia = iaList[i];
-        if (ia.grounds && Array.isArray(ia.grounds)) {
-          for (let j = 0; j < ia.grounds.length; j++) {
-            const ground = ia.grounds[j];
-            if (ground.annexures && Array.isArray(ground.annexures)) {
-              for (let k = 0; k < ground.annexures.length; k++) {
-                const annex = ground.annexures[k];
-                if (annex.file instanceof File) {
-                  try {
-                    const path = await window.electron!.getFilePath(annex.file);
-                    if (processedData[iaList === data.customIas ? 'customIas' : '']?.[i]?.grounds?.[j]?.annexures?.[k]) {
-                      const target = iaList === data.customIas ? processedData.customIas : processedData;
-                      if (target[i]?.grounds?.[j]?.annexures?.[k]) {
-                        target[i].grounds[j].annexures[k].filePath = path;
-                      }
-                    }
-                  } catch (err) {
-                    console.warn(`Could not extract path for IA file: ${annex.file.name}`, err);
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    };
-
-    await processIaAnnexures(data.customIas);
-
-    // Process standardIas annexures
-    if (data.standardIas) {
-      // Process condonationOfDelay grounds
-      if (data.standardIas.condonationOfDelay?.grounds && Array.isArray(data.standardIas.condonationOfDelay.grounds)) {
-        for (let i = 0; i < data.standardIas.condonationOfDelay.grounds.length; i++) {
-          const ground = data.standardIas.condonationOfDelay.grounds[i];
-          if (ground.annexures && Array.isArray(ground.annexures)) {
-            for (let j = 0; j < ground.annexures.length; j++) {
-              const annex = ground.annexures[j];
-              if (annex.file instanceof File) {
-                try {
-                  const path = await window.electron!.getFilePath(annex.file);
-                  if (processedData.standardIas?.condonationOfDelay?.grounds?.[i]?.annexures?.[j]) {
-                    processedData.standardIas.condonationOfDelay.grounds[i].annexures[j].typedOrTranslatedFilePath = path;
-                  }
-                } catch (err) {
-                  console.warn(`Could not extract path for condonation IA file: ${annex.file.name}`, err);
-                }
-              }
-            }
-          }
-        }
-      }
-      
-      // Process exemptionFromSurrendering grounds
-      if (data.standardIas.exemptionFromSurrendering?.grounds && Array.isArray(data.standardIas.exemptionFromSurrendering.grounds)) {
-        for (let i = 0; i < data.standardIas.exemptionFromSurrendering.grounds.length; i++) {
-          const ground = data.standardIas.exemptionFromSurrendering.grounds[i];
-          if (ground.annexures && Array.isArray(ground.annexures)) {
-            for (let j = 0; j < ground.annexures.length; j++) {
-              const annex = ground.annexures[j];
-              if (annex.file instanceof File) {
-                try {
-                  const path = await window.electron!.getFilePath(annex.file);
-                  if (processedData.standardIas?.exemptionFromSurrendering?.grounds?.[i]?.annexures?.[j]) {
-                    processedData.standardIas.exemptionFromSurrendering.grounds[i].annexures[j].typedOrTranslatedFilePath = path;
-                  }
-                } catch (err) {
-                  console.warn(`Could not extract path for exemption IA file: ${annex.file.name}`, err);
-                }
-              }
-            }
-          }
+    // standardIas grounds annexures
+    for (const key of ['condonationOfDelay', 'exemptionFromSurrendering'] as const) {
+      const grounds = data.standardIas?.[key]?.grounds ?? [];
+      for (let i = 0; i < grounds.length; i++) {
+        for (let j = 0; j < (grounds[i].annexures ?? []).length; j++) {
+          const annex = grounds[i].annexures[j];
+          const p = getPath(annex.file);
+          if (p) cloned.standardIas[key].grounds[i].annexures[j].filePath = p;
+          const tp = getPath(annex.typedOrTranslatedFile);
+          if (tp) cloned.standardIas[key].grounds[i].annexures[j].typedOrTranslatedFilePath = tp;
         }
       }
     }
 
-    // Process PDF merge items
-    if (data.pdfMergeItems && Array.isArray(data.pdfMergeItems)) {
-      for (let i = 0; i < data.pdfMergeItems.length; i++) {
-        const item = data.pdfMergeItems[i];
-        if (item.userFile instanceof File) {
-          try {
-            const path = await window.electron!.getFilePath(item.userFile);
-            if (processedData.pdfMergeItems?.[i]) {
-              processedData.pdfMergeItems[i].userFilePath = path;
-            }
-          } catch (err) {
-            console.warn(`Could not extract path for PDF merge file: ${item.userFile.name}`, err);
-          }
-        }
-      }
+    // PDF merge items
+    for (let i = 0; i < (data.pdfMergeItems ?? []).length; i++) {
+      const p = getPath(data.pdfMergeItems[i].userFile);
+      if (p) cloned.pdfMergeItems[i].userFilePath = p;
     }
 
-    // Process Appendix file
-    if (data.appendixFile instanceof File) {
-      try {
-        const path = await window.electron!.getFilePath(data.appendixFile);
-        processedData.appendixFilePath = path;
-      } catch (err) {
-        console.warn(`Could not extract path for appendix file: ${data.appendixFile.name}`, err);
-      }
-    }
+    // Appendix
+    const ap = getPath(data.appendixFile);
+    if (ap) cloned.appendixFilePath = ap;
 
-    // Process Certified Copy receipt file
-    if (data.standardIas?.exemptionCertifiedCopy?.receiptFile instanceof File) {
-      try {
-        const path = await window.electron!.getFilePath(data.standardIas.exemptionCertifiedCopy.receiptFile);
-        if (processedData.standardIas?.exemptionCertifiedCopy) {
-          processedData.standardIas.exemptionCertifiedCopy.receiptFilePath = path;
-        }
-      } catch (err) {
-        console.warn(`Could not extract path for certified copy receipt file: ${data.standardIas.exemptionCertifiedCopy.receiptFile.name}`, err);
-      }
-    }
+    // Certified copy receipt
+    const rp = getPath(data.standardIas?.exemptionCertifiedCopy?.receiptFile);
+    if (rp && cloned.standardIas?.exemptionCertifiedCopy)
+      cloned.standardIas.exemptionCertifiedCopy.receiptFilePath = rp;
 
-    return processedData;
+    return cloned;
   };
   
   const handleSave = async () => {
@@ -282,8 +180,8 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         ? "Untitled"
         : petitioners[0].name.replace(/\s+/g, "_").slice(0, 10);
 
-    // Extract file paths (Electron only)
-    const dataWithPaths = await extractFilePaths(data);
+    // Extract file paths and serialize (File objects are stripped; paths are preserved)
+    const dataWithPaths = extractFilePaths(data);
     const jsonString = JSON.stringify(dataWithPaths, null, 2);
 
     // Try Electron first; fall back to browser download
@@ -318,7 +216,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           const data = JSON.parse(content);
           
           // If running in Electron, restore File objects from saved paths
-          if (window.electron?.createFileFromPath) {
+          if (window.electron?.readFileByPath) {
             await restoreFilesFromPaths(data);
           }
           
@@ -343,7 +241,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       const data = JSON.parse(content);
       
       // If running in Electron, restore File objects from saved paths
-      if (window.electron?.createFileFromPath) {
+      if (window.electron?.readFileByPath) {
         await restoreFilesFromPaths(data);
       }
       
@@ -355,164 +253,88 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     }
   };
 
-  // Helper function to restore File objects from saved paths (Electron only)
+  // Helper function to restore File objects from saved paths (Electron only).
+  // restoreFileFromPath never throws — it returns null on any failure.
+  // Missing files are silently skipped; a single summary toast is shown at the end.
   const restoreFilesFromPaths = async (data: any) => {
-    if (!window.electron?.createFileFromPath) {
-      return;
+    if (!window.electron?.readFileByPath) return;
+
+    const missing: string[] = [];
+
+    const tryRestore = async (filePath: string | undefined, label: string): Promise<File | null> => {
+      if (!filePath) return null;
+      const file = await restoreFileFromPath(filePath);
+      if (!file) {
+        console.warn(`[RESTORE] FAILED: "${filePath}" (${label})`);
+        missing.push(filePath.split('\\').pop() || filePath.split('/').pop() || filePath);
+      }
+      return file;
+    };
+
+    const needsTypedOrTranslated = (copyType: string) =>
+      copyType === 'true and typed copy' || copyType === 'true and translated copy';
+
+    // listOfDates annexures
+    for (let li = 0; li < (data.listOfDates ?? []).length; li++) {
+      for (let ai = 0; ai < (data.listOfDates[li].annexures ?? []).length; ai++) {
+        const annex = data.listOfDates[li].annexures[ai];
+        if (annex.filePath && !(annex.file instanceof File))
+          annex.file = await tryRestore(annex.filePath, `lod[${li}].annex[${ai}].file`);
+        if (needsTypedOrTranslated(annex.copyType) && annex.typedOrTranslatedFilePath && !(annex.typedOrTranslatedFile instanceof File))
+          annex.typedOrTranslatedFile = await tryRestore(annex.typedOrTranslatedFilePath, `lod[${li}].annex[${ai}].typedOrTranslatedFile`);
+      }
     }
 
-    // Restore listOfDates annexures
-    if (data.listOfDates && Array.isArray(data.listOfDates)) {
-      for (let i = 0; i < data.listOfDates.length; i++) {
-        const lod = data.listOfDates[i];
-        if (lod.annexures && Array.isArray(lod.annexures)) {
-          for (let j = 0; j < lod.annexures.length; j++) {
-            const annex = lod.annexures[j];
-            
-            if (annex.filePath && !(annex.file instanceof File)) {
-              try {
-                annex.file = await window.electron.createFileFromPath(annex.filePath);
-              } catch (err) {
-                console.warn(`Could not restore file from path: ${annex.filePath}`, err);
-                toast({ 
-                  variant: "destructive", 
-                  title: "File Not Found", 
-                  description: `Could not find: ${annex.filePath.split('\\').pop() || annex.filePath.split('/').pop()}` 
-                });
-              }
-            }
-            if (annex.typedOrTranslatedFilePath && !annex.typedOrTranslatedFile) {
-              try {
-                console.log(`🔄 [RESTORE] Restoring typed/translated file from: ${annex.typedOrTranslatedFilePath}`);
-                annex.typedOrTranslatedFile = await window.electron.createFileFromPath(annex.typedOrTranslatedFilePath);
-                console.log(`🔄 [RESTORE] ✅ Typed/translated file restored`);
-              } catch (err) {
-                console.warn(`🔄 [RESTORE] ❌ Could not restore typed/translated file from path: ${annex.typedOrTranslatedFilePath}`, err);
-              }
-            }
-          }
+    // customIas grounds annexures
+    for (let ii = 0; ii < (data.customIas ?? []).length; ii++) {
+      for (let gi = 0; gi < (data.customIas[ii].grounds ?? []).length; gi++) {
+        for (let ai = 0; ai < (data.customIas[ii].grounds[gi].annexures ?? []).length; ai++) {
+          const annex = data.customIas[ii].grounds[gi].annexures[ai];
+          if (annex.filePath && !(annex.file instanceof File))
+            annex.file = await tryRestore(annex.filePath, `customIa[${ii}].ground[${gi}].annex[${ai}].file`);
+          if (needsTypedOrTranslated(annex.copyType) && annex.typedOrTranslatedFilePath && !(annex.typedOrTranslatedFile instanceof File))
+            annex.typedOrTranslatedFile = await tryRestore(annex.typedOrTranslatedFilePath, `customIa[${ii}].ground[${gi}].annex[${ai}].typedOrTranslatedFile`);
         }
       }
     }
 
-    // Restore IA annexures (customIas)
-    if (data.customIas && Array.isArray(data.customIas)) {
-      for (const ia of data.customIas) {
-        if (ia.grounds && Array.isArray(ia.grounds)) {
-          for (const ground of ia.grounds) {
-            if (ground.annexures && Array.isArray(ground.annexures)) {
-              for (const annex of ground.annexures) {
-                if (annex.filePath && !(annex.file instanceof File)) {
-                  try {
-                    annex.file = await window.electron.createFileFromPath(annex.filePath);
-                  } catch (err) {
-                    console.warn(`Could not restore custom IA file from path: ${annex.filePath}`, err);
-                    toast({ 
-                      variant: "destructive", 
-                      title: "File Not Found", 
-                      description: `Could not find: ${annex.filePath.split('\\').pop() || annex.filePath.split('/').pop()}` 
-                    });
-                  }
-                }
-              }
-            }
-          }
+    // standardIas grounds annexures
+    for (const key of ['condonationOfDelay', 'exemptionFromSurrendering'] as const) {
+      const grounds = data.standardIas?.[key]?.grounds ?? [];
+      for (let gi = 0; gi < grounds.length; gi++) {
+        for (let ai = 0; ai < (grounds[gi].annexures ?? []).length; ai++) {
+          const annex = grounds[gi].annexures[ai];
+          if (annex.filePath && !(annex.file instanceof File))
+            annex.file = await tryRestore(annex.filePath, `standardIas.${key}.ground[${gi}].annex[${ai}].file`);
+          if (needsTypedOrTranslated(annex.copyType) && annex.typedOrTranslatedFilePath && !(annex.typedOrTranslatedFile instanceof File))
+            annex.typedOrTranslatedFile = await tryRestore(annex.typedOrTranslatedFilePath, `standardIas.${key}.ground[${gi}].annex[${ai}].typedOrTranslated`);
         }
       }
     }
 
-    // Restore standardIas annexures
-    if (data.standardIas) {
-      
-      // Process condonationOfDelay grounds
-      if (data.standardIas.condonationOfDelay?.grounds && Array.isArray(data.standardIas.condonationOfDelay.grounds)) {
-        for (const ground of data.standardIas.condonationOfDelay.grounds) {
-          if (ground.annexures && Array.isArray(ground.annexures)) {
-            for (const annex of ground.annexures) {
-              if (annex.typedOrTranslatedFilePath && !(annex.file instanceof File)) {
-                try {
-                  annex.file = await window.electron.createFileFromPath(annex.typedOrTranslatedFilePath);
-                } catch (err) {
-                  console.warn(`Could not restore condonation IA file from path: ${annex.typedOrTranslatedFilePath}`, err);
-                  toast({ 
-                    variant: "destructive", 
-                    title: "File Not Found", 
-                    description: `Could not find: ${annex.typedOrTranslatedFilePath.split('\\').pop() || annex.typedOrTranslatedFilePath.split('/').pop()}` 
-                  });
-                }
-              }
-            }
-          }
-        }
-      }
-      
-      // Process exemptionFromSurrendering grounds
-      if (data.standardIas.exemptionFromSurrendering?.grounds && Array.isArray(data.standardIas.exemptionFromSurrendering.grounds)) {
-        for (const ground of data.standardIas.exemptionFromSurrendering.grounds) {
-          if (ground.annexures && Array.isArray(ground.annexures)) {
-            for (const annex of ground.annexures) {
-              if (annex.typedOrTranslatedFilePath && !(annex.file instanceof File)) {
-                try {
-                  annex.file = await window.electron.createFileFromPath(annex.typedOrTranslatedFilePath);
-                } catch (err) {
-                  console.warn(`Could not restore exemption IA file from path: ${annex.typedOrTranslatedFilePath}`, err);
-                  toast({ 
-                    variant: "destructive", 
-                    title: "File Not Found", 
-                    description: `Could not find: ${annex.typedOrTranslatedFilePath.split('\\').pop() || annex.typedOrTranslatedFilePath.split('/').pop()}` 
-                  });
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    
-    // Process PDF merge items
-    if (data.pdfMergeItems && Array.isArray(data.pdfMergeItems)) {
-      for (const item of data.pdfMergeItems) {
-        if (item.userFilePath && !(item.userFile instanceof File)) {
-          try {
-            item.userFile = await window.electron.createFileFromPath(item.userFilePath);
-          } catch (err) {
-            console.warn(`Could not restore PDF merge file from path: ${item.userFilePath}`, err);
-            toast({ 
-              variant: "destructive", 
-              title: "File Not Found", 
-              description: `Could not find: ${item.userFilePath.split('\\').pop() || item.userFilePath.split('/').pop()}` 
-            });
-          }
-        }
-      }
+    // PDF merge items
+    for (let pi = 0; pi < (data.pdfMergeItems ?? []).length; pi++) {
+      const item = data.pdfMergeItems[pi];
+      if (item.userFilePath && !(item.userFile instanceof File))
+        item.userFile = await tryRestore(item.userFilePath, `pdfMergeItem[${pi}].userFile`);
     }
 
-    // Restore Appendix file
-    if (data.appendixFilePath && !(data.appendixFile instanceof File)) {
-      try {
-        data.appendixFile = await window.electron.createFileFromPath(data.appendixFilePath);
-      } catch (err) {
-        console.warn(`Could not restore appendix file from path: ${data.appendixFilePath}`, err);
-        toast({ 
-          variant: "destructive", 
-          title: "File Not Found", 
-          description: `Could not find: ${data.appendixFilePath.split('\\').pop() || data.appendixFilePath.split('/').pop()}` 
-        });
-      }
-    }
+    // Appendix
+    if (data.appendixFilePath && !(data.appendixFile instanceof File))
+      data.appendixFile = await tryRestore(data.appendixFilePath, "appendixFile");
 
-    // Restore Certified Copy receipt file
-    if (data.standardIas?.exemptionCertifiedCopy?.receiptFilePath && !(data.standardIas.exemptionCertifiedCopy.receiptFile instanceof File)) {
-      try {
-        data.standardIas.exemptionCertifiedCopy.receiptFile = await window.electron.createFileFromPath(data.standardIas.exemptionCertifiedCopy.receiptFilePath);
-      } catch (err) {
-        console.warn(`Could not restore certified copy receipt file from path: ${data.standardIas.exemptionCertifiedCopy.receiptFilePath}`, err);
-        toast({ 
-          variant: "destructive", 
-          title: "File Not Found", 
-          description: `Could not find: ${data.standardIas.exemptionCertifiedCopy.receiptFilePath.split('\\').pop() || data.standardIas.exemptionCertifiedCopy.receiptFilePath.split('/').pop()}` 
-        });
-      }
+    // Certified copy receipt
+    const receipt = data.standardIas?.exemptionCertifiedCopy;
+    if (receipt?.receiptFilePath && !(receipt.receiptFile instanceof File))
+      data.standardIas.exemptionCertifiedCopy.receiptFile =
+        await tryRestore(receipt.receiptFilePath, "receipt.receiptFile");
+
+    if (missing.length > 0) {
+      toast({
+        variant: "destructive",
+        title: "Some files could not be restored",
+        description: `${missing.length} file(s) were not found on disk and will need to be re-selected: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? '…' : ''}`,
+      });
     }
   };
 
@@ -542,6 +364,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           projectFolder: petitionerName,
         });
         if (savedPath) {
+          incrementGenerationCount('docx');
           toast({ title: "DOCX Generated", description: `Saved to ${savedPath}` });
           return;
         }
@@ -560,6 +383,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     const blob = new Blob([byteArray], {
         type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     });
+    incrementGenerationCount('docx');
     saveAs(blob, fileName);
     toast({ title: "DOCX Generated", description: `Your document ${fileName} has been downloaded.` });
   };
@@ -702,7 +526,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   return (
     <header className="flex h-12 items-center justify-between border-b bg-card px-2">
       <div className="flex items-center gap-2">
-        <img src="/Drafto Logo.png" alt="Drafto Logo" className="h-7 w-auto" />
+        <img src="/drafto-logo.png" alt="Drafto Logo" className="h-7 w-auto" />
         <h1 className="font-headline text-lg font-bold">DraftoSLP</h1>
       </div>
       <div className="flex items-center gap-1">

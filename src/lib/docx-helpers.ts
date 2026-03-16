@@ -145,8 +145,7 @@ export const createSlpHeader = (caseType: string, ioText: string) => {
         }),
       ],
     }),
-    new Paragraph({ text: "" }),
-     new Paragraph({
+    new Paragraph({
       alignment: AlignmentType.JUSTIFIED,
       indent: { left: 720, right: 720 }, // 0.5 inch indent
       spacing: { line: 240, after: 360 }, // 18pt after
@@ -203,7 +202,6 @@ export const createIaHeader = (caseType: string) => {
         }),
       ],
     }),
-    new Paragraph({ text: "" }),
   ];
 };
 
@@ -445,6 +443,6 @@ export const createHtmlParagraph = (html: string): Paragraph[] => {
   return paragraphs;
 };
 
-export const base64ToBuffer = (b64: string): Buffer => {
-    return Buffer.from(b64, 'base64');
+export const base64ToBuffer = (b64: string): Uint8Array => {
+    return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 }

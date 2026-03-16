@@ -1936,6 +1936,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
     // 1. SLP Affidavit
     const slpAffidavitChildren = [
         ...createSlpHeader(caseType, ioText),
+        new Paragraph(""),
         ...createPartiesHeader(petHeader, resHeader),
         new Paragraph({ children: [new TextRun({ text: "AFFIDAVIT", bold: true })], alignment: AlignmentType.CENTER }),
         new Paragraph(deponentIntro),
@@ -1972,6 +1973,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
     iaList.forEach((ia, index) => {
         const iaAffidavitChildren = [
             ...createIaHeader(caseType),
+            new Paragraph(""),
             ...createPartiesHeader(petHeader, resHeader),
             new Paragraph({ children: [new TextRun({ text: "AFFIDAVIT", bold: true })], alignment: AlignmentType.CENTER }),
             new Paragraph(deponentIntro),
@@ -2113,7 +2115,7 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject) 
 
 // PDF conversion via Electron main process (IPC)
 // The actual conversion logic (Python/AppleScript) runs in electron/ipc/pdf-converter.js
-async function convertDocxToPdf(docxBuffer: Buffer): Promise<{ pdf: PDFDocument, pageCount: number }> {
+async function convertDocxToPdf(docxBuffer: Uint8Array): Promise<{ pdf: PDFDocument, pageCount: number }> {
     const result = await ipcConvertDocxToPdf(docxBuffer);
     if (!result.success || !result.pdfBase64) {
         throw new Error(result.error || 'PDF conversion failed');
@@ -2124,7 +2126,7 @@ async function convertDocxToPdf(docxBuffer: Buffer): Promise<{ pdf: PDFDocument,
     console.log(`[PDF Conversion] Successfully converted (${pageCount} pages)`);
     return { pdf: pdfDoc, pageCount };
 }
-export async function generatePdf(formData: FormData) {
+export async function generatePdf(formData: FormData, signal?: AbortSignal) {
     const fileMetasString = formData.get('fileMetas') as string;
     const projectDataString = formData.get('projectData') as string;
     const settingsString = formData.get('settings') as string | null;
@@ -2544,8 +2546,9 @@ export async function generatePdf(formData: FormData) {
     const docPageCounts: Map<string, DocPageInfo> = new Map();
     
     for (const meta of fileMetas) {
+        if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
         try {
-            let docxBuffer: Buffer | null = null;
+            let docxBuffer: Uint8Array | null = null;
             
             if (!meta.useSystem) {
                 // User uploaded file - load it
@@ -2649,6 +2652,7 @@ export async function generatePdf(formData: FormData) {
     let hasSeenImpugnedOrder = false; // Track when we switch to numeric
     
     for (const meta of fileMetas) {
+        if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
         const pageInfo = docPageCounts.get(meta.id);
         if (!pageInfo) continue;
         
@@ -2724,6 +2728,7 @@ export async function generatePdf(formData: FormData) {
     let trackingAnnexures = false;
     
     for (const meta of fileMetas) {
+        if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
         const pageInfo = docPageCounts.get(meta.id);
         if (!pageInfo) continue;
         
@@ -2808,6 +2813,7 @@ export async function generatePdf(formData: FormData) {
     console.log('[PDF GEN] Pass 2: Processing documents with calculated page ranges...');
 
     for (const meta of fileMetas) {
+        if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
         let pdfToMerge: PDFDocument | null = null;
         
         try {
@@ -2858,7 +2864,7 @@ export async function generatePdf(formData: FormData) {
                 if (result && result.success && result.docx) {
                     // Convert DOCX to PDF via Electron IPC
                     try {
-                        const docxBuffer = Buffer.from(result.docx, 'base64');
+                        const docxBuffer = Uint8Array.from(atob(result.docx), c => c.charCodeAt(0));
                         const { pdf } = await convertDocxToPdf(docxBuffer);
                         pdfToMerge = pdf;
                         console.log(`[PDF GEN] ${meta.id} converted successfully`);
@@ -3168,7 +3174,10 @@ export async function generatePdf(formData: FormData) {
     }
 
     const pdfBytes = await mergedPdf.save();
-    const pdfBase64 = Buffer.from(pdfBytes).toString('base64');
+    // Convert Uint8Array to base64 without Buffer (browser-safe)
+    let binary = '';
+    for (let i = 0; i < pdfBytes.byteLength; i++) binary += String.fromCharCode(pdfBytes[i]);
+    const pdfBase64 = btoa(binary);
 
     return { success: true, pdf: pdfBase64 };
 }

@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
+import { getGenerationCounts, type UsageCounts } from "@/lib/firebase/usage-service";
 
 type FontSize = 'small' | 'medium' | 'large';
 
@@ -30,6 +31,7 @@ const SETTINGS_KEY = "drafto-settings";
 export function SettingsDialog({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const [usageCounts, setUsageCounts] = useState<UsageCounts | null>(null);
   const [settings, setSettings] = useState<SettingsData>({
     defaultDocxPath: "",
     defaultPdfPath: "",
@@ -63,6 +65,13 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Fetch usage counts when dialog opens
+  useEffect(() => {
+    if (open) {
+      getGenerationCounts().then(setUsageCounts);
+    }
+  }, [open]);
+
   const handleSave = () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     
@@ -83,12 +92,11 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     
     if (window.electron?.selectDirectory) {
       try {
-        const path = await window.electron.selectDirectory();
-        console.log("Selected path:", path);
-        if (path) {
+        const selectedPath = await window.electron.selectDirectory();
+        if (selectedPath) {
           setSettings((prev) => ({
             ...prev,
-            [`default${type.charAt(0).toUpperCase() + type.slice(1)}Path`]: path,
+            [`default${type.charAt(0).toUpperCase() + type.slice(1)}Path`]: selectedPath,
           }));
         }
       } catch (err) {
@@ -225,6 +233,25 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 placeholder="1"
                 className="h-8 w-28 text-xs"
               />
+            </div>
+          </div>
+        </div>
+
+        {/* Usage Counters */}
+        <div className="border-t pt-3">
+          <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Your Usage</Label>
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            <div className="bg-muted/50 rounded-md p-3 text-center">
+              <p className="text-2xl font-bold tabular-nums">
+                {usageCounts === null ? "…" : usageCounts.paperbooksGenerated}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">Paperbooks Generated</p>
+            </div>
+            <div className="bg-muted/50 rounded-md p-3 text-center">
+              <p className="text-2xl font-bold tabular-nums">
+                {usageCounts === null ? "…" : usageCounts.docxGenerated}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">DOCX Files Generated</p>
             </div>
           </div>
         </div>

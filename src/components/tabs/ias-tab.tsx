@@ -32,6 +32,7 @@ import {
 import { standardIaList } from "@/lib/ia-list";
 import { DateInput } from "../custom/date-input";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui/resizable";
+import { pickFile } from "@/lib/utils/pick-file";
 
 // ─── Auto-included pill ──────────────────────────────────────────────────────
 function AutoPill({ label, active, detail }: { label: string; active: boolean; detail?: string }) {
@@ -94,7 +95,7 @@ function CcReceiptField({ control }: { control: any }) {
         const hasReceiptFile = field.value instanceof File;
         const handleReceiptClick = async () => {
           if (typeof window !== 'undefined' && (window as any).electron?.openFileDialog) {
-            const file = await (window as any).electron.openFileDialog();
+            const file = await pickFile();
             if (file) field.onChange(file);
           } else {
             receiptInputRef.current?.click();

@@ -21,6 +21,7 @@ import { PlusCircle, Trash2, Paperclip } from "lucide-react";
 import { Card, CardContent } from "../ui/card";
 import { cn } from "@/lib/utils";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { pickFile } from "@/lib/utils/pick-file";
 import {
   Tooltip,
   TooltipContent,
@@ -45,17 +46,11 @@ export function IaAnnexureDialog({ groundIndex, nestingKey, children, annexureNu
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const handleIconClick = async (index: number) => {
-    // If running in Electron, use native file dialog
     if (window.electron?.openFileDialog) {
-      try {
-        const file = await window.electron.openFileDialog();
-        if (file) {
-          const fieldName = `${nestingKey}.${groundIndex}.annexures.${index}.file` as const;
-          form.setValue(`${nestingKey}.${groundIndex}.annexures.${index}.file`, file, { shouldValidate: true, shouldDirty: true });
-          form.setValue(`${nestingKey}.${groundIndex}.annexures.${index}.filePath`, (file as any).path);
-        }
-      } catch (err) {
-        console.error('Error opening file dialog:', err);
+      const file = await pickFile();
+      if (file) {
+        form.setValue(`${nestingKey}.${groundIndex}.annexures.${index}.file`, file, { shouldValidate: true, shouldDirty: true });
+        form.setValue(`${nestingKey}.${groundIndex}.annexures.${index}.filePath`, (file as any).path);
       }
     } else {
       // Fallback to browser file input
