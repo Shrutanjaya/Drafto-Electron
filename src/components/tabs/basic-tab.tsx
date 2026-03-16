@@ -1,6 +1,7 @@
 
 "use client";
 
+import { useState } from "react";
 import { useFormContext, useWatch, useFieldArray } from "react-hook-form";
 import { PlusCircle, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -13,7 +14,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import type { DraftoProject, VaadiTableItem, ImpugnedOrder } from "@/lib/schema";
-import { impugnedOrderSchema } from "@/lib/schema";
+import { impugnedOrderSchema, commonOrderPartyGroupSchema } from "@/lib/schema";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui/resizable";
 import { VaadiTable } from "../custom/vaadi-table";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
@@ -79,13 +80,82 @@ function CauseTitle() {
   const form = useFormContext<DraftoProject>();
   const petitioners = useWatch({ control: form.control, name: "petitioners" });
   const respondents = useWatch({ control: form.control, name: "respondents" });
+  const isCommonOrder = useWatch({ control: form.control, name: "isCommonOrder" });
+  const commonOrderParties = useWatch({ control: form.control, name: "commonOrderParties" });
 
-  const petHeader = getPartyHeader(petitioners);
-  const resHeader = getPartyHeader(respondents);
+  const effectivePetitioners = isCommonOrder ? (commonOrderParties?.[0]?.petitioners ?? []) : petitioners;
+  const effectiveRespondents = isCommonOrder ? (commonOrderParties?.[0]?.respondents ?? []) : respondents;
+
+  const petHeader = getPartyHeader(effectivePetitioners);
+  const resHeader = getPartyHeader(effectiveRespondents);
 
   return (
     <div className="flex-grow rounded-md border bg-muted p-1 text-center">
       <p className="font-bold text-xs">{petHeader || "[Petitioners]"} v. {resHeader || "[Respondents]"}</p>
+    </div>
+  );
+}
+
+function CommonOrderGroupsUI() {
+  const form = useFormContext<DraftoProject>();
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: "commonOrderParties",
+  });
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">Add one group per HC petition disposed of by the common order.</p>
+      {fields.length === 0 && (
+        <div className="text-center text-xs text-muted-foreground border rounded-md p-4">
+          No groups yet. Click "Add Group" to add a party group for each HC petition.
+        </div>
+      )}
+      {fields.map((item, index) => (
+        <Card key={item.id} className="border-primary/30">
+          <CardContent className="p-2 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-xs text-primary shrink-0">Group {index + 1}</span>
+              <span className="text-xs text-muted-foreground shrink-0">— HC Case No.:</span>
+              <FormField
+                control={form.control}
+                name={`commonOrderParties.${index}.caseNumber`}
+                render={({ field }) => (
+                  <FormItem className="flex-grow">
+                    <FormControl>
+                      <Input {...field} placeholder="e.g. Bail Application No. 3679 of 2025" className="h-7 px-2 text-xs" />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+              {fields.length > 1 && (
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive shrink-0" onClick={() => remove(index)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2 h-[200px]">
+              <div className="flex flex-col overflow-hidden border rounded-md p-1">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Petitioners</h4>
+                <div className="flex-grow overflow-auto">
+                  <VaadiTable name={`commonOrderParties.${index}.petitioners` as `commonOrderParties.${number}.petitioners`} />
+                </div>
+              </div>
+              <div className="flex flex-col overflow-hidden border rounded-md p-1">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Respondents</h4>
+                <div className="flex-grow overflow-auto">
+                  <VaadiTable name={`commonOrderParties.${index}.respondents` as `commonOrderParties.${number}.respondents`} />
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+      <div className="flex justify-end">
+        <Button type="button" variant="outline" size="sm" onClick={() => append(commonOrderPartyGroupSchema.parse({}))}>
+          <PlusCircle className="mr-2 h-4 w-4" /> Add Group
+        </Button>
+      </div>
     </div>
   );
 }
@@ -203,6 +273,35 @@ function ImpugnedOrderSentence({ index }: { index: number }) {
     );
 }
 
+function isVaadiTableComplete(rows: VaadiTableItem[] | undefined): boolean {
+  const nonBlank = (rows ?? []).filter(r => r.name || r.address || r.positionInEarlierCourt);
+  if (nonBlank.length === 0) return false;
+  return nonBlank.every(r => !!r.name && !!r.address && !!r.positionInEarlierCourt);
+}
+
+function NavRow({ label, active, selected, onClick }: { label: string; active: boolean; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors flex items-center gap-2",
+        selected
+          ? "bg-primary text-primary-foreground dark:text-white"
+          : "hover:bg-muted text-foreground"
+      )}
+    >
+      <span className={cn(
+        "h-2 w-2 rounded-full flex-shrink-0",
+        active
+          ? selected ? "bg-green-300" : "bg-green-500"
+          : selected ? "bg-primary-foreground/40" : "bg-muted-foreground/30"
+      )} />
+      <span className="leading-snug">{label}</span>
+    </button>
+  );
+}
+
 export function BasicTab() {
   const form = useFormContext<DraftoProject>();
   const { fields, append, remove } = useFieldArray({
@@ -213,56 +312,153 @@ export function BasicTab() {
   const appealStatus = useWatch({ control: form.control, name: 'intraCourtAppealStatus' });
   const wantsDrawnBy = useWatch({ control: form.control, name: 'advocate.wantsDrawnBy' });
   const wantsSettledBy = useWatch({ control: form.control, name: 'advocate.wantsSettledBy' });
+  const isCommonOrder = useWatch({ control: form.control, name: 'isCommonOrder' });
+
+  // Nav dot watches
+  const petitionersWatch = useWatch({ control: form.control, name: 'petitioners' as any }) as VaadiTableItem[];
+  const respondentsWatch = useWatch({ control: form.control, name: 'respondents' as any }) as VaadiTableItem[];
+  const commonOrderPartiesWatch = useWatch({ control: form.control, name: 'commonOrderParties' });
+  const impugnedOrdersWatch = useWatch({ control: form.control, name: 'impugnedOrders' });
+  const intraCourtAppealReason = useWatch({ control: form.control, name: 'intraCourtAppealReason' });
+  const aorName = useWatch({ control: form.control, name: 'advocate.aorName' });
+  const aorCode = useWatch({ control: form.control, name: 'advocate.aorCode' });
+  const filingPlace = useWatch({ control: form.control, name: 'advocate.filingPlace' });
+  const drawnByName = useWatch({ control: form.control, name: 'advocate.drawnByName' });
+  const drawnByPlace = useWatch({ control: form.control, name: 'advocate.drawnByPlace' });
+  const settledByName = useWatch({ control: form.control, name: 'advocate.settledByName' });
+  const settledByPlace = useWatch({ control: form.control, name: 'advocate.settledByPlace' });
+  const deponentName = useWatch({ control: form.control, name: 'deponent.name' });
+  const deponentFatherName = useWatch({ control: form.control, name: 'deponent.fatherName' });
+  const deponentAddress = useWatch({ control: form.control, name: 'deponent.address' });
+  const deponentLocation = useWatch({ control: form.control, name: 'deponent.location' });
+  const deponentAge = useWatch({ control: form.control, name: 'deponent.age' });
+
+  const [selectedSection, setSelectedSection] = useState<'parties' | 'impugned' | 'advocates' | 'deponent'>('parties');
+
+  // Computed dot-active states
+  const partiesActive = isCommonOrder
+    ? (commonOrderPartiesWatch?.length > 0 && commonOrderPartiesWatch.every((g: any) =>
+        isVaadiTableComplete(g.petitioners) && isVaadiTableComplete(g.respondents)
+      ))
+    : (isVaadiTableComplete(petitionersWatch) && isVaadiTableComplete(respondentsWatch));
+
+  const impugnedActive = !!impugnedOrdersWatch?.length && impugnedOrdersWatch.every((io: any) =>
+    !!io.court && !!io.caseNumber && !!io.effect && (io.court !== 'Other' || !!io.customCourt)
+  ) && (appealStatus !== 'appeal_lies_but' || !!intraCourtAppealReason);
+
+  const advocatesActive = !!aorName && !!aorCode && !!filingPlace &&
+    (!wantsDrawnBy || (!!drawnByName && !!drawnByPlace)) &&
+    (!wantsSettledBy || (!!settledByName && !!settledByPlace));
+
+  const deponentActive = !!deponentName && !!deponentFatherName && !!deponentAddress &&
+    !!deponentLocation && !!deponentAge;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <CauseTitle />
       </div>
-      <ResizablePanelGroup direction="horizontal" className="h-[300px] max-h-[40vh] rounded-lg border" autoSaveId="basic-tab-panels">
-        <ResizablePanel defaultSize={50}>
-          <div className="flex flex-col h-full p-1">
-            <h3 className="font-headline text-sm font-bold text-primary mb-1">Petitioners</h3>
-            <div className="flex-grow overflow-auto"><VaadiTable name="petitioners" /></div>
+
+      <ResizablePanelGroup direction="horizontal" className="min-h-[520px] rounded-lg border" autoSaveId="basic-tab-unified-panels">
+        {/* LEFT: Section Nav */}
+        <ResizablePanel defaultSize={28} minSize={18} maxSize={40}>
+          <div className="flex flex-col h-full p-2 space-y-1">
+            <NavRow
+              label="Memo of Parties"
+              active={partiesActive}
+              selected={selectedSection === 'parties'}
+              onClick={() => setSelectedSection('parties')}
+            />
+            <NavRow
+              label="Impugned Order(s)"
+              active={impugnedActive}
+              selected={selectedSection === 'impugned'}
+              onClick={() => setSelectedSection('impugned')}
+            />
+            <NavRow
+              label="Advocates"
+              active={advocatesActive}
+              selected={selectedSection === 'advocates'}
+              onClick={() => setSelectedSection('advocates')}
+            />
+            <NavRow
+              label="Deponent"
+              active={deponentActive}
+              selected={selectedSection === 'deponent'}
+              onClick={() => setSelectedSection('deponent')}
+            />
           </div>
         </ResizablePanel>
+
         <ResizableHandle withHandle />
-        <ResizablePanel defaultSize={50}>
-          <div className="flex flex-col h-full p-1">
-            <h3 className="font-headline text-sm font-bold text-primary mb-1">Respondents</h3>
-            <div className="flex-grow overflow-auto"><VaadiTable name="respondents" /></div>
-          </div>
-        </ResizablePanel>
-      </ResizablePanelGroup>
-      
-      <ResizablePanelGroup direction="horizontal" className="min-h-[420px] rounded-lg border" autoSaveId="basic-tab-bottom-panels">
-        {/* LEFT: Impugned Orders */}
-        <ResizablePanel defaultSize={40} minSize={30}>
+
+        {/* RIGHT: Detail Panel */}
+        <ResizablePanel defaultSize={72} minSize={60}>
           <div className="flex flex-col h-full overflow-auto p-2 space-y-2">
-            <h3 className="font-headline text-sm font-bold text-primary">Impugned Order(s)</h3>
-            <div className="space-y-1">
-              {fields.map((item, index) => (
-                <div key={item.id} className="relative group">
-                    <ImpugnedOrderSentence index={index} />
-                    {fields.length > 1 && (
-                      <Button type="button" variant="ghost" size="icon" className="absolute top-0.5 right-0.5 text-destructive h-6 w-6 opacity-50 group-hover:opacity-100" onClick={() => remove(index)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+
+            {selectedSection === 'parties' && (
+              <>
+                <div className="flex justify-end">
+                  <FormField
+                    control={form.control}
+                    name="isCommonOrder"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center space-x-1.5 space-y-0">
+                        <FormControl>
+                          <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                        </FormControl>
+                        <FormLabel className="font-normal text-xs cursor-pointer whitespace-nowrap">Common Order</FormLabel>
+                      </FormItem>
                     )}
+                  />
                 </div>
-              ))}
-            </div>
-            {fields.length < 2 && (
-              <div className="flex justify-end">
-                <Button type="button" variant="outline" size="sm" onClick={() => append(impugnedOrderSchema.parse({}))}>
-                  <PlusCircle className="mr-2" /> Add Another Impugned Order
-                </Button>
-              </div>
+                {isCommonOrder ? (
+                  <CommonOrderGroupsUI />
+                ) : (
+                  <ResizablePanelGroup direction="horizontal" className="h-[300px] rounded-lg border" autoSaveId="basic-tab-parties-panels">
+                    <ResizablePanel defaultSize={50}>
+                      <div className="flex flex-col h-full p-1">
+                        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Petitioners</h4>
+                        <div className="flex-grow overflow-auto"><VaadiTable name="petitioners" /></div>
+                      </div>
+                    </ResizablePanel>
+                    <ResizableHandle withHandle />
+                    <ResizablePanel defaultSize={50}>
+                      <div className="flex flex-col h-full p-1">
+                        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Respondents</h4>
+                        <div className="flex-grow overflow-auto"><VaadiTable name="respondents" /></div>
+                      </div>
+                    </ResizablePanel>
+                  </ResizablePanelGroup>
+                )}
+              </>
             )}
 
-            <Card>
-              <CardContent className="p-2 space-y-2">
-                  <div className="flex flex-col space-y-1">
+            {selectedSection === 'impugned' && (
+              <>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Impugned Order(s)</h4>
+                <div className="space-y-1">
+                  {fields.map((item, index) => (
+                    <div key={item.id} className="relative group">
+                      <ImpugnedOrderSentence index={index} />
+                      {fields.length > 1 && (
+                        <Button type="button" variant="ghost" size="icon" className="absolute top-0.5 right-0.5 text-destructive h-6 w-6 opacity-50 group-hover:opacity-100" onClick={() => remove(index)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {fields.length < 2 && (
+                  <div className="flex justify-end">
+                    <Button type="button" variant="outline" size="sm" onClick={() => append(impugnedOrderSchema.parse({}))}>
+                      <PlusCircle className="mr-2" /> Add Another Impugned Order
+                    </Button>
+                  </div>
+                )}
+                <Card>
+                  <CardContent className="p-2 space-y-2">
+                    <div className="flex flex-col space-y-1">
                       <FormField
                         control={form.control}
                         name="intraCourtAppealStatus"
@@ -297,71 +493,67 @@ export function BasicTab() {
                           </FormItem>
                         )}
                       />
-                  </div>
-                  {appealStatus === 'appeal_lies_but' && (
-                    <FormField
-                      control={form.control}
-                      name="intraCourtAppealReason"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl><Textarea {...field} placeholder="provide reason..." className="text-xs" /></FormControl>
-                        </FormItem>
-                      )}
-                    />
-                  )}
-              </CardContent>
-            </Card>
-          </div>
-        </ResizablePanel>
+                    </div>
+                    {appealStatus === 'appeal_lies_but' && (
+                      <FormField
+                        control={form.control}
+                        name="intraCourtAppealReason"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl><Textarea {...field} placeholder="provide reason..." className="text-xs" /></FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            )}
 
-        <ResizableHandle withHandle />
+            {selectedSection === 'advocates' && (
+              <>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Advocates</h4>
+                <Card>
+                  <CardContent className="p-2 space-y-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
+                      Filed by
+                      <FormField control={form.control} name="advocate.aorName" render={({ field }) => ( <FormItem className="inline-block"><FormControl><Input {...field} placeholder="AoR Name" className="h-7 px-2 w-[150px]" /></FormControl></FormItem> )}/>,
+                      AoR having AoR Code
+                      <FormField control={form.control} name="advocate.aorCode" render={({ field }) => ( <FormItem className="inline-block"><FormControl><Input {...field} placeholder="Code" className="h-7 px-2 w-[80px]" /></FormControl></FormItem> )}/>
+                      on
+                      <FormField control={form.control} name="advocate.filingDate" render={({ field }) => (<FormItem className="inline-block"><FormControl><DateInput value={field.value} onChange={field.onChange} /></FormControl></FormItem>)}/>
+                      at
+                      <FormField control={form.control} name="advocate.filingPlace" render={({ field }) => ( <FormItem className="inline-block"><FormControl><Input {...field} placeholder="Place" className="h-7 px-2 w-[120px]" /></FormControl></FormItem> )}/>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
+                      <FormField control={form.control} name="advocate.wantsDrawnBy" render={({ field }) => (<FormItem className="flex items-center space-x-1"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl></FormItem>)}/>
+                      Drawn by
+                      <FormField control={form.control} name="advocate.drawnByName" render={({ field }) => ( <FormItem className="inline-block"><FormControl><Input {...field} placeholder="Drawn by Name" className="h-7 px-2 w-[150px]" disabled={!wantsDrawnBy} /></FormControl></FormItem> )}/>
+                      on
+                      <FormField control={form.control} name="advocate.drawnByDate" render={({ field }) => (<FormItem className="inline-block"><FormControl><DateInput value={field.value} onChange={field.onChange} disabled={!wantsDrawnBy} /></FormControl></FormItem>)}/>
+                      at
+                      <FormField control={form.control} name="advocate.drawnByPlace" render={({ field }) => ( <FormItem className="inline-block"><FormControl><Input {...field} placeholder="Place" className="h-7 px-2 w-[120px]" disabled={!wantsDrawnBy} /></FormControl></FormItem> )}/>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
+                      <FormField control={form.control} name="advocate.wantsSettledBy" render={({ field }) => (<FormItem className="flex items-center space-x-1"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl></FormItem>)}/>
+                      Settled by
+                      <FormField control={form.control} name="advocate.settledByName" render={({ field }) => ( <FormItem className="inline-block"><FormControl><Input {...field} placeholder="Settled by Name" className="h-7 px-2 w-[150px]" disabled={!wantsSettledBy} /></FormControl></FormItem> )}/>
+                      on
+                      <FormField control={form.control} name="advocate.settledByDate" render={({ field }) => (<FormItem className="inline-block"><FormControl><DateInput value={field.value} onChange={field.onChange} disabled={!wantsSettledBy} /></FormControl></FormItem>)}/>
+                      at
+                      <FormField control={form.control} name="advocate.settledByPlace" render={({ field }) => ( <FormItem className="inline-block"><FormControl><Input {...field} placeholder="Place" className="h-7 px-2 w-[120px]" disabled={!wantsSettledBy} /></FormControl></FormItem> )}/>
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            )}
 
-        {/* RIGHT: Advocates + Deponent */}
-        <ResizablePanel defaultSize={60} minSize={30}>
-          <div className="flex flex-col h-full overflow-auto p-2 space-y-2">
-            <div className="space-y-1">
-              <h3 className="font-headline text-sm font-bold text-primary">Advocates</h3>
-              <Card>
-                <CardContent className="p-2 space-y-2 text-xs">
-                  <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
-                    Filed by
-                    <FormField control={form.control} name="advocate.aorName" render={({ field }) => ( <FormItem className="inline-block"><FormControl><Input {...field} placeholder="AoR Name" className="h-7 px-2 w-[150px]" /></FormControl></FormItem> )}/>,
-                    AoR having AoR Code
-                    <FormField control={form.control} name="advocate.aorCode" render={({ field }) => ( <FormItem className="inline-block"><FormControl><Input {...field} placeholder="Code" className="h-7 px-2 w-[80px]" /></FormControl></FormItem> )}/>
-                    on
-                    <FormField control={form.control} name="advocate.filingDate" render={({ field }) => (<FormItem className="inline-block"><FormControl><DateInput value={field.value} onChange={field.onChange} /></FormControl></FormItem>)}/>
-                    at
-                    <FormField control={form.control} name="advocate.filingPlace" render={({ field }) => ( <FormItem className="inline-block"><FormControl><Input {...field} placeholder="Place" className="h-7 px-2 w-[120px]" /></FormControl></FormItem> )}/>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
-                    <FormField control={form.control} name="advocate.wantsDrawnBy" render={({ field }) => (<FormItem className="flex items-center space-x-1"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl></FormItem>)}/>
-                    Drawn by
-                    <FormField control={form.control} name="advocate.drawnByName" render={({ field }) => ( <FormItem className="inline-block"><FormControl><Input {...field} placeholder="Drawn by Name" className="h-7 px-2 w-[150px]" disabled={!wantsDrawnBy} /></FormControl></FormItem> )}/>
-                    on
-                    <FormField control={form.control} name="advocate.drawnByDate" render={({ field }) => (<FormItem className="inline-block"><FormControl><DateInput value={field.value} onChange={field.onChange} disabled={!wantsDrawnBy} /></FormControl></FormItem>)}/>
-                    at
-                    <FormField control={form.control} name="advocate.drawnByPlace" render={({ field }) => ( <FormItem className="inline-block"><FormControl><Input {...field} placeholder="Place" className="h-7 px-2 w-[120px]" disabled={!wantsDrawnBy} /></FormControl></FormItem> )}/>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
-                    <FormField control={form.control} name="advocate.wantsSettledBy" render={({ field }) => (<FormItem className="flex items-center space-x-1"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl></FormItem>)}/>
-                    Settled by
-                    <FormField control={form.control} name="advocate.settledByName" render={({ field }) => ( <FormItem className="inline-block"><FormControl><Input {...field} placeholder="Settled by Name" className="h-7 px-2 w-[150px]" disabled={!wantsSettledBy} /></FormControl></FormItem> )}/>
-                    on
-                    <FormField control={form.control} name="advocate.settledByDate" render={({ field }) => (<FormItem className="inline-block"><FormControl><DateInput value={field.value} onChange={field.onChange} disabled={!wantsSettledBy} /></FormControl></FormItem>)}/>
-                    at
-                    <FormField control={form.control} name="advocate.settledByPlace" render={({ field }) => ( <FormItem className="inline-block"><FormControl><Input {...field} placeholder="Place" className="h-7 px-2 w-[120px]" disabled={!wantsSettledBy} /></FormControl></FormItem> )}/>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="space-y-1">
-              <h3 className="font-headline text-sm font-bold text-primary">Deponent</h3>
-              <Card>
-                <CardContent className="p-2">
-                  <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs">
+            {selectedSection === 'deponent' && (
+              <>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Deponent</h4>
+                <Card>
+                  <CardContent className="p-2">
+                    <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs">
                       The Deponent is
                       <FormField
                         control={form.control}
@@ -377,7 +569,7 @@ export function BasicTab() {
                         name="deponent.relationship"
                         render={({ field }) => (
                           <FormItem className="inline-block">
-                             <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
                               <FormControl><SelectTrigger className="h-7 px-2 w-[120px]"><SelectValue /></SelectTrigger></FormControl>
                               <SelectContent>
                                 <SelectItem value="son of">son of</SelectItem>
@@ -433,7 +625,7 @@ export function BasicTab() {
                         name="deponent.role"
                         render={({ field }) => (
                           <FormItem className="inline-block">
-                             <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
                               <FormControl><SelectTrigger className="h-7 px-2 w-[240px]"><SelectValue /></SelectTrigger></FormControl>
                               <SelectContent>
                                 <SelectItem value="Petitioner">Petitioner</SelectItem>
@@ -444,17 +636,19 @@ export function BasicTab() {
                                 <SelectItem value="Authorised Representative of Petitioner No. 1">Authorised Representative of Petitioner No. 1</SelectItem>
                                 <SelectItem value="Legal Guardian of the Petitioner">Legal Guardian of the Petitioner</SelectItem>
                                 <SelectItem value="Legal Guardian of Petitioner No. 1">Legal Guardian of Petitioner No. 1</SelectItem>
-                                 <SelectItem value="Power of Attorney Holder of the Petitioner">Power of Attorney Holder of the Petitioner</SelectItem>
+                                <SelectItem value="Power of Attorney Holder of the Petitioner">Power of Attorney Holder of the Petitioner</SelectItem>
                                 <SelectItem value="Power of Attorney Holder of Petitioner No. 1">Power of Attorney Holder of Petitioner No. 1</SelectItem>
                               </SelectContent>
                             </Select>
                           </FormItem>
                         )}
                       />.
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            )}
+
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>

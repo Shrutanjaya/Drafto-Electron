@@ -129,8 +129,14 @@ const tableParagraphSpacing = {
 
 export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Map<number, string>) {
   const ioText = ` ${calculateIoText(projectData)}`;
-  const petHeader = getPartyHeader(projectData.petitioners);
-  const resHeader = getPartyHeader(projectData.respondents);
+  const effectivePetitioners = (projectData.isCommonOrder && (projectData.commonOrderParties?.length ?? 0) > 0)
+    ? projectData.commonOrderParties[0].petitioners
+    : projectData.petitioners;
+  const effectiveRespondents = (projectData.isCommonOrder && (projectData.commonOrderParties?.length ?? 0) > 0)
+    ? projectData.commonOrderParties[0].respondents
+    : projectData.respondents;
+  const petHeader = getPartyHeader(effectivePetitioners);
+  const resHeader = getPartyHeader(effectiveRespondents);
   
   if (projectData.impugnedOrders && projectData.impugnedOrders.length > 0 && projectData.advocate.filingDate) {
     const latestOrder = projectData.impugnedOrders.reduce((latest, current) => {
@@ -378,8 +384,14 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
 
 export async function generateOrDocx(projectData: DraftoProject) {
   const ioText = ` ${calculateIoText(projectData)}`;
-  const petHeader = getPartyHeader(projectData.petitioners);
-  const resHeader = getPartyHeader(projectData.respondents);
+  const effectivePetitioners = (projectData.isCommonOrder && (projectData.commonOrderParties?.length ?? 0) > 0)
+    ? projectData.commonOrderParties[0].petitioners
+    : projectData.petitioners;
+  const effectiveRespondents = (projectData.isCommonOrder && (projectData.commonOrderParties?.length ?? 0) > 0)
+    ? projectData.commonOrderParties[0].respondents
+    : projectData.respondents;
+  const petHeader = getPartyHeader(effectivePetitioners);
+  const resHeader = getPartyHeader(effectiveRespondents);
   const aorName = projectData.advocate.aorName || "[AoR Name]";
   
   const doc = new Document({
@@ -626,32 +638,18 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
 
 export async function generateSlpDocx(projectData: DraftoProject) {
     const ioText = ` ${calculateIoText(projectData)}`;
-    const petHeader = getPartyHeader(projectData.petitioners);
-    const resHeader = getPartyHeader(projectData.respondents);
-    
-    const petitionerRows = projectData.petitioners.map((p, i) => new TableRow({
-        children: [
-            new TableCell({ children: [new Paragraph({ text: `${i + 1}.`, alignment: AlignmentType.CENTER })] }),
-            new TableCell({ children: [
-                new Paragraph({ children: [smartTextRun({ text: p.name, bold: true })] }),
-                new Paragraph(p.address),
-            ] }),
-            new TableCell({ children: [new Paragraph({ text: p.positionInEarlierCourt, alignment: AlignmentType.CENTER })] }),
-            new TableCell({ children: [new Paragraph({ text: projectData.petitioners.length === 1 ? "Petitioner" : `Petitioner No. ${i + 1}`, alignment: AlignmentType.CENTER })] }),
-        ]
-    }));
 
-    const respondentRows = projectData.respondents.map((r, i) => new TableRow({
-        children: [
-            new TableCell({ children: [new Paragraph({ text: `${i + 1}.`, alignment: AlignmentType.CENTER })] }),
-            new TableCell({ children: [
-                new Paragraph({ children: [smartTextRun({ text: r.name, bold: true })] }),
-                new Paragraph(r.address),
-            ] }),
-            new TableCell({ children: [new Paragraph({ text: r.positionInEarlierCourt, alignment: AlignmentType.CENTER })] }),
-            new TableCell({ children: [new Paragraph({ text: projectData.respondents.length === 1 ? "Respondent" : `Respondent No. ${i + 1}`, alignment: AlignmentType.CENTER })] }),
-        ]
-    }));
+    // For common order, use first group's parties for the header/AOR certificate
+    const isCommonOrder = projectData.isCommonOrder && (projectData.commonOrderParties?.length ?? 0) > 0;
+    const effectivePetitioners = isCommonOrder
+        ? (projectData.commonOrderParties[0].petitioners ?? [])
+        : projectData.petitioners;
+    const effectiveRespondents = isCommonOrder
+        ? (projectData.commonOrderParties[0].respondents ?? [])
+        : projectData.respondents;
+
+    const petHeader = getPartyHeader(effectivePetitioners);
+    const resHeader = getPartyHeader(effectiveRespondents);
 
     const noBorders = {
         top: { style: BorderStyle.NONE, size: 0, color: "auto" },
@@ -662,47 +660,130 @@ export async function generateSlpDocx(projectData: DraftoProject) {
         insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
     };
 
-    const partiesTable = new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        columnWidths: [5, 45, 25, 25].map(v => v * 100),
-        borders: noBorders,
-        rows: [
-            new TableRow({
-                children: [
-                    new TableCell({
-                        children: [new Paragraph({ children: [smartTextRun({ text: "S.No.", bold: true })], alignment: AlignmentType.CENTER })],
-                        rowSpan: 2,
-                        verticalAlign: VerticalAlign.CENTER
-                    }),
-                    new TableCell({
-                        children: [new Paragraph({ children: [smartTextRun({ text: "Name and Address", bold: true })], alignment: AlignmentType.CENTER })],
-                        rowSpan: 2,
-                        verticalAlign: VerticalAlign.CENTER
-                    }),
-                    new TableCell({
-                        children: [new Paragraph({ children: [smartTextRun({ text: "Position of Parties", bold: true })], alignment: AlignmentType.CENTER })],
-                        columnSpan: 2,
-                    }),
-                ]
+    // Helper: build the 4-column parties table from any petitioners + respondents arrays
+    const buildPartiesTable = (
+        petitioners: typeof projectData.petitioners,
+        respondents: typeof projectData.respondents,
+    ) => {
+        const petRows = petitioners.map((p, i) => new TableRow({
+            children: [
+                new TableCell({ children: [new Paragraph({ text: `${i + 1}.`, alignment: AlignmentType.CENTER })] }),
+                new TableCell({ children: [
+                    new Paragraph({ children: [smartTextRun({ text: p.name, bold: true })] }),
+                    new Paragraph(p.address),
+                ] }),
+                new TableCell({ children: [new Paragraph({ text: p.positionInEarlierCourt, alignment: AlignmentType.CENTER })] }),
+                new TableCell({ children: [new Paragraph({ text: petitioners.length === 1 ? "Petitioner" : `Petitioner No. ${i + 1}`, alignment: AlignmentType.CENTER })] }),
+            ]
+        }));
+        const resRows = respondents.map((r, i) => new TableRow({
+            children: [
+                new TableCell({ children: [new Paragraph({ text: `${i + 1}.`, alignment: AlignmentType.CENTER })] }),
+                new TableCell({ children: [
+                    new Paragraph({ children: [smartTextRun({ text: r.name, bold: true })] }),
+                    new Paragraph(r.address),
+                ] }),
+                new TableCell({ children: [new Paragraph({ text: r.positionInEarlierCourt, alignment: AlignmentType.CENTER })] }),
+                new TableCell({ children: [new Paragraph({ text: respondents.length === 1 ? "Respondent" : `Respondent No. ${i + 1}`, alignment: AlignmentType.CENTER })] }),
+            ]
+        }));
+        return new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            columnWidths: [5, 45, 25, 25].map(v => v * 100),
+            borders: noBorders,
+            rows: [
+                new TableRow({
+                    children: [
+                        new TableCell({
+                            children: [new Paragraph({ children: [smartTextRun({ text: "S.No.", bold: true })], alignment: AlignmentType.CENTER })],
+                            rowSpan: 2,
+                            verticalAlign: VerticalAlign.CENTER
+                        }),
+                        new TableCell({
+                            children: [new Paragraph({ children: [smartTextRun({ text: "Name and Address", bold: true })], alignment: AlignmentType.CENTER })],
+                            rowSpan: 2,
+                            verticalAlign: VerticalAlign.CENTER
+                        }),
+                        new TableCell({
+                            children: [new Paragraph({ children: [smartTextRun({ text: "Position of Parties", bold: true })], alignment: AlignmentType.CENTER })],
+                            columnSpan: 2,
+                        }),
+                    ]
+                }),
+                new TableRow({
+                    children: [
+                        new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: "Before the High Court/ Earlier Court", bold: true })], alignment: AlignmentType.CENTER })] }),
+                        new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: "Before this Hon'ble Court", bold: true })], alignment: AlignmentType.CENTER })] }),
+                    ]
+                }),
+                ...petRows,
+                new TableRow({
+                    children: [
+                        new TableCell({
+                            children: [new Paragraph({ text: "Versus", alignment: AlignmentType.CENTER })],
+                            columnSpan: 4,
+                        }),
+                    ]
+                }),
+                ...resRows
+            ],
+        });
+    };
+
+    // Build the BETWEEN blocks (either single or multiple for common order)
+    const betweenBlocks: (Paragraph | Table)[] = [];
+    if (isCommonOrder) {
+        const currentYear = new Date().getFullYear();
+        const mainOrder = projectData.impugnedOrders?.[0];
+        const courtName = mainOrder?.court === 'Other' ? mainOrder?.customCourt : mainOrder?.court;
+        const orderDate = mainOrder?.date ? format(new Date(mainOrder.date), "dd.MM.yyyy") : '[date]';
+
+        // Title block: IN THE SUPREME COURT OF INDIA + jurisdiction (shown once)
+        betweenBlocks.push(
+            new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { line: 240, after: 240 },
+                children: [smartTextRun({ text: "IN THE SUPREME COURT OF INDIA", size: 28 })],
             }),
-            new TableRow({
-                children: [
-                    new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: "Before the High Court/ Earlier Court", bold: true })], alignment: AlignmentType.CENTER })] }),
-                    new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: "Before this Hon'ble Court", bold: true })], alignment: AlignmentType.CENTER })] }),
-                ]
+            new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { line: 240, after: 240 },
+                children: [smartTextRun({ text: `${projectData.caseType} Appellate Jurisdiction`, italics: true, size: 28 })],
             }),
-            ...petitionerRows,
-            new TableRow({
-                children: [
-                    new TableCell({
-                        children: [new Paragraph({ text: "Versus", alignment: AlignmentType.CENTER })],
-                        columnSpan: 4,
-                    }),
-                ]
-            }),
-            ...respondentRows
-        ],
-    });
+        );
+
+        // One block per common order group
+        for (const group of projectData.commonOrderParties) {
+            const groupCaseNumber = group.caseNumber || '[Case No.]';
+            const groupIoText = mainOrder
+                ? ` the Impugned ${mainOrder.type} dated ${orderDate} passed by the ${courtName || '[Court]'} in ${groupCaseNumber}`
+                : ioText;
+
+            betweenBlocks.push(
+                new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    spacing: { line: 240, after: 240 },
+                    children: [smartTextRun({ text: `Special Leave Petition (${projectData.caseType}) No. _______ of ${currentYear}`, bold: true, size: 28 })],
+                }),
+                new Paragraph({
+                    alignment: AlignmentType.JUSTIFIED,
+                    indent: { left: 720, right: 720 },
+                    spacing: { line: 240, after: 360 },
+                    children: [smartTextRun({ text: `Against${groupIoText}` })],
+                }),
+                new Paragraph({ text: "BETWEEN:", spacing: { after: 0, before: 0, line: 240 } }),
+                buildPartiesTable(group.petitioners ?? [], group.respondents ?? []),
+                new Paragraph(""),
+            );
+        }
+    } else {
+        betweenBlocks.push(
+            ...createSlpHeader(projectData.caseType, ioText),
+            new Paragraph({ text: "BETWEEN:", spacing: { after: 0, before: 0, line: 240 } }),
+            buildPartiesTable(effectivePetitioners, effectiveRespondents),
+            new Paragraph(""),
+        );
+    }
 
     const hcAction = projectData.impugnedOrders.map(o => o.effect).join('; ');
     const allAnnexures: Annexure[] = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
@@ -1006,10 +1087,7 @@ export async function generateSlpDocx(projectData: DraftoProject) {
     const sections: ISectionOptions[] = [{
         properties: { page: { margin: defaultMargins } },
         children: [
-            ...createSlpHeader(projectData.caseType, ioText),
-            new Paragraph({ text: "BETWEEN:", spacing: { after: 0, before: 0, line: 240 } }),
-            partiesTable,
-            new Paragraph(""),
+            ...betweenBlocks,
             new Paragraph({
                 alignment: AlignmentType.LEFT,
                 children: [

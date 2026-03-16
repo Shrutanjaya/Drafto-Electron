@@ -12,11 +12,11 @@ export function Workspace() {
   return (
     <Tabs defaultValue="slp" className="p-1">
       <TabsList className="grid w-full grid-cols-5">
-        <TabsTrigger value="basic">Basic Info</TabsTrigger>
-        <TabsTrigger value="slp">The SLP</TabsTrigger>
-        <TabsTrigger value="ias">The IAs</TabsTrigger>
+        <TabsTrigger value="basic">Preliminary</TabsTrigger>
+        <TabsTrigger value="slp">Petition</TabsTrigger>
+        <TabsTrigger value="ias">Applications</TabsTrigger>
         <TabsTrigger value="proforma">Listing Proforma</TabsTrigger>
-        <TabsTrigger value="checklist">Advocate's Checklist</TabsTrigger>
+        <TabsTrigger value="checklist">Checklist</TabsTrigger>
       </TabsList>
       
       <TabsContent value="basic" className="mt-1">

@@ -28,9 +28,55 @@ const certificateItems = [
 ] as const;
 
 
-export function DeclarationsDialog() {
+export function DeclarationsContent() {
   const form = useFormContext<DraftoProject>()
+  return (
+    <div className="space-y-2 py-1">
+      <div>
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">DECLARATIONS BY THE PETITIONER:</h4>
+        <div className="space-y-1">
+          {declarationItems.map(item => (
+            <FormField
+              key={item.name}
+              control={form.control}
+              name={item.name}
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-2 space-y-0">
+                  <FormControl>
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
+                  <FormLabel className="font-normal text-xs">{item.label}</FormLabel>
+                </FormItem>
+              )}
+            />
+          ))}
+        </div>
+      </div>
+      <div>
+        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">CERTIFICATE BY THE AOR:</h4>
+        <div className="space-y-1">
+          {certificateItems.map(item => (
+            <FormField
+              key={item.name}
+              control={form.control}
+              name={item.name}
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-start space-x-2 space-y-0">
+                  <FormControl>
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
+                  <FormLabel className="font-normal text-xs">{item.label}</FormLabel>
+                </FormItem>
+              )}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
 
+export function DeclarationsDialog() {
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -40,58 +86,7 @@ export function DeclarationsDialog() {
         <DialogHeader>
           <DialogTitle>Declarations and Certificate</DialogTitle>
         </DialogHeader>
-        <div className="space-y-2 py-1">
-            <div>
-                <h4 className="font-bold text-xs mb-1">DECLARATIONS BY THE PETITIONER:</h4>
-                <div className="space-y-1">
-                    {declarationItems.map(item => (
-                         <FormField
-                            key={item.name}
-                            control={form.control}
-                            name={item.name}
-                            render={({ field }) => (
-                                <FormItem className="flex flex-row items-start space-x-2 space-y-0">
-                                <FormControl>
-                                    <Checkbox
-                                    checked={field.value}
-                                    onCheckedChange={field.onChange}
-                                    />
-                                </FormControl>
-                                <FormLabel className="font-normal text-xs">
-                                    {item.label}
-                                </FormLabel>
-                                </FormItem>
-                            )}
-                        />
-                    ))}
-                </div>
-            </div>
-            <div>
-                <h4 className="font-bold text-xs mb-1">CERTIFICATE BY THE AOR:</h4>
-                <div className="space-y-1">
-                    {certificateItems.map(item => (
-                         <FormField
-                            key={item.name}
-                            control={form.control}
-                            name={item.name}
-                            render={({ field }) => (
-                                <FormItem className="flex flex-row items-start space-x-2 space-y-0">
-                                <FormControl>
-                                    <Checkbox
-                                    checked={field.value}
-                                    onCheckedChange={field.onChange}
-                                    />
-                                </FormControl>
-                                <FormLabel className="font-normal text-xs">
-                                    {item.label}
-                                </FormLabel>
-                                </FormItem>
-                            )}
-                        />
-                    ))}
-                </div>
-            </div>
-        </div>
+        <DeclarationsContent />
         <DialogFooter>
           <DialogClose asChild>
             <Button type="button" size="sm">Done</Button>

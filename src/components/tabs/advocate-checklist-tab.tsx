@@ -121,7 +121,7 @@ export function AdvocateChecklistTab() {
 
   return (
     <div className="space-y-2">
-      <h2 className="font-headline text-sm font-bold text-primary">
+      <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
         Advocate's Checklist
       </h2>
       <div className="space-y-1 rounded-md border p-2">

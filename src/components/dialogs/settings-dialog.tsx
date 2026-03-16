@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getGenerationCounts, type UsageCounts } from "@/lib/firebase/usage-service";
 
 type FontSize = 'small' | 'medium' | 'large';
+type SlpTabView = 'splitter' | 'navigation';
 
 interface SettingsData {
   defaultDocxPath: string;
@@ -24,6 +25,7 @@ interface SettingsData {
   annexureLabelBackground: boolean;
   autosaveInterval: number;
   toastDuration: number;
+  slpTabView: SlpTabView;
 }
 
 const SETTINGS_KEY = "drafto-settings";
@@ -39,6 +41,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     annexureLabelBackground: false,
     autosaveInterval: 60,
     toastDuration: 1,
+    slpTabView: 'splitter',
   });
 
   // Load settings from localStorage on mount
@@ -54,6 +57,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           annexureLabelBackground: parsed.annexureLabelBackground ?? false,
           autosaveInterval: parsed.autosaveInterval ?? 60,
           toastDuration: parsed.toastDuration ?? 1,
+          slpTabView: (parsed.slpTabView || 'splitter') as SlpTabView,
         });
         // Apply font size on load
         if (parsed.fontSize) {
@@ -74,7 +78,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
 
   const handleSave = () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    
+    window.dispatchEvent(new CustomEvent('drafto-settings-changed'));
     // Apply font size to HTML element
     applyFontSize(settings.fontSize);
     
@@ -234,6 +238,27 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 className="h-8 w-28 text-xs"
               />
             </div>
+
+            {/* SLP Tab View */}
+            <div className="space-y-1 col-span-2">
+              <Label className="text-xs">SLP Tab View</Label>
+              <RadioGroup
+                value={settings.slpTabView}
+                onValueChange={(value: SlpTabView) =>
+                  setSettings((prev) => ({ ...prev, slpTabView: value }))
+                }
+                className="flex gap-3"
+              >
+                {(['splitter', 'navigation'] as SlpTabView[]).map((v) => (
+                  <div key={v} className="flex items-center gap-1.5">
+                    <RadioGroupItem value={v} id={`slp-view-${v}`} />
+                    <Label htmlFor={`slp-view-${v}`} className="text-xs font-normal cursor-pointer">
+                      {v === 'splitter' ? 'Splitter View' : 'Navigation View'}
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
+            </div>
           </div>
         </div>
 
@@ -288,6 +313,7 @@ export function getSettings(): SettingsData {
       annexureLabelBackground: false,
       autosaveInterval: 60,
       toastDuration: 1,
+      slpTabView: 'splitter' as SlpTabView,
     };
   }
 
@@ -302,6 +328,7 @@ export function getSettings(): SettingsData {
         annexureLabelBackground: parsed.annexureLabelBackground ?? false,
         autosaveInterval: parsed.autosaveInterval ?? 60,
         toastDuration: parsed.toastDuration ?? 1,
+        slpTabView: (parsed.slpTabView || 'splitter') as SlpTabView,
       };
     } catch (err) {
       console.error("Failed to parse settings:", err);
@@ -315,6 +342,7 @@ export function getSettings(): SettingsData {
     annexureLabelBackground: false,
     autosaveInterval: 60,
     toastDuration: 1,
+    slpTabView: 'splitter' as SlpTabView,
   };
 }
 

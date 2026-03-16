@@ -69,11 +69,11 @@ export function CustomIaCard({ index, onRemove }: CustomIaCardProps) {
         <CollapsibleContent>
           <CardContent className="p-1 pt-0 space-y-1">
             <div>
-              <h4 className="font-bold text-xs mb-1">Grounds</h4>
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Grounds</h4>
               <IaGroundTable name={`customIas.${index}.grounds`} />
             </div>
             <div>
-              <h4 className="font-bold text-xs mb-1">Prayers</h4>
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Prayers</h4>
               <AamTable name={`customIas.${index}.prayers`} />
             </div>
           </CardContent>

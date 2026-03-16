@@ -38,7 +38,11 @@ import { CSS } from '@dnd-kit/utilities';
 import React, { useEffect, useState } from "react"
 import { Input } from "../ui/input"
 
-type VaadiTableName = "petitioners" | "respondents";
+type VaadiTableName =
+  | "petitioners"
+  | "respondents"
+  | `commonOrderParties.${number}.petitioners`
+  | `commonOrderParties.${number}.respondents`;
 
 interface VaadiTableProps {
     name: VaadiTableName;
@@ -90,7 +94,7 @@ export function VaadiTable({ name, disabled = false }: VaadiTableProps) {
   const form = useFormContext<DraftoProject>()
   const { fields, append, remove, move } = useFieldArray({
     control: form.control,
-    name: name,
+    name: name as "petitioners",
   })
 
   const sensors = useSensors(
@@ -141,7 +145,7 @@ export function VaadiTable({ name, disabled = false }: VaadiTableProps) {
                         <TableCell className="p-0">
                           <FormField
                             control={form.control}
-                            name={`${name}.${index}.name`}
+                            name={`${name}.${index}.name` as any}
                             render={({ field }) => (
                               <FormItem>
                                 <FormControl>
@@ -154,7 +158,7 @@ export function VaadiTable({ name, disabled = false }: VaadiTableProps) {
                         <TableCell className="p-0">
                           <FormField
                             control={form.control}
-                            name={`${name}.${index}.address`}
+                            name={`${name}.${index}.address` as any}
                             render={({ field }) => (
                               <FormItem>
                                 <FormControl>
@@ -167,7 +171,7 @@ export function VaadiTable({ name, disabled = false }: VaadiTableProps) {
                         <TableCell className="p-0">
                           <FormField
                             control={form.control}
-                            name={`${name}.${index}.positionInEarlierCourt`}
+                            name={`${name}.${index}.positionInEarlierCourt` as any}
                             render={({ field }) => (
                               <FormItem>
                                 <FormControl>

@@ -71,6 +71,14 @@ export const impugnedOrderSchema = z.object({
   effect: z.string().default(""),
 });
 
+export const commonOrderPartyGroupSchema = z.object({
+  id: z.string().default(() => `copg_${Math.random()}`),
+  caseNumber: z.string().default(""),
+  petitioners: z.array(vaadiTableItemSchema).default([vaadiTableItemSchema.parse({})]),
+  respondents: z.array(vaadiTableItemSchema).default([vaadiTableItemSchema.parse({})]),
+});
+export type CommonOrderPartyGroup = z.infer<typeof commonOrderPartyGroupSchema>;
+
 const legalProvisionSchema = z.object({
   id: z.string().default(() => `lp_${Math.random()}`),
   type: z.enum(['Central Act', 'Central Rule', 'State Act', 'State Rule']).default('Central Act'),
@@ -105,6 +113,8 @@ export const draftoProjectSchema = z.object({
   petitioners: z.array(vaadiTableItemSchema).default([vaadiTableItemSchema.parse({})]),
   respondents: z.array(vaadiTableItemSchema).default([vaadiTableItemSchema.parse({})]),
   caseType: z.enum(["Civil", "Criminal"]).default("Civil"),
+  isCommonOrder: z.boolean().default(false),
+  commonOrderParties: z.array(commonOrderPartyGroupSchema).default([]),
   impugnedOrders: z.array(impugnedOrderSchema).default([impugnedOrderSchema.parse({})]),
   intraCourtAppealStatus: z.enum(["", "no_appeal_lies", "appeal_lies_but"]).default(""),
   intraCourtAppealReason: z.string().default(""),
