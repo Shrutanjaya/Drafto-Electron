@@ -2342,11 +2342,12 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
             rotationAngle = 0;
         }
         
-        // Draw white background if enabled in settings
+        // Draw white background rectangle (all rotation angles)
         if (settings.annexureLabelBackground) {
-            const padding = 4; // 4 points padding around text
-            
+            const padding = 4;
+
             if (rotation === 0) {
+                // Normal: text flows right, ascent goes up
                 firstPage.drawRectangle({
                     x: headerX - padding,
                     y: headerY - padding,
@@ -2354,9 +2355,37 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
                     height: fontSize + (padding * 2),
                     color: rgb(1, 1, 1),
                 });
+            } else if (rotation === 90) {
+                // CCW 90°: text advances downward (−y), ascent goes right (+x)
+                // Text spans y: [headerY − textWidth, headerY], x: [headerX, headerX + fontSize]
+                firstPage.drawRectangle({
+                    x: headerX - padding,
+                    y: headerY - textWidth - padding,
+                    width: fontSize + (padding * 2),
+                    height: textWidth + (padding * 2),
+                    color: rgb(1, 1, 1),
+                });
+            } else if (rotation === 270) {
+                // 270° (CW 90°): text advances upward (+y), ascent goes left (−x)
+                // Text spans y: [headerY, headerY + textWidth], x: [headerX − fontSize, headerX]
+                firstPage.drawRectangle({
+                    x: headerX - fontSize - padding,
+                    y: headerY - padding,
+                    width: fontSize + (padding * 2),
+                    height: textWidth + (padding * 2),
+                    color: rgb(1, 1, 1),
+                });
+            } else if (rotation === 180) {
+                // 180°: text advances left (−x), ascent goes down (−y)
+                // Text spans x: [headerX − textWidth, headerX], y: [headerY − fontSize, headerY]
+                firstPage.drawRectangle({
+                    x: headerX - textWidth - padding,
+                    y: headerY - fontSize - padding,
+                    width: textWidth + (padding * 2),
+                    height: fontSize + (padding * 2),
+                    color: rgb(1, 1, 1),
+                });
             }
-            // Note: Background rectangles for rotated pages would need more complex calculations
-            // For now, only draw background on non-rotated pages
         }
         
         // Draw text
