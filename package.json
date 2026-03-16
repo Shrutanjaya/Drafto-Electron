@@ -85,7 +85,7 @@
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.1.2",
     "electron": "^28.3.3",
-    "electron-builder": "^24.13.3",
+    "electron-builder": "^26.8.1",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "typescript": "^5",
@@ -136,7 +136,6 @@
         }
       ],
       "verifyUpdateCodeSignature": false,
-      "publisherName": "Quindoph Legal Pvt. Ltd.",
       "artifactName": "${productName}-Setup-${version}.${ext}",
       "fileAssociations": [
         {
