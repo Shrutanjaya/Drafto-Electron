@@ -65,7 +65,7 @@ export const createListingProforma = (data: DraftoProject) => {
     const judgeNames = proforma.general.judgesPassedImpugned;
     const hcName = data.impugnedOrders[0]?.court === 'Other' ? data.impugnedOrders[0]?.customCourt : data.impugnedOrders[0]?.court;
 
-    const formatDate = (dateStr: string) => { try { return format(new Date(dateStr), "dd.MM.yyyy"); } catch { return dateStr; } };
+    const formatDate = (dateStr: string | Date) => { try { return format(new Date(dateStr), "dd.MM.yyyy"); } catch { return String(dateStr); } };
     const interimOrder = data.impugnedOrders.find(o => o.type === "Interim Order");
     const finalOrder = data.impugnedOrders.find(o => o.type.includes("Final"));
     const interimDate = interimOrder?.date ? formatDate(interimOrder.date) : '';

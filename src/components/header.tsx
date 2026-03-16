@@ -29,7 +29,7 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
-import { generateCiDocx, generateOrDocx, generateCiorDocx, generateLpDocx, generateSlodDocx, generateSlpDocx, generatePdf, generateAppendixDocx, generateIaDocx, generateFilingMemoDocx, generateVakalatnamaDocx, generateAffidavitsDocx, generateAdvocateChecklistDocx } from "@/app/actions";
+import { generateCiDocx, generateOrDocx, generateCiorDocx, generateLpDocx, generateSlodDocx, generateSlpDocx, generatePdf, generateAppendixDocx, generateIaDocx, generateFilingMemoDocx, generateVakalatnamaDocx, generateAffidavitsDocx, generateAdvocateChecklistDocx } from "@/lib/actions";
 import { useToast } from "@/hooks/use-toast";
 import { draftoProjectSchema } from "@/lib/schema";
 import { PdfGenerationDialog } from "./dialogs/pdf-generation-dialog";

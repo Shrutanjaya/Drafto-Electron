@@ -37,7 +37,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import type { DraftoProject, Annexure } from "@/lib/schema";
 import { getIaList } from "@/lib/ia-list-utils";
 import { useToast } from "@/hooks/use-toast";
-import { generatePdf } from "@/app/actions";
+import { generatePdf } from "@/lib/actions";
 import { getSettings } from "./settings-dialog";
 import { Upload, Loader2, Info, Lock, CheckCircle2, AlertCircle, Settings2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";

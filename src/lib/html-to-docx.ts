@@ -106,7 +106,7 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
 
         switch (node.tagName) {
             case 'p':
-                let alignment = AlignmentType.JUSTIFIED;
+                let alignment: AlignmentType = AlignmentType.JUSTIFIED;
                 if (node.attributes.style?.includes('text-align: center')) alignment = AlignmentType.CENTER;
                 if (node.attributes.style?.includes('text-align: right')) alignment = AlignmentType.RIGHT;
                 if (node.attributes.style?.includes('text-align: left')) alignment = AlignmentType.LEFT;
