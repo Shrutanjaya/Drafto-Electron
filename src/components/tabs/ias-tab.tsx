@@ -29,6 +29,14 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
 import { standardIaList } from "@/lib/ia-list";
 import { DateInput } from "../custom/date-input";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui/resizable";
@@ -277,6 +285,8 @@ export function IasTab() {
     }
   }, [listOfDates, form]);
 
+  const [adDialogOpen, setAdDialogOpen] = useState(false);
+
   const annexureNumberingMap = useMemo(() => {
     const map = new Map<string, number>();
     const allAnnexures: Annexure[] = (listOfDates || []).flatMap(lod => lod.annexures || []);
@@ -333,11 +343,27 @@ export function IasTab() {
               active={!!otActive}
               detail={otActive && otReason ? otReason : undefined}
             />
-            <AutoPill
-              label="Additional Documents (AD)"
-              active={!!adActive}
-              detail={adActive ? `${adCount} document${adCount !== 1 ? 's' : ''}` : undefined}
-            />
+            {/* AD pill — clickable when active */}
+            {adActive ? (
+              <button
+                type="button"
+                onClick={() => setAdDialogOpen(true)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors cursor-pointer",
+                  "border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20"
+                )}
+                title="Click to add grounds/averments"
+              >
+                <span className="h-1.5 w-1.5 rounded-full flex-shrink-0 bg-green-500" />
+                <span>Additional Documents (AD)</span>
+                {adCount > 0 && <span className="opacity-70">— {adCount} document{adCount !== 1 ? 's' : ''}</span>}
+              </button>
+            ) : (
+              <AutoPill
+                label="Additional Documents (AD)"
+                active={false}
+              />
+            )}
           </div>
         </div>
 
@@ -572,6 +598,27 @@ export function IasTab() {
 
 
       </div>
+
+      {/* Additional Documents grounds dialog */}
+      <Dialog open={adDialogOpen} onOpenChange={setAdDialogOpen}>
+        <DialogContent className="sm:max-w-[700px]">
+          <DialogHeader>
+            <DialogTitle>Additional Documents — Grounds / Averments</DialogTitle>
+          </DialogHeader>
+          <div className="py-1 space-y-1">
+            <p className="text-xs text-muted-foreground">
+              These grounds will appear in IA-AD after the list of additional documents and before the "No prejudice" paragraph.
+            </p>
+            <AamTable name="standardIas.additionalDocumentsGrounds" defaultRows={3} />
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" size="sm">Done</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </TooltipProvider>
   );
 }

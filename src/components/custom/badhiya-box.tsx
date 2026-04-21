@@ -10,6 +10,10 @@ import { EditorContext } from './editor-provider'
 import TextAlign from '@tiptap/extension-text-align'
 import { Paragraph } from '@tiptap/extension-paragraph'
 import { Extension } from '@tiptap/core'
+import Table from '@tiptap/extension-table'
+import TableRow from '@tiptap/extension-table-row'
+import TableHeader from '@tiptap/extension-table-header'
+import TableCell from '@tiptap/extension-table-cell'
 
 
 interface BadhiyaBoxProps {
@@ -90,6 +94,10 @@ export const BadhiyaBox = ({ value, onChange, disabled, onTab, onCtrlSpace }: Ba
           }
         },
       }),
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
       TabHandler,
     ],
     content: value,

@@ -221,6 +221,9 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           }
           
           const validatedData = draftoProjectSchema.parse(data);
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const fd = validatedData.advocate?.filingDate ? new Date(validatedData.advocate.filingDate) : null;
+          if (fd && fd < today) { (validatedData as any).advocate = { ...validatedData.advocate, filingDate: today }; }
           form.reset(validatedData);
           
           toast({ title: "Project Loaded", description: "Your project has been loaded successfully." });
@@ -246,6 +249,9 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       }
       
       const validatedData = draftoProjectSchema.parse(data);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const fd = validatedData.advocate?.filingDate ? new Date(validatedData.advocate.filingDate) : null;
+      if (fd && fd < today) { (validatedData as any).advocate = { ...validatedData.advocate, filingDate: today }; }
       form.reset(validatedData);
     } catch (error) {
       console.error("Load error:", error);

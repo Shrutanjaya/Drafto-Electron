@@ -1476,6 +1476,18 @@ export async function generateIaDocx(
                     adAnnexuresTable,
                 ];
 
+                // Append user-provided grounds/averments as numbered paragraphs after the annexures table
+                const adGrounds = (projectData.standardIas as any).additionalDocumentsGrounds || [];
+                adGrounds
+                    .filter((g: any) => g.particulars && g.particulars.trim() !== '')
+                    .forEach((g: any) => {
+                        const { paragraphs, numbering } = parseHtml(g.particulars, undefined, { reference: "ia-intro-list", level: 0 });
+                        if (numbering.length > 0) allNumberingConfigs.push(...numbering);
+                        paragraphs.forEach(p => {
+                            customTextParagraphs.push(p);
+                        });
+                    });
+
                 break;
             case "exemptionOfficialTranslation":
                 const allAnnexuresForTranslation: Annexure[] = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);

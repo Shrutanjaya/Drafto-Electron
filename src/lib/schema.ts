@@ -202,6 +202,7 @@ export const draftoProjectSchema = z.object({
       grounds: z.array(iaGroundItemSchema).default([iaGroundItemSchema.parse({})]),
     }).default({}),
     additionalDocuments: z.boolean().default(false),
+    additionalDocumentsGrounds: z.array(aamTableItemSchema).default([aamTableItemSchema.parse({})]),
     exemptionCertifiedCopy: z.object({
         active: z.boolean().default(false),
         hasApplied: z.enum(["yes", "no"]).default("yes"),

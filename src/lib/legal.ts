@@ -119,6 +119,132 @@ held unenforceable, it will be enforced to the maximum extent possible and the
 remaining provisions will remain in full force and effect.
 
 
+13. THIRD-PARTY COMPONENTS AND DEPENDENCIES
+
+The Software incorporates, bundles, or relies upon the following third-party
+open-source and proprietary components ("Third-Party Components"), each
+governed by its own separate licence:
+
+  Runtime & Platform
+  ------------------
+  Electron (MIT Licence) — desktop application framework embedding
+    Chromium and Node.js.
+  Python 3.12 (Python Software Foundation Licence) — scripting runtime
+    bundled within the Software for document-processing tasks.
+
+  OCR Engine
+  ----------
+  Tesseract OCR 5.x (Apache Licence 2.0) — optical character recognition
+    engine used to extract text from scanned documents.
+
+  Python Libraries (bundled)
+  --------------------------
+  docx2pdf 0.1.8       (MIT)           — DOCX-to-PDF conversion.
+  PyMuPDF (fitz) 1.27  (GNU AGPL 3.0)  — PDF rendering and manipulation.
+  Pillow 12.x          (HPND Licence)  — image processing.
+  pytesseract 0.3.13   (MIT)           — Python wrapper for Tesseract OCR.
+  pikepdf 10.x         (MIT)           — PDF read/write via libqpdf.
+  lxml 6.x             (BSD)           — XML/HTML processing.
+  pywin32 311          (PSF)           — Windows API bindings.
+  tqdm 4.x             (MIT/MPL 2.0)   — progress reporting.
+  colorama 0.4.6       (BSD)           — terminal colour output.
+
+  JavaScript / UI Libraries (bundled)
+  ------------------------------------
+  React 18 (MIT), React DOM (MIT), React Router (MIT)
+  Tiptap editor suite (MIT) — rich-text editing, including:
+    @tiptap/starter-kit, @tiptap/react, @tiptap/extension-underline,
+    @tiptap/extension-highlight, @tiptap/extension-text-align,
+    @tiptap/extension-paragraph, @tiptap/extension-table,
+    @tiptap/extension-table-row, @tiptap/extension-table-header,
+    @tiptap/extension-table-cell.
+  docx 8.x (MIT) — programmatic DOCX generation.
+  pdf-lib (MIT) — PDF manipulation in JavaScript.
+  Firebase JS SDK (Apache 2.0) — authentication and usage metrics.
+  Radix UI primitives (MIT) — accessible UI components.
+  Tailwind CSS (MIT) — utility-first CSS framework.
+  Lucide React (ISC) — icon set.
+  Zod (MIT), React Hook Form (MIT), date-fns (MIT) — form and date
+    utilities.
+  Various other MIT-licenced packages listed in package.json.
+
+Use of the Third-Party Components is subject to their respective licence
+terms, copies of which are available at the project repositories of the
+respective components.  Quindoph Legal Solutions Pvt. Ltd. makes no
+representations or warranties regarding the Third-Party Components.
+
+
+14. DISCLAIMER AND INDEMNIFICATION — THIRD-PARTY COMPONENTS
+
+14.1  THE THIRD-PARTY COMPONENTS ARE PROVIDED "AS IS" WITHOUT ANY WARRANTY
+      OF ANY KIND BY QUINDOPH LEGAL SOLUTIONS PVT. LTD.  THE LICENSOR
+      EXPRESSLY DISCLAIMS ALL WARRANTIES, CONDITIONS, AND REPRESENTATIONS —
+      EXPRESS, IMPLIED, OR STATUTORY — WITH RESPECT TO THE THIRD-PARTY
+      COMPONENTS, INCLUDING ANY WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+      PARTICULAR PURPOSE, SATISFACTORY QUALITY, TITLE, AND
+      NON-INFRINGEMENT.
+
+14.2  THE LICENSOR SHALL HAVE NO LIABILITY WHATSOEVER FOR ANY LOSS, DAMAGE,
+      CORRUPTION OF DATA, SYSTEM FAILURE, SECURITY VULNERABILITY, INCOMPATIBILITY,
+      INACCURACY, ERROR, CRASH, OR OTHER ADVERSE CONSEQUENCE — DIRECT,
+      INDIRECT, INCIDENTAL, CONSEQUENTIAL, SPECIAL, OR PUNITIVE — ARISING
+      FROM OR IN CONNECTION WITH: (i) ANY BUG, DEFECT, VULNERABILITY, OR
+      MALFUNCTION IN ANY THIRD-PARTY COMPONENT; (ii) ANY FAILURE OF A
+      THIRD-PARTY COMPONENT TO OPERATE AS EXPECTED ON YOUR HARDWARE OR
+      OPERATING SYSTEM; (iii) ANY INCOMPATIBILITY BETWEEN A THIRD-PARTY
+      COMPONENT AND OTHER SOFTWARE OR HARDWARE; (iv) ANY UPDATE, UPGRADE,
+      DEPRECATION, OR DISCONTINUATION OF A THIRD-PARTY COMPONENT BY ITS
+      RESPECTIVE AUTHOR OR MAINTAINER; OR (v) ANY CHANGE IN THE LICENCE
+      TERMS OF ANY THIRD-PARTY COMPONENT.
+
+14.3  BY INSTALLING OR USING THE SOFTWARE, YOU EXPRESSLY ACKNOWLEDGE AND
+      AGREE THAT QUINDOPH LEGAL SOLUTIONS PVT. LTD. IS NOT RESPONSIBLE FOR
+      THE PERFORMANCE, RELIABILITY, SECURITY, OR CONTINUED AVAILABILITY OF
+      ANY THIRD-PARTY COMPONENT, AND YOU IRREVOCABLY UNDERTAKE NOT TO BRING
+      ANY CLAIM, ACTION, SUIT, OR PROCEEDING OF ANY NATURE AGAINST QUINDOPH
+      LEGAL SOLUTIONS PVT. LTD. ARISING FROM OR ATTRIBUTABLE TO ANY
+      THIRD-PARTY COMPONENT.
+
+
+15. ASSUMPTION OF RISK AND INDEMNIFICATION BY USER
+
+15.1  You expressly acknowledge that the operation of the Software on your
+      device involves the execution of third-party code — including but not
+      limited to a Python 3.12 interpreter, Tesseract OCR, PyMuPDF, docx2pdf,
+      pikepdf, and Electron — over which Quindoph Legal Solutions Pvt. Ltd.
+      has no ongoing operational control once delivered to you.  You assume
+      all risk associated with the installation, execution, and operation of
+      these components on your device and in your environment.
+
+15.2  You shall indemnify, defend, and hold harmless Quindoph Legal Solutions
+      Pvt. Ltd. and its directors, officers, employees, agents, and successors
+      from and against any and all claims, damages, liabilities, losses, costs,
+      and expenses (including reasonable legal fees) arising out of or relating
+      to: (i) your use of or reliance on the Software or any Third-Party
+      Component; (ii) any failure by you to verify the accuracy or legal
+      correctness of any output generated by the Software; (iii) any breach by
+      you of this Agreement; or (iv) any claim by a third party arising from
+      documents drafted, generated, filed, or submitted using the Software.
+
+
+16. GOVERNING LAW AND JURISDICTION
+
+This Agreement is governed by and construed in accordance with the laws of
+India.  All disputes arising out of or relating to this Agreement shall be
+subject to the exclusive jurisdiction of the courts of New Delhi, India.  You
+irrevocably consent to the personal jurisdiction of such courts.
+
+
+17. ENTIRE AGREEMENT
+
+Clauses 12 through 17 supersede and replace the prior clause 12.  This
+Agreement constitutes the entire agreement between you and Quindoph Legal
+Solutions Pvt. Ltd. with respect to the Software and supersedes all prior or
+contemporaneous understandings on the same subject matter.  If any provision is
+held unenforceable, it will be enforced to the maximum extent possible and the
+remaining provisions will remain in full force and effect.
+
+
 -------------------------------------------------------------------------
 Quindoph Legal Solutions Pvt. Ltd.
 New Delhi, India
@@ -251,7 +377,116 @@ these Terms or the use of the Software shall be subject to the exclusive
 jurisdiction of the courts of New Delhi, India.
 
 
-13. CONTACT
+13. THIRD-PARTY COMPONENTS AND DEPENDENCIES
+
+13.1  The Software incorporates, bundles, or relies upon the following
+      third-party open-source and proprietary components ("Third-Party
+      Components"), each governed by its own separate licence:
+
+  Runtime & Platform
+  ------------------
+  Electron (MIT) — desktop application framework embedding Chromium and
+    Node.js.
+  Python 3.12 (Python Software Foundation Licence) — scripting runtime
+    bundled for document-processing tasks.
+
+  OCR Engine
+  ----------
+  Tesseract OCR 5.x (Apache 2.0) — optical character recognition engine
+    for extracting text from scanned documents.
+
+  Python Libraries (bundled)
+  --------------------------
+  docx2pdf 0.1.8       (MIT)           — DOCX-to-PDF conversion.
+  PyMuPDF (fitz) 1.27  (GNU AGPL 3.0)  — PDF rendering and manipulation.
+  Pillow 12.x          (HPND)          — image processing.
+  pytesseract 0.3.13   (MIT)           — Python wrapper for Tesseract OCR.
+  pikepdf 10.x         (MIT)           — PDF read/write via libqpdf.
+  lxml 6.x             (BSD)           — XML/HTML processing.
+  pywin32 311          (PSF)           — Windows API bindings.
+  tqdm 4.x             (MIT/MPL 2.0)   — progress reporting.
+  colorama 0.4.6       (BSD)           — terminal colour output.
+
+  JavaScript / UI Libraries (bundled)
+  ------------------------------------
+  React 18 (MIT), React DOM (MIT), React Router (MIT)
+  Tiptap editor suite (MIT) — rich-text editing, including:
+    @tiptap/starter-kit, @tiptap/react, @tiptap/extension-underline,
+    @tiptap/extension-highlight, @tiptap/extension-text-align,
+    @tiptap/extension-paragraph, @tiptap/extension-table,
+    @tiptap/extension-table-row, @tiptap/extension-table-header,
+    @tiptap/extension-table-cell.
+  docx 8.x (MIT) — programmatic DOCX generation.
+  pdf-lib (MIT) — PDF manipulation in JavaScript.
+  Firebase JS SDK (Apache 2.0) — authentication and usage metrics.
+  Radix UI primitives (MIT), Tailwind CSS (MIT), Lucide React (ISC)
+  Zod (MIT), React Hook Form (MIT), date-fns (MIT)
+  Various other MIT-licenced packages listed in package.json.
+
+13.2  The Company makes no warranty of any kind with respect to the
+      Third-Party Components.  Their inclusion in the Software does not
+      constitute an endorsement or recommendation of those components by the
+      Company.
+
+
+14. DISCLAIMER AND INDEMNIFICATION — THIRD-PARTY COMPONENTS
+
+14.1  THE THIRD-PARTY COMPONENTS ARE INCORPORATED "AS IS".  THE COMPANY
+      EXPRESSLY DISCLAIMS ALL WARRANTIES — EXPRESS, IMPLIED, OR STATUTORY —
+      WITH RESPECT TO THE THIRD-PARTY COMPONENTS, INCLUDING ANY WARRANTIES
+      OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, SATISFACTORY
+      QUALITY, ACCURACY, TITLE, AND NON-INFRINGEMENT.
+
+14.2  THE COMPANY SHALL HAVE NO LIABILITY WHATSOEVER — DIRECT, INDIRECT,
+      INCIDENTAL, CONSEQUENTIAL, SPECIAL, OR PUNITIVE — FOR ANY LOSS, DAMAGE,
+      DATA CORRUPTION, SECURITY VULNERABILITY, SYSTEM FAILURE, ERROR, CRASH,
+      INCOMPATIBILITY, OR OTHER ADVERSE CONSEQUENCE ARISING FROM OR
+      ATTRIBUTABLE TO: (i) ANY BUG, DEFECT, OR MALFUNCTION IN ANY
+      THIRD-PARTY COMPONENT; (ii) ANY FAILURE OF A THIRD-PARTY COMPONENT TO
+      OPERATE AS EXPECTED ON YOUR HARDWARE OR OPERATING SYSTEM; (iii) ANY
+      INCOMPATIBILITY BETWEEN A THIRD-PARTY COMPONENT AND OTHER SOFTWARE OR
+      HARDWARE YOU USE; (iv) ANY UPDATE, DEPRECATION, OR DISCONTINUATION OF A
+      THIRD-PARTY COMPONENT BY ITS AUTHOR; OR (v) ANY CHANGE IN THE LICENCE
+      TERMS OF ANY THIRD-PARTY COMPONENT.
+
+14.3  BY INSTALLING OR USING THE SOFTWARE, YOU EXPRESSLY ACKNOWLEDGE THAT
+      THE COMPANY HAS NO CONTROL OVER THE PERFORMANCE OR RELIABILITY OF
+      THE THIRD-PARTY COMPONENTS ONCE DELIVERED TO YOU, AND YOU IRREVOCABLY
+      UNDERTAKE NOT TO BRING ANY CLAIM OF ANY NATURE AGAINST THE COMPANY
+      ARISING FROM OR ATTRIBUTABLE TO ANY THIRD-PARTY COMPONENT.
+
+
+15. ASSUMPTION OF RISK AND USER INDEMNIFICATION
+
+15.1  You expressly acknowledge that operation of the Software involves
+      execution of third-party code — including a Python 3.12 interpreter,
+      Tesseract OCR, PyMuPDF, docx2pdf, pikepdf, and Electron — over which
+      the Company has no ongoing operational control once delivered to you.
+      You assume all risk arising from the installation, execution, and
+      operation of these components in your environment.
+
+15.2  You shall indemnify, defend, and hold harmless the Company and its
+      directors, officers, employees, agents, and successors from and against
+      any and all claims, damages, liabilities, losses, costs, and expenses
+      (including legal fees on a full indemnity basis) arising out of or
+      relating to: (i) your use of or reliance on the Software or any
+      Third-Party Component; (ii) any failure by you to verify the accuracy
+      or legal correctness of any document output; (iii) any breach by you
+      of these Terms; or (iv) any claim by a third party arising from
+      documents drafted, generated, filed, or submitted using the Software.
+
+
+16. GENERAL DISCLAIMER — EXTERNAL REQUIREMENTS
+
+Certain features of the Software (including PDF conversion) may require
+Microsoft Word or another compatible word-processor to be independently
+installed and licenced on your device.  The Company is not responsible for
+your compliance with the licence terms of Microsoft Word or any other
+external software, nor for any failure of functionality attributable to
+the absence or misconfiguration of such external software.
+
+
+17. CONTACT
 
 For any queries regarding these Terms, please visit quindoph.com.
 

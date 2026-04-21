@@ -108,6 +108,37 @@ body {
   .prose blockquote {
     @apply border-l-4 border-muted-foreground/50 pl-4 italic text-muted-foreground;
   }
+  /* Tiptap table styles */
+  .prose table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.5rem 0;
+    table-layout: fixed;
+  }
+  .prose table td,
+  .prose table th {
+    border: 1px solid hsl(var(--border));
+    padding: 4px 8px;
+    vertical-align: top;
+    min-width: 2rem;
+    position: relative;
+  }
+  .prose table th {
+    font-weight: 600;
+    background: hsl(var(--muted));
+  }
+  /* Selected cell highlight from Tiptap */
+  .prose table .selectedCell:after {
+    content: '';
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    background: hsl(var(--primary) / 0.15);
+    pointer-events: none;
+    position: absolute;
+    z-index: 2;
+  }
 }
 
 /* Font size scaling */

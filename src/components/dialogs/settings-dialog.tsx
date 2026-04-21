@@ -35,6 +35,8 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [usageCounts, setUsageCounts] = useState<UsageCounts | null>(null);
+  const [licenseOpen, setLicenseOpen] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
   const [settings, setSettings] = useState<SettingsData>({
     defaultDocxPath: "",
     defaultPdfPath: "",
@@ -125,188 +127,179 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+      <DialogContent className="max-w-lg flex flex-col max-h-[calc(100vh-4rem)]">
+        <DialogHeader className="shrink-0">
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3 py-2">
-          <div className="space-y-1">
-            <Label htmlFor="docx-path" className="text-xs">Default .docx Location</Label>
-            <div className="flex gap-2">
+
+        {/* Scrollable body */}
+        <div className="overflow-y-auto flex-1 space-y-3 pr-1 -mr-1">
+
+          {/* Your Usage */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-muted-foreground shrink-0">Your Usage:</span>
+            <span className="text-xs tabular-nums font-semibold">{usageCounts === null ? "…" : usageCounts.paperbooksGenerated}</span>
+            <span className="text-xs text-muted-foreground">Paperbooks,</span>
+            <span className="text-xs tabular-nums font-semibold">{usageCounts === null ? "…" : usageCounts.docxGenerated}</span>
+            <span className="text-xs text-muted-foreground">Docx Files</span>
+          </div>
+
+          {/* Output Locations */}
+          <div className="border-t pt-2.5">
+            <p className="text-xs font-medium text-muted-foreground mb-1.5">Output Locations:</p>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="docx-path" className="text-xs shrink-0 w-7">Docx</Label>
               <Input
                 id="docx-path"
                 value={settings.defaultDocxPath}
-                onChange={(e) =>
-                  setSettings((prev) => ({ ...prev, defaultDocxPath: e.target.value }))
-                }
+                onChange={(e) => setSettings((prev) => ({ ...prev, defaultDocxPath: e.target.value }))}
                 placeholder="C:\...\DOCX"
-                className="h-8 text-xs"
+                className="h-7 text-xs flex-1"
               />
-              <Button type="button" variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleBrowse("docx")} title="Browse">
-                <FolderOpen className="h-3.5 w-3.5" />
+              <Button type="button" variant="outline" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleBrowse("docx")} title="Browse">
+                <FolderOpen className="h-3 w-3" />
               </Button>
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <Label htmlFor="pdf-path" className="text-xs">Default .pdf Location</Label>
-            <div className="flex gap-2">
+              <div className="border-l h-5 mx-0.5" />
+              <Label htmlFor="pdf-path" className="text-xs shrink-0 w-6">PDF</Label>
               <Input
                 id="pdf-path"
                 value={settings.defaultPdfPath}
-                onChange={(e) =>
-                  setSettings((prev) => ({ ...prev, defaultPdfPath: e.target.value }))
-                }
+                onChange={(e) => setSettings((prev) => ({ ...prev, defaultPdfPath: e.target.value }))}
                 placeholder="C:\...\PDF"
-                className="h-8 text-xs"
+                className="h-7 text-xs flex-1"
               />
-              <Button type="button" variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleBrowse("pdf")} title="Browse">
-                <FolderOpen className="h-3.5 w-3.5" />
+              <Button type="button" variant="outline" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleBrowse("pdf")} title="Browse">
+                <FolderOpen className="h-3 w-3" />
               </Button>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 pt-1">
-            {/* Text Size */}
-            <div className="space-y-1">
-              <Label className="text-xs">Text Size</Label>
-              <RadioGroup
-                value={settings.fontSize}
-                onValueChange={(value: FontSize) =>
-                  setSettings((prev) => ({ ...prev, fontSize: value }))
-                }
-                className="flex gap-3"
-              >
-                {(['small', 'medium', 'large'] as FontSize[]).map((s) => (
-                  <div key={s} className="flex items-center gap-1.5">
-                    <RadioGroupItem value={s} id={`size-${s}`} />
-                    <Label htmlFor={`size-${s}`} className="text-xs font-normal cursor-pointer capitalize">{s}</Label>
-                  </div>
-                ))}
-              </RadioGroup>
-            </div>
-
-            {/* Annexure Labels */}
-            <div className="space-y-1">
-              <Label className="text-xs">PDF Annexure Labels</Label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="annexure-bg"
-                  checked={settings.annexureLabelBackground}
-                  onChange={(e) =>
-                    setSettings((prev) => ({ ...prev, annexureLabelBackground: e.target.checked }))
-                  }
-                  className="h-4 w-4 rounded border-gray-300"
-                />
-                <Label htmlFor="annexure-bg" className="text-xs font-normal cursor-pointer">
-                  White background behind labels
-                </Label>
-              </div>
-            </div>
-
-            {/* Autosave */}
-            <div className="space-y-1">
-              <Label htmlFor="autosave-interval" className="text-xs">Autosave Interval (seconds)</Label>
-              <Input
-                id="autosave-interval"
-                type="number"
-                min={0}
-                step={10}
-                value={settings.autosaveInterval}
-                onChange={(e) =>
-                  setSettings((prev) => ({ ...prev, autosaveInterval: Math.max(0, parseInt(e.target.value) || 0) }))
-                }
-                placeholder="60"
-                className="h-8 w-28 text-xs"
-              />
-              <p className="text-xs text-muted-foreground">0 = disabled</p>
-            </div>
-
-            {/* Notification duration */}
-            <div className="space-y-1">
-              <Label htmlFor="toast-duration" className="text-xs">Notification Duration (seconds)</Label>
+          {/* Durations */}
+          <div className="border-t pt-2.5">
+            <p className="text-xs font-medium text-muted-foreground mb-1.5">Durations (seconds):</p>
+            <div className="flex items-center gap-3">
+              <Label htmlFor="toast-duration" className="text-xs shrink-0">Notifications</Label>
               <Input
                 id="toast-duration"
                 type="number"
                 min={1}
                 step={1}
                 value={settings.toastDuration}
-                onChange={(e) =>
-                  setSettings((prev) => ({ ...prev, toastDuration: Math.max(1, parseInt(e.target.value) || 1) }))
-                }
-                placeholder="1"
-                className="h-8 w-28 text-xs"
+                onChange={(e) => setSettings((prev) => ({ ...prev, toastDuration: Math.max(1, parseInt(e.target.value) || 1) }))}
+                className="h-7 w-14 text-xs text-right"
+              />
+              <div className="border-l h-5" />
+              <Label htmlFor="autosave-interval" className="text-xs shrink-0">Autosave Interval (enter 0 to disable)</Label>
+              <Input
+                id="autosave-interval"
+                type="number"
+                min={0}
+                step={10}
+                value={settings.autosaveInterval}
+                onChange={(e) => setSettings((prev) => ({ ...prev, autosaveInterval: Math.max(0, parseInt(e.target.value) || 0) }))}
+                className="h-7 w-14 text-xs text-right"
               />
             </div>
-
-            {/* SLP Tab View */}
-            <div className="space-y-1 col-span-2">
-              <Label className="text-xs">SLP Tab View</Label>
-              <RadioGroup
-                value={settings.slpTabView}
-                onValueChange={(value: SlpTabView) =>
-                  setSettings((prev) => ({ ...prev, slpTabView: value }))
-                }
-                className="flex gap-3"
-              >
-                {(['splitter', 'navigation'] as SlpTabView[]).map((v) => (
-                  <div key={v} className="flex items-center gap-1.5">
-                    <RadioGroupItem value={v} id={`slp-view-${v}`} />
-                    <Label htmlFor={`slp-view-${v}`} className="text-xs font-normal cursor-pointer">
-                      {v === 'splitter' ? 'Splitter View' : 'Navigation View'}
-                    </Label>
-                  </div>
-                ))}
-              </RadioGroup>
-            </div>
           </div>
-        </div>
 
-        {/* Usage Counters */}
-        <div className="border-t pt-3">
-          <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Your Usage</Label>
-          <div className="grid grid-cols-2 gap-3 mt-2">
-            <div className="bg-muted/50 rounded-md p-3 text-center">
-              <p className="text-2xl font-bold tabular-nums">
-                {usageCounts === null ? "…" : usageCounts.paperbooksGenerated}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">Paperbooks Generated</p>
-            </div>
-            <div className="bg-muted/50 rounded-md p-3 text-center">
-              <p className="text-2xl font-bold tabular-nums">
-                {usageCounts === null ? "…" : usageCounts.docxGenerated}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">DOCX Files Generated</p>
-            </div>
+          {/* Text Size */}
+          <div className="border-t pt-2.5 flex items-center gap-3">
+            <span className="text-xs font-medium text-muted-foreground shrink-0">Text Size:</span>
+            <RadioGroup
+              value={settings.fontSize}
+              onValueChange={(value: FontSize) => setSettings((prev) => ({ ...prev, fontSize: value }))}
+              className="flex gap-3"
+            >
+              {(['small', 'medium', 'large'] as FontSize[]).map((s) => (
+                <div key={s} className="flex items-center gap-1">
+                  <RadioGroupItem value={s} id={`size-${s}`} />
+                  <Label htmlFor={`size-${s}`} className="text-xs font-normal cursor-pointer capitalize">{s}</Label>
+                </div>
+              ))}
+            </RadioGroup>
           </div>
-        </div>
 
-        {/* Legal */}
-        <div className="border-t pt-3 space-y-2">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Legal</p>
-          <details className="rounded-md border">
-            <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium rounded-md hover:bg-muted/40">
+          {/* Petition View */}
+          <div className="border-t pt-2.5 flex items-center gap-3">
+            <span className="text-xs font-medium text-muted-foreground shrink-0">Petition View:</span>
+            <RadioGroup
+              value={settings.slpTabView}
+              onValueChange={(value: SlpTabView) => setSettings((prev) => ({ ...prev, slpTabView: value }))}
+              className="flex gap-3"
+            >
+              <div className="flex items-center gap-1">
+                <RadioGroupItem value="splitter" id="slp-view-splitter" />
+                <Label htmlFor="slp-view-splitter" className="text-xs font-normal cursor-pointer">Splitter View</Label>
+              </div>
+              <div className="flex items-center gap-1">
+                <RadioGroupItem value="navigation" id="slp-view-navigation" />
+                <Label htmlFor="slp-view-navigation" className="text-xs font-normal cursor-pointer">Navigation View</Label>
+              </div>
+            </RadioGroup>
+          </div>
+
+          {/* Annexure Labels */}
+          <div className="border-t pt-2.5 flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="annexure-bg"
+              checked={settings.annexureLabelBackground}
+              onChange={(e) => setSettings((prev) => ({ ...prev, annexureLabelBackground: e.target.checked }))}
+              className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+            />
+            <Label htmlFor="annexure-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
+              Add white background behind Annexure Labels
+            </Label>
+          </div>
+
+          {/* Legal */}
+          <div className="border-t pt-2.5 flex items-center gap-2 pb-0.5">
+            <span className="text-xs font-medium text-muted-foreground shrink-0">Legal:</span>
+            <button
+              type="button"
+              onClick={() => setLicenseOpen(true)}
+              className="text-xs text-primary underline underline-offset-2 hover:opacity-80"
+            >
               Software License Agreement
-            </summary>
-            <div className="border-t px-3 pt-2 pb-3 overflow-y-auto max-h-52 text-[10px] leading-relaxed text-muted-foreground whitespace-pre-wrap font-mono">
+            </button>
+            <span className="text-xs text-muted-foreground">|</span>
+            <button
+              type="button"
+              onClick={() => setTermsOpen(true)}
+              className="text-xs text-primary underline underline-offset-2 hover:opacity-80"
+            >
+              Terms &amp; Conditions
+            </button>
+          </div>
+
+        </div>{/* end scrollable body */}
+
+        {/* Legal document popups */}
+        <Dialog open={licenseOpen} onOpenChange={setLicenseOpen}>
+          <DialogContent className="max-w-2xl flex flex-col max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle>Software License Agreement</DialogTitle>
+            </DialogHeader>
+            <div className="overflow-y-auto flex-1 text-[10px] leading-relaxed whitespace-pre-wrap font-mono text-muted-foreground border rounded p-3">
               {LICENSE_TEXT}
             </div>
-          </details>
-          <details className="rounded-md border">
-            <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium rounded-md hover:bg-muted/40">
-              Terms &amp; Conditions
-            </summary>
-            <div className="border-t px-3 pt-2 pb-3 overflow-y-auto max-h-52 text-[10px] leading-relaxed text-muted-foreground whitespace-pre-wrap font-mono">
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={termsOpen} onOpenChange={setTermsOpen}>
+          <DialogContent className="max-w-2xl flex flex-col max-h-[80vh]">
+            <DialogHeader>
+              <DialogTitle>Terms &amp; Conditions</DialogTitle>
+            </DialogHeader>
+            <div className="overflow-y-auto flex-1 text-[10px] leading-relaxed whitespace-pre-wrap font-mono text-muted-foreground border rounded p-3">
               {TERMS_TEXT}
             </div>
-          </details>
-        </div>
+          </DialogContent>
+        </Dialog>
 
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
+        {/* Sticky footer — always visible */}
+        <div className="shrink-0 flex justify-end gap-2 pt-2 border-t">
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
           <Button onClick={handleSave}>Save Settings</Button>
         </div>
       </DialogContent>

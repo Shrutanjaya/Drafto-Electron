@@ -14,6 +14,14 @@ import {
   AlignJustify,
   Eraser,
   Highlighter,
+  Table as TableIcon,
+  Columns2,
+  Rows2,
+  Trash2,
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  ArrowUpToLine,
+  ArrowDownToLine,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -32,13 +40,20 @@ const HIGHLIGHT_COLORS = [
 export const EditorToolbar = () => {
     const { activeEditor: editor } = useContext(EditorContext);
     const [showHighlightPicker, setShowHighlightPicker] = useState(false);
+    const [showTableMenu, setShowTableMenu] = useState(false);
     const [activeHighlightColor, setActiveHighlightColor] = useState('#fef08a');
+    const [customRows, setCustomRows] = useState(2);
+    const [customCols, setCustomCols] = useState(3);
     const pickerRef = useRef<HTMLDivElement>(null);
+    const tableMenuRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
             if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
                 setShowHighlightPicker(false);
+            }
+            if (tableMenuRef.current && !tableMenuRef.current.contains(e.target as Node)) {
+                setShowTableMenu(false);
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
@@ -80,6 +95,7 @@ export const EditorToolbar = () => {
       <Button variant="ghost" size="icon" onClick={() => editor.chain().focus().setTextAlign('right').run()} className={cn("h-6 w-6 p-1", editor.isActive({ textAlign: 'right' }) ? 'bg-accent' : '')}><AlignRight /></Button>
       <Button variant="ghost" size="icon" onClick={() => editor.chain().focus().setTextAlign('justify').run()} className={cn("h-6 w-6 p-1", editor.isActive({ textAlign: 'justify' }) ? 'bg-accent' : '')}><AlignJustify /></Button>
       <Button variant="ghost" size="icon" onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()} className="h-6 w-6 p-1"><Eraser /></Button>
+      {/* Highlight picker */}
       <div className="relative" ref={pickerRef}>
         <Button
           variant="ghost"
@@ -110,6 +126,116 @@ export const EditorToolbar = () => {
                 {color === 'none' ? '✕' : ''}
               </button>
             ))}
+          </div>
+        )}
+      </div>
+      {/* Table menu */}
+      <div className="relative" ref={tableMenuRef}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn('h-6 w-6 p-1', editor.isActive('table') ? 'bg-accent' : '')}
+          onClick={() => setShowTableMenu(p => !p)}
+          title="Table"
+        >
+          <TableIcon className="h-3.5 w-3.5" />
+        </Button>
+        {showTableMenu && (
+          <div className="absolute top-full left-0 mt-1 z-50 flex flex-col min-w-[180px] rounded-md border bg-popover shadow-md py-1">
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left"
+              onClick={() => { editor.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: false }).run(); setShowTableMenu(false); }}
+            >
+              <TableIcon className="h-3 w-3" /> Insert 2×2 table
+            </button>
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left"
+              onClick={() => { editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: false }).run(); setShowTableMenu(false); }}
+            >
+              <TableIcon className="h-3 w-3" /> Insert 3×3 table
+            </button>
+            {/* Custom size */}
+            <div className="px-3 py-1.5 flex items-center gap-1.5">
+              <TableIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={customRows}
+                onChange={e => setCustomRows(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+                onClick={e => e.stopPropagation()}
+                className="w-10 h-5 text-xs text-center border border-input rounded bg-background"
+                title="Rows"
+              />
+              <span className="text-xs text-muted-foreground">×</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={customCols}
+                onChange={e => setCustomCols(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+                onClick={e => e.stopPropagation()}
+                className="w-10 h-5 text-xs text-center border border-input rounded bg-background"
+                title="Columns"
+              />
+              <button
+                className="text-xs px-1.5 py-0.5 rounded bg-primary text-primary-foreground hover:opacity-90"
+                onClick={() => { editor.chain().focus().insertTable({ rows: customRows, cols: customCols, withHeaderRow: false }).run(); setShowTableMenu(false); }}
+              >
+                Insert
+              </button>
+            </div>
+            <div className="border-t my-1" />
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
+              disabled={!editor.isActive('table')}
+              onClick={() => { editor.chain().focus().addColumnBefore().run(); setShowTableMenu(false); }}
+            >
+              <ArrowLeftToLine className="h-3 w-3" /> Add column before
+            </button>
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
+              disabled={!editor.isActive('table')}
+              onClick={() => { editor.chain().focus().addColumnAfter().run(); setShowTableMenu(false); }}
+            >
+              <ArrowRightToLine className="h-3 w-3" /> Add column after
+            </button>
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
+              disabled={!editor.isActive('table')}
+              onClick={() => { editor.chain().focus().addRowBefore().run(); setShowTableMenu(false); }}
+            >
+              <ArrowUpToLine className="h-3 w-3" /> Add row above
+            </button>
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
+              disabled={!editor.isActive('table')}
+              onClick={() => { editor.chain().focus().addRowAfter().run(); setShowTableMenu(false); }}
+            >
+              <ArrowDownToLine className="h-3 w-3" /> Add row below
+            </button>
+            <div className="border-t my-1" />
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left text-destructive disabled:opacity-40"
+              disabled={!editor.isActive('table')}
+              onClick={() => { editor.chain().focus().deleteColumn().run(); setShowTableMenu(false); }}
+            >
+              <Columns2 className="h-3 w-3" /> Delete column
+            </button>
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left text-destructive disabled:opacity-40"
+              disabled={!editor.isActive('table')}
+              onClick={() => { editor.chain().focus().deleteRow().run(); setShowTableMenu(false); }}
+            >
+              <Rows2 className="h-3 w-3" /> Delete row
+            </button>
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left text-destructive disabled:opacity-40"
+              disabled={!editor.isActive('table')}
+              onClick={() => { editor.chain().focus().deleteTable().run(); setShowTableMenu(false); }}
+            >
+              <Trash2 className="h-3 w-3" /> Delete table
+            </button>
           </div>
         )}
       </div>

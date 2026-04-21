@@ -38,7 +38,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import React, { useEffect, useState } from "react"
 
-type AamTableName = "grounds" | "questionsOfLaw" | "interimReliefGrounds" | "interimReliefPrayers" | "customIas.0.grounds" | "customIas.0.prayers" | "customIas.1.grounds" | "customIas.1.prayers" | "customIas.2.grounds" | "customIas.2.prayers" | "customIas.3.grounds" | "customIas.3.prayers" | "customIas.4.grounds" | "customIas.4.prayers"
+type AamTableName = "grounds" | "questionsOfLaw" | "interimReliefGrounds" | "interimReliefPrayers" | "standardIas.additionalDocumentsGrounds" | "customIas.0.grounds" | "customIas.0.prayers" | "customIas.1.grounds" | "customIas.1.prayers" | "customIas.2.grounds" | "customIas.2.prayers" | "customIas.3.grounds" | "customIas.3.prayers" | "customIas.4.grounds" | "customIas.4.prayers"
 
 interface AamTableProps {
     name: AamTableName;

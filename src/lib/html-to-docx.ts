@@ -1,5 +1,5 @@
 ﻿
-import { AlignmentType, Indent, Paragraph, TextRun, UnderlineType } from "docx";
+import { AlignmentType, Indent, Paragraph, TextRun, UnderlineType, Table, TableRow, TableCell, WidthType, BorderStyle } from "docx";
 import { convertToSmartQuotes } from "./docx-helpers";
 
 // A simple representation of a DOM node
@@ -10,7 +10,7 @@ interface SimpleNode {
 }
 
 interface ParseResult {
-    paragraphs: Paragraph[];
+    paragraphs: (Paragraph | Table)[];
     numbering: any[];
 }
 
@@ -80,7 +80,7 @@ function htmlToTree(html: string): (SimpleNode | string)[] {
 }
 
 // Process the tree to create docx paragraphs and numbering configs
-function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: number }, listLevel = 0, inBlockquote = false, olRef?: string, spacing?: ParagraphSpacing): ParseResult {
+function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: number }, listLevel = 0, inBlockquote = false, olRef?: string, spacing?: ParagraphSpacing, defaultNumbering?: { reference: string; level: number }): ParseResult {
     const result: ParseResult = { paragraphs: [], numbering: [] };
 
     nodes.forEach(node => {
@@ -96,6 +96,9 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 if (spacing) {
                     paragraphProps.spacing = spacing;
                 }
+                if (defaultNumbering && !paragraphProps.numbering) {
+                    paragraphProps.numbering = defaultNumbering;
+                }
                 result.paragraphs.push(new Paragraph(paragraphProps));
             }
             return;
@@ -105,6 +108,49 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
         let currentOlRef = olRef;
 
         switch (node.tagName) {
+            case 'table': {
+                // Build docx Table from <table> subtree
+                const cellBorder = { style: BorderStyle.SINGLE, size: 4, color: '000000' };
+                const allBorders = { top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder, insideH: cellBorder, insideV: cellBorder };
+
+                // Collect all <tr> nodes (may be inside <tbody>/<thead>)
+                const collectTr = (ns: (SimpleNode | string)[]): SimpleNode[] => {
+                    const rows: SimpleNode[] = [];
+                    ns.forEach(n => {
+                        if (typeof n === 'string') return;
+                        if (n.tagName === 'tr') rows.push(n);
+                        else rows.push(...collectTr(n.children));
+                    });
+                    return rows;
+                };
+
+                const trNodes = collectTr(node.children);
+                const tableRows = trNodes.map(trNode => {
+                    const cells = trNode.children
+                        .filter((c): c is SimpleNode => typeof c !== 'string' && (c.tagName === 'td' || c.tagName === 'th'))
+                        .map(cellNode => {
+                            const cellResult = treeToDocx(cellNode.children, olCounterRef, 0, false, undefined, spacing);
+                            result.numbering.push(...cellResult.numbering);
+                            // Ensure at least one paragraph in the cell
+                            const cellChildren = cellResult.paragraphs.length > 0
+                                ? cellResult.paragraphs
+                                : [new Paragraph('')];
+                            return new TableCell({
+                                children: cellChildren as any,
+                                borders: allBorders,
+                            });
+                        });
+                    return new TableRow({ children: cells });
+                });
+
+                if (tableRows.length > 0) {
+                    result.paragraphs.push(new Table({
+                        rows: tableRows,
+                        width: { size: 100, type: WidthType.PERCENTAGE },
+                    }));
+                }
+                break;
+            }
             case 'p':
                 let alignment: AlignmentType = AlignmentType.JUSTIFIED;
                 if (node.attributes.style?.includes('text-align: center')) alignment = AlignmentType.CENTER;
@@ -126,15 +172,18 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 if (spacing) {
                     paragraphProps.spacing = spacing;
                 }
+                if (defaultNumbering && !paragraphProps.numbering) {
+                    paragraphProps.numbering = defaultNumbering;
+                }
                 result.paragraphs.push(new Paragraph(paragraphProps));
                 break;
             case 'blockquote':
-                const blockquoteResult = treeToDocx(node.children, olCounterRef, listLevel, true, olRef, spacing);
+                const blockquoteResult = treeToDocx(node.children, olCounterRef, listLevel, true, olRef, spacing, defaultNumbering);
                 result.paragraphs.push(...blockquoteResult.paragraphs);
                 result.numbering.push(...blockquoteResult.numbering);
                 break;
             case 'ul':
-                const ulResult = treeToDocx(node.children, olCounterRef, listLevel + 1, currentInBlockquote, undefined, spacing);
+                const ulResult = treeToDocx(node.children, olCounterRef, listLevel + 1, currentInBlockquote, undefined, spacing, defaultNumbering);
                 result.paragraphs.push(...ulResult.paragraphs);
                 result.numbering.push(...ulResult.numbering);
                 break;
@@ -162,7 +211,7 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                         }],
                     });
                 }
-                const olResult = treeToDocx(node.children, olCounterRef, listLevel + 1, currentInBlockquote, currentOlRef, spacing);
+                const olResult = treeToDocx(node.children, olCounterRef, listLevel + 1, currentInBlockquote, currentOlRef, spacing, defaultNumbering);
                 result.paragraphs.push(...olResult.paragraphs);
                 result.numbering.push(...olResult.numbering);
                 break;
@@ -203,12 +252,12 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
 
                      result.paragraphs.push(new Paragraph(listParaProps));
                 }
-                const nestedListResult = treeToDocx(node.children.filter(c => typeof c !== 'string' && ['ul', 'ol'].includes(c.tagName)), olCounterRef, listLevel, currentInBlockquote, currentOlRef, spacing);
+                const nestedListResult = treeToDocx(node.children.filter(c => typeof c !== 'string' && ['ul', 'ol'].includes(c.tagName)), olCounterRef, listLevel, currentInBlockquote, currentOlRef, spacing, defaultNumbering);
                 result.paragraphs.push(...nestedListResult.paragraphs);
                 result.numbering.push(...nestedListResult.numbering);
                 break;
             default:
-                 const defaultResult = treeToDocx(node.children, olCounterRef, listLevel, currentInBlockquote, olRef, spacing);
+                 const defaultResult = treeToDocx(node.children, olCounterRef, listLevel, currentInBlockquote, olRef, spacing, defaultNumbering);
                  result.paragraphs.push(...defaultResult.paragraphs);
                  result.numbering.push(...defaultResult.numbering);
         }
@@ -278,7 +327,7 @@ function processInline(nodes: (SimpleNode | string)[], currentStyle = {}, fullTe
 }
 
 
-export function parseHtml(html: string, spacing?: ParagraphSpacing): ParseResult {
+export function parseHtml(html: string, spacing?: ParagraphSpacing, defaultNumbering?: { reference: string; level: number }): ParseResult {
     const emptyResult: ParseResult = { paragraphs: [new Paragraph("")], numbering: [] };
     if (!html || !html.trim()) return emptyResult;
     
@@ -286,7 +335,7 @@ export function parseHtml(html: string, spacing?: ParagraphSpacing): ParseResult
     const sanitizedHtml = html.replace(/\n/g, '');
 
     const tree = htmlToTree(sanitizedHtml);
-    const docxResult = treeToDocx(tree, olCounterRef, 0, false, undefined, spacing);
+    const docxResult = treeToDocx(tree, olCounterRef, 0, false, undefined, spacing, defaultNumbering);
     
     if (docxResult.paragraphs.length === 0 && !docxResult.numbering.length) {
       const plainText = html.replace(/<[^>]+>/g, '').trim();
@@ -294,6 +343,9 @@ export function parseHtml(html: string, spacing?: ParagraphSpacing): ParseResult
         const paraProps: any = { children: [new TextRun(convertToSmartQuotes(plainText))] };
         if (spacing) {
             paraProps.spacing = spacing;
+        }
+        if (defaultNumbering) {
+            paraProps.numbering = defaultNumbering;
         }
         return { paragraphs: [new Paragraph(paraProps)], numbering: [] };
       }
