@@ -1,7 +1,7 @@
 
 "use client"
 
-import React, { useMemo, useRef } from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 import { annexureSchema, type DraftoProject } from "@/lib/schema";
 import { Button } from "@/components/ui/button";
@@ -37,12 +37,25 @@ interface AnnexureDialogProps {
   annexureNumberingMap: Map<string, number>;
 }
 
+function useIsDark() {
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains('dark'));
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+  return isDark;
+}
+
 export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: AnnexureDialogProps) {
   const form = useFormContext<DraftoProject>();
   const { fields, append, remove } = useFieldArray({
     control: form.control,
     name: `listOfDates.${lodIndex}.annexures`,
   });
+  const isDark = useIsDark();
   
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const typedFileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -73,7 +86,8 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
   return (
     <Popover>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent className="max-w-[90vw] w-full md:max-w-7xl p-2" side="bottom" align="end">
+      <PopoverContent className="max-w-[90vw] w-full md:max-w-7xl p-0 shadow-none border-0 bg-transparent" side="bottom" align="end">
+        <div className={cn(isDark ? 'force-light' : 'dark', 'p-2 rounded-md border-2 border-border/80 bg-background text-foreground shadow-2xl')}>
         <TooltipProvider>
           <div className="flex flex-col h-full">
               <div className="flex-grow overflow-y-auto pr-1 space-y-1 py-2 max-h-[60vh]">
@@ -305,6 +319,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
               </div>
           </div>
         </TooltipProvider>
+        </div>
       </PopoverContent>
     </Popover>
   )

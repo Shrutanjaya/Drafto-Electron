@@ -181,7 +181,7 @@ export function SlpTab() {
         <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId="slp-tab-panels">
           <ResizablePanel defaultSize={50}>
             <div className="flex flex-col h-full p-1">
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">List of Dates</h4>
+              <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">List of Dates</h4>
               <div className="flex-grow overflow-auto">
                 <LoDTable />
               </div>
@@ -190,7 +190,7 @@ export function SlpTab() {
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={30}>
             <div className="flex flex-col h-full p-1">
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Grounds</h4>
+              <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Grounds</h4>
               <div className="flex-grow overflow-auto">
                 <AamTable name="grounds" defaultRows={10} />
               </div>
@@ -199,7 +199,7 @@ export function SlpTab() {
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={20}>
             <div className="flex flex-col h-full p-1">
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Synopsis</h4>
+              <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Synopsis</h4>
               <FormField
                 control={form.control}
                 name="synopsis"

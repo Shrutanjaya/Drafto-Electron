@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const { execFile, exec } = require("child_process");
 const { promisify } = require("util");
 const execAsync = promisify(exec);
+const { autoUpdater } = require("electron-updater");
 
 // ── Environment ─────────────────────────────────────────────────────────────
 const isDev = !app.isPackaged;
@@ -216,6 +217,28 @@ function createWindow() {
 
   mainWindow.once("ready-to-show", () => mainWindow.show());
   mainWindow.on("closed", () => { mainWindow = null; });
+
+  // Send any pending file-open path once renderer has mounted
+  mainWindow.webContents.once("did-finish-load", () => {
+    if (pendingOpenFilePath) {
+      // Small delay to let React mount
+      setTimeout(() => {
+        sendOpenFile(pendingOpenFilePath);
+        pendingOpenFilePath = null;
+      }, 1500);
+    }
+  });
+
+  // Auto-check for updates after the renderer has had time to mount (~4 s)
+  if (!isDev) {
+    mainWindow.webContents.once("did-finish-load", () => {
+      setTimeout(() => {
+        autoUpdater.checkForUpdates().catch((err) =>
+          console.warn("[autoUpdater] startup check failed:", err)
+        );
+      }, 4000);
+    });
+  }
 }
 
 // ── App lifecycle ────────────────────────────────────────────────────────────
@@ -234,6 +257,9 @@ if (!gotSingleInstanceLock) {
   app.on("second-instance", (_event, argv) => {
     const protocolUrl = argv.find((a) => a.startsWith("drafto://"));
     if (protocolUrl) handleProtocolUrl(protocolUrl);
+    // Handle double-clicking a .drafto file while app is already running
+    const draftoFile = argv.find((a) => a.endsWith(".drafto") && !a.startsWith("--"));
+    if (draftoFile) sendOpenFile(draftoFile);
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
@@ -242,6 +268,9 @@ if (!gotSingleInstanceLock) {
 
   app.whenReady().then(() => {
     app.setAsDefaultProtocolClient("drafto");
+    // Check if launched by double-clicking a .drafto file
+    const launchFile = process.argv.find((a) => a.endsWith(".drafto") && !a.startsWith("--"));
+    if (launchFile) pendingOpenFilePath = launchFile;
     if (process.platform === "darwin") {
       findSoffice();
     } else {
@@ -254,6 +283,13 @@ if (!gotSingleInstanceLock) {
     createWindow();
   });
 }
+
+app.on("before-quit", () => {
+  if (activeLockFilePath) {
+    try { if (fs.existsSync(activeLockFilePath)) fs.unlinkSync(activeLockFilePath); } catch {}
+    activeLockFilePath = null;
+  }
+});
 
 app.on("activate", () => {
   if (app.isReady() && BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -281,6 +317,61 @@ ipcMain.handle("get-env", () => ({
 
 // ── IPC: open external link ──────────────────────────────────────────────────
 ipcMain.handle("open-external", (_event, url) => shell.openExternal(url));
+
+// ── Auto-updater ─────────────────────────────────────────────────────────────
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = false;
+
+// Persisted state so the renderer can query it any time (e.g. on mount)
+let auState = { status: 'idle', version: null, error: null };
+
+function sendUpdate(channel, data) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, data);
+  }
+}
+
+autoUpdater.on("update-available", (info) => {
+  auState = { status: 'available', version: info.version, error: null };
+  sendUpdate("au-update-available", info);
+});
+autoUpdater.on("update-not-available", (info) => {
+  auState = { status: 'up-to-date', version: null, error: null };
+  sendUpdate("au-update-not-available", info);
+});
+autoUpdater.on("download-progress", (prog) => {
+  auState = { ...auState, status: 'downloading' };
+  sendUpdate("au-download-progress", prog);
+});
+autoUpdater.on("update-downloaded", (info) => {
+  auState = { status: 'downloaded', version: info.version, error: null };
+  sendUpdate("au-update-downloaded", info);
+});
+autoUpdater.on("error", (err) => {
+  auState = { status: 'error', version: null, error: String(err) };
+  sendUpdate("au-error", String(err));
+});
+
+ipcMain.handle("au-get-state", () => auState);
+
+ipcMain.handle("au-check", async () => {
+  if (isDev) return { status: "dev" };
+  try {
+    await autoUpdater.checkForUpdates();
+    return { status: "checking" };
+  } catch (err) {
+    return { status: "error", message: String(err) };
+  }
+});
+
+ipcMain.handle("au-download", async () => {
+  if (isDev) return;
+  await autoUpdater.downloadUpdate();
+});
+
+ipcMain.handle("au-install", () => {
+  autoUpdater.quitAndInstall(true, true);
+});
 
 // ── IPC: Google OAuth (PKCE flow) ───────────────────────────────────────────
 // Renderer sends the Google OAuth client ID; main opens the system browser
@@ -407,10 +498,52 @@ const projectsDir = () => {
   return dir;
 };
 
+// ── Recent files ─────────────────────────────────────────────────────────────
+const recentFilesPath = () => path.join(app.getPath("userData"), "recent-files.json");
+
+function loadRecentFilePaths() {
+  try {
+    if (fs.existsSync(recentFilesPath())) {
+      return JSON.parse(fs.readFileSync(recentFilesPath(), "utf-8"));
+    }
+  } catch {}
+  return [];
+}
+
+function addRecentFile(filePath) {
+  let recent = loadRecentFilePaths().filter(p => p !== filePath);
+  recent.unshift(filePath);
+  if (recent.length > 20) recent = recent.slice(0, 20);
+  try { fs.writeFileSync(recentFilesPath(), JSON.stringify(recent), "utf-8"); } catch {}
+}
+
+function removeRecentFile(filePath) {
+  const recent = loadRecentFilePaths().filter(p => p !== filePath);
+  try { fs.writeFileSync(recentFilesPath(), JSON.stringify(recent), "utf-8"); } catch {}
+}
+
+ipcMain.handle("remove-recent-file", (_event, filePath) => {
+  if (filePath && typeof filePath === "string") removeRecentFile(filePath);
+});
+
+ipcMain.handle("get-recent-files", () => {
+  return loadRecentFilePaths()
+    .filter(p => fs.existsSync(p))
+    .map(p => {
+      try {
+        const stats = fs.statSync(p);
+        return { name: path.basename(p, ".drafto"), fileName: path.basename(p), path: p, modifiedDate: stats.mtime.toISOString(), size: stats.size };
+      } catch { return null; }
+    })
+    .filter(Boolean)
+    .slice(0, 20);
+});
+
 ipcMain.handle("save-project", (_event, { petitionerName, content }) => {
   const dir = projectsDir();
   const filePath = path.join(dir, `${petitionerName}.drafto`);
   fs.writeFileSync(filePath, content, "utf-8");
+  addRecentFile(filePath);
   return filePath;
 });
 
@@ -431,12 +564,105 @@ ipcMain.handle("list-drafto-files", () => {
 ipcMain.handle("load-drafto-file", (_event, fileName) => {
   const fp = path.join(projectsDir(), fileName);
   if (!fs.existsSync(fp)) throw new Error("File not found");
+  addRecentFile(fp);
   return fs.readFileSync(fp, "utf-8");
 });
 
 ipcMain.handle("open-projects-folder", () => {
   shell.openPath(projectsDir());
 });
+
+ipcMain.handle("open-folder-path", (_event, folderPath) => {
+  if (!folderPath || typeof folderPath !== "string") return;
+  shell.openPath(folderPath);
+});
+
+ipcMain.handle("list-drafto-files-from-path", (_event, folderPath) => {
+  if (!folderPath || typeof folderPath !== "string") return [];
+  if (!fs.existsSync(folderPath)) return [];
+  try {
+    return fs.readdirSync(folderPath)
+      .filter(f => f.endsWith(".drafto"))
+      .map(f => {
+        const fp = path.join(folderPath, f);
+        const stats = fs.statSync(fp);
+        return { name: f.replace(".drafto", ""), fileName: f, path: fp, modifiedDate: stats.mtime.toISOString(), size: stats.size };
+      })
+      .sort((a, b) => new Date(b.modifiedDate) - new Date(a.modifiedDate));
+  } catch { return []; }
+});
+
+// ── IPC: shared-path project save/load/lock ───────────────────────────────
+ipcMain.handle("save-project-to-path", (_event, { filePath, content }) => {
+  if (!filePath || typeof filePath !== "string") throw new Error("Invalid path");
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content, "utf-8");
+  addRecentFile(filePath);
+  return filePath;
+});
+
+ipcMain.handle("load-project-from-path", (_event, filePath) => {
+  if (!filePath || typeof filePath !== "string") throw new Error("Invalid path");
+  if (!fs.existsSync(filePath)) throw new Error("File not found: " + filePath);
+  addRecentFile(filePath);
+  return fs.readFileSync(filePath, "utf-8");
+});
+
+ipcMain.handle("open-drafto-file-dialog", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openFile"],
+    filters: [{ name: "Drafto Project", extensions: ["drafto"] }],
+  });
+  return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
+});
+
+ipcMain.handle("get-file-mtime", (_event, filePath) => {
+  try { return fs.statSync(filePath).mtimeMs; } catch { return null; }
+});
+
+const LOCK_STALE_MS = 30 * 60 * 1000; // 30 minutes
+let activeLockFilePath = null; // track the current lock so we can clean it on quit
+
+ipcMain.handle("write-lock-file", (_event, filePath) => {
+  const lockPath = filePath + ".lock";
+  // Clean up the previous lock if switching to a different file
+  if (activeLockFilePath && activeLockFilePath !== lockPath) {
+    try { if (fs.existsSync(activeLockFilePath)) fs.unlinkSync(activeLockFilePath); } catch {}
+    activeLockFilePath = null;
+  }
+  // Check for an existing, non-stale lock
+  if (fs.existsSync(lockPath)) {
+    try {
+      const existing = JSON.parse(fs.readFileSync(lockPath, "utf-8"));
+      if (Date.now() - existing.since < LOCK_STALE_MS) {
+        return { locked: true, user: existing.user, since: existing.since };
+      }
+    } catch {}
+  }
+  fs.writeFileSync(lockPath, JSON.stringify({
+    user: os.userInfo().username,
+    since: Date.now(),
+  }), "utf-8");
+  activeLockFilePath = lockPath;
+  return { locked: false };
+});
+
+ipcMain.handle("delete-lock-file", (_event, filePath) => {
+  const lockPath = filePath + ".lock";
+  try { if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath); } catch {}
+  if (activeLockFilePath === lockPath) activeLockFilePath = null;
+});
+
+// Notify renderer to open a .drafto file by path (used on launch and second-instance)
+function sendOpenFile(filePath) {
+  if (mainWindow && !mainWindow.isDestroyed() && filePath && filePath.endsWith(".drafto")) {
+    // Wait for the renderer to finish mounting before sending
+    mainWindow.webContents.send("open-file-path", filePath);
+  }
+}
+
+// Store path received before renderer is ready
+let pendingOpenFilePath = null;
 
 // ── IPC: dialogs ─────────────────────────────────────────────────────────────
 ipcMain.handle("read-file-by-path", (_event, filePath) => {

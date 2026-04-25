@@ -17,7 +17,7 @@ import {
   FormItem,
 } from "@/components/ui/form"
 import { Button } from "@/components/ui/button"
-import { PlusCircle, Trash2, FileText, GripVertical } from "lucide-react"
+import { PlusCircle, Trash2, FileText, GripVertical, Info } from "lucide-react"
 import { AnnexureDialog } from "../dialogs/annexure-dialog"
 import { Input } from "../ui/input"
 import { BadhiyaBox } from "./badhiya-box"
@@ -38,8 +38,9 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 const SortableRow = ({ id, children }: { id: string, children: React.ReactNode }) => {
   const {
@@ -89,38 +90,27 @@ export function LoDTable() {
     name: "listOfDates",
   })
 
-  const [dateColWidth, setDateColWidth] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = sessionStorage.getItem('lod-date-col-width');
-      if (saved) return Number(saved);
-    }
-    return 75;
-  });
-
-  useEffect(() => {
-    sessionStorage.setItem('lod-date-col-width', String(dateColWidth));
-  }, [dateColWidth]);
-  const resizingRef = useRef<{ startX: number; startWidth: number } | null>(null);
-
-  const onResizeMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    resizingRef.current = { startX: e.clientX, startWidth: dateColWidth };
-
-    const onMouseMove = (ev: MouseEvent) => {
-      if (!resizingRef.current) return;
-      const delta = ev.clientX - resizingRef.current.startX;
-      setDateColWidth(Math.max(40, resizingRef.current.startWidth + delta));
-    };
-    const onMouseUp = () => {
-      resizingRef.current = null;
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    };
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-  }, [dateColWidth]);
+  const [dateColWidth, setDateColWidth] = useState(75);
 
   const allLods = useWatch({ control: form.control, name: "listOfDates" });
+
+  useEffect(() => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    // text-xs = 0.75rem; read the actual root font-size to account for Small/Medium/Large setting
+    const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const textXsPx = 0.75 * rootPx;
+    ctx.font = `${textXsPx}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
+    let maxWidth = 0;
+    (allLods || []).forEach(lod => {
+      if (lod.date) {
+        const w = ctx.measureText(lod.date).width;
+        if (w > maxWidth) maxWidth = w;
+      }
+    });
+    setDateColWidth(Math.max(75, Math.ceil(maxWidth) + 20));
+  }, [allLods]);
   
   const annexureNumberingMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -189,15 +179,41 @@ export function LoDTable() {
               <TableHeader>
                 <TableRow className="border-none">
                   <TableHead className="w-[30px] p-0 text-xs"></TableHead>
-                  <TableHead className="text-center p-0 text-xs relative overflow-visible" style={{ width: dateColWidth, minWidth: dateColWidth }}>
-                    Date
-                    <div
-                      onMouseDown={onResizeMouseDown}
-                      className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize select-none hover:bg-border"
-                    />
+                  <TableHead className="text-center p-0 text-xs" style={{ width: dateColWidth, minWidth: dateColWidth }}>
+                    <span className="inline-flex items-center gap-0.5">
+                      Date
+                      <TooltipProvider delayDuration={300}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" className="inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus:outline-none">
+                              <Info className="h-3 w-3" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="max-w-[220px] text-xs text-center">
+                            Drag to reorder rows. Ctrl + Space to enter a new, blank row after the current row.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </span>
                   </TableHead>
                   <TableHead className="text-center p-0 text-xs">Particulars</TableHead>
-                  <TableHead className="w-[20px] text-center p-0 text-xs">Annex</TableHead>
+                  <TableHead className="w-[20px] text-center p-0 text-xs">
+                    <span className="inline-flex items-center gap-0.5">
+                      Annex
+                      <TooltipProvider delayDuration={300}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button type="button" className="inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus:outline-none">
+                              <Info className="h-3 w-3" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="max-w-[240px] text-xs text-center">
+                            Please mark annexures in chronological order. Check the AD box if the annexure was not part of the record of the High Court.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </span>
+                  </TableHead>
                   <TableHead className="w-[20px] text-center p-0 text-xs"></TableHead>
                 </TableRow>
               </TableHeader>

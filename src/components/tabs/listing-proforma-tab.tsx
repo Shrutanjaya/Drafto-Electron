@@ -116,7 +116,7 @@ export function ListingProformaTab() {
           {selectedSection === 'basicInfo' && (
             <div className="space-y-4">
               <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contact</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Contact</h4>
                 <div className="grid grid-cols-2 gap-2">
                   <FormField control={form.control} name="listingProforma.general.petitionerPhone" render={({ field }) => (<FormItem><FormLabel className="text-xs">Petitioner Phone</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
                   <FormField control={form.control} name="listingProforma.general.petitionerEmail" render={({ field }) => (<FormItem><FormLabel className="text-xs">Petitioner Email</FormLabel><FormControl><Input type="email" {...field} /></FormControl></FormItem>)} />
@@ -128,7 +128,7 @@ export function ListingProformaTab() {
               </div>
 
               <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Category</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Category</h4>
                 <div className="grid grid-cols-3 gap-2">
                   <FormField control={form.control} name="listingProforma.general.mainCategory" render={({ field }) => (
                     <FormItem>
@@ -163,7 +163,7 @@ export function ListingProformaTab() {
               </div>
 
               <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Judges</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Judges</h4>
                 <div className="grid grid-cols-2 gap-2">
                   <FormField control={form.control} name="listingProforma.general.notToListBefore" render={({ field }) => (<FormItem><FormLabel className="text-xs">Not to be listed before</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
                   <FormField control={form.control} name="listingProforma.general.judgesPassedImpugned" render={({ field }) => (<FormItem><FormLabel className="text-xs">Judges who passed the Impugned Order</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
@@ -171,7 +171,7 @@ export function ListingProformaTab() {
               </div>
 
               <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Special Categories</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Special Categories</h4>
                 <div className="flex flex-wrap gap-2">
                   {petitionerCategoryItems.map(item => (
                     <FormField key={item.id} control={form.control} name={`listingProforma.specialCategories.petitionerCategories.${item.id}`} render={({ field }) => (
@@ -198,7 +198,7 @@ export function ListingProformaTab() {
           {selectedSection === 'legalProvisions' && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Legal Provisions</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Legal Provisions</h4>
                 <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => append({ type: 'Central Act', act: '', section: '' })}>
                   <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Add Provision
                 </Button>
@@ -254,7 +254,7 @@ export function ListingProformaTab() {
           {/* ── Linked Matters ── */}
           {selectedSection === 'linkedMatters' && (
             <div className="space-y-2">
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Linked Matters</h4>
+              <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Linked Matters</h4>
               <div className="grid grid-cols-2 gap-2">
                 <FormField control={form.control} name="listingProforma.general.similarDisposed" render={({ field }) => (<FormItem><FormLabel className="text-xs">Similar disposed matter (citation)</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
                 <FormField control={form.control} name="listingProforma.general.similarPending" render={({ field }) => (<FormItem><FormLabel className="text-xs">Similar pending matter (case details)</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
@@ -267,7 +267,7 @@ export function ListingProformaTab() {
           {selectedSection === 'optionalCategories' && (
             <div className="space-y-5">
               <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Criminal Matters</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Criminal Matters</h4>
                 <div className="grid grid-cols-4 gap-2">
                   <FormField control={form.control} name="listingProforma.specialCategories.surrenderStatus" render={({ field }) => (
                     <FormItem>
@@ -307,7 +307,7 @@ export function ListingProformaTab() {
               </div>
 
               <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tax &amp; MACT</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Tax &amp; MACT</h4>
                 <div className="grid grid-cols-2 gap-2">
                   <FormField control={form.control} name="listingProforma.specialCategories.taxEffect" render={({ field }) => (<FormItem><FormLabel className="text-xs">Tax Effect</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
                   <FormField control={form.control} name="listingProforma.specialCategories.vehicleNo" render={({ field }) => (<FormItem><FormLabel className="text-xs">Vehicle No.</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
@@ -315,7 +315,7 @@ export function ListingProformaTab() {
               </div>
 
               <div className="space-y-2">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Land Acquisition</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Land Acquisition</h4>
                 <div className="grid grid-cols-3 gap-2">
                   <FormField control={form.control} name="listingProforma.specialCategories.landAcqS4" render={({ field }) => (<FormItem><FormLabel className="text-xs">Section 4</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
                   <FormField control={form.control} name="listingProforma.specialCategories.landAcqS6" render={({ field }) => (<FormItem><FormLabel className="text-xs">Section 6</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />

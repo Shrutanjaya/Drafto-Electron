@@ -7,15 +7,16 @@ import {
   Undo,
   Redo,
   FileDown,
+  FileText,
   Settings,
   LogOut,
   User,
+  Loader2,
 } from "lucide-react";
 import { saveAs } from "file-saver";
 
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { ThemeToggle } from "@/components/theme-toggle";
 import type { DraftoProject } from "@/lib/schema";
 import {
   DropdownMenu,
@@ -39,6 +40,26 @@ import { getIaList } from "@/lib/ia-list-utils";
 import { restoreFileFromPath } from "@/lib/utils/pick-file";
 import { useAuthContext } from "@/providers/auth-provider";
 import { incrementGenerationCount } from "@/lib/firebase/usage-service";
+
+/** Returns first N words of a string, trimmed. */
+const firstWords = (str: string, n: number) =>
+  str.trim().split(/\s+/).slice(0, n).join(' ');
+
+/**
+ * Generates a clean file/folder name in the form "Petitioner v. Respondent".
+ * Uses up to the first 3 words of each party's name.
+ * Falls back gracefully when either side is absent.
+ */
+export function getProjectFileName(data: { petitioners?: Array<{ name?: string }>; respondents?: Array<{ name?: string }> }): string {
+  const petName = data.petitioners?.[0]?.name?.trim();
+  const resName = data.respondents?.[0]?.name?.trim();
+  const pet = petName ? firstWords(petName, 3) : '';
+  const res = resName ? firstWords(resName, 3) : '';
+  if (pet && res) return `${pet} v. ${res}`;
+  if (pet) return pet;
+  if (res) return `v. ${res}`;
+  return 'Untitled';
+}
 
 interface HeaderProps {
     undo: () => void;
@@ -72,6 +93,8 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     draftOptions.reduce((acc, opt) => ({ ...acc, [opt.id]: false }), {} as DraftSelection)
   );
   const [showLoadDialog, setShowLoadDialog] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -88,9 +111,56 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Register global auto-update listeners so we catch updates even when settings dialog is closed
+  useEffect(() => {
+    if (!window.electron) return;
+    // Query persisted state from main process (handles case where update fired before mount)
+    window.electron.auGetState?.().then((state: { status: string; version: string | null }) => {
+      if (state?.status === 'available' || state?.status === 'downloaded') {
+        setUpdateAvailable(true);
+        toast({
+          title: state.status === 'downloaded' ? 'Update ready to install' : `Update available: v${state.version}`,
+          description: 'Open Settings → Support to install.',
+        });
+      }
+    });
+    window.electron.onAuUpdateAvailable?.((info: { version: string }) => {
+      setUpdateAvailable(true);
+      toast({
+        title: `Update available: v${info.version}`,
+        description: 'Open Settings → Support to download and install.',
+      });
+    });
+    window.electron.onAuUpdateDownloaded?.(() => {
+      setUpdateAvailable(true);
+      toast({
+        title: 'Update ready to install',
+        description: 'Open Settings → Support, then click Restart & Install.',
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep a stable ref to currentFilePath so the lock-file cleanup doesn't re-register listeners
+  const currentFilePathRef = useRef<string | null>(null);
+  useEffect(() => { currentFilePathRef.current = currentFilePath; }, [currentFilePath]);
+
+  // Handle files opened via OS (double-click or second-instance) — register once on mount
+  useEffect(() => {
+    if (!window.electron?.onOpenFilePath) return;
+    window.electron.onOpenFilePath((fp: string) => handleLoadFromPathRef.current(fp));
+    const cleanup = () => {
+      if (currentFilePathRef.current) window.electron?.deleteLockFile?.(currentFilePathRef.current);
+    };
+    window.addEventListener('beforeunload', cleanup);
+    return () => window.removeEventListener('beforeunload', cleanup);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Keep a ref to handleSave so the autosave interval always calls the latest version
   // (initialized with a no-op; updated immediately via the effect below once handleSave is in scope)
   const handleSaveRef = useRef<() => void>(() => {});
+  const handleLoadFromPathRef = useRef<(fp: string) => void>(() => {});
 
   // Autosave: fires every second and triggers a save once the configured interval elapses
   useEffect(() => {
@@ -174,23 +244,33 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   
   const handleSave = async () => {
     const data = form.getValues();
-    const petitioners = data.petitioners;
-    const petitionerName =
-      !petitioners || petitioners.length === 0 || !petitioners[0]?.name
-        ? "Untitled"
-        : petitioners[0].name.replace(/\s+/g, "_").slice(0, 10);
+    const petitionerName = getProjectFileName(data);
 
     // Extract file paths and serialize (File objects are stripped; paths are preserved)
     const dataWithPaths = extractFilePaths(data);
     const jsonString = JSON.stringify(dataWithPaths, null, 2);
 
-    // Try Electron first; fall back to browser download
+    // Shared-path save (overwrite file in-place)
+    if (currentFilePath && window.electron?.saveProjectToPath) {
+      try {
+        await window.electron.saveProjectToPath({ filePath: currentFilePath, content: jsonString });
+        toast({ variant: "success", title: "Saved" });
+        return;
+      } catch (err) {
+        console.error("Shared path save failed:", err);
+        toast({ variant: "destructive", title: "Save Failed", description: String(err) });
+        return;
+      }
+    }
+
+    // Local save (userData/projects/)
     try {
       if (typeof window !== "undefined" && window.electron?.saveProject) {
         const savedPath = await window.electron.saveProject({
           petitionerName,
           content: jsonString,
         });
+        if (savedPath) setCurrentFilePath(savedPath);
         toast({ variant: "success", title: "Saved" });
         return;
       }
@@ -205,6 +285,8 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
 
   // Keep the ref current so the autosave interval always calls the latest handleSave closure
   useEffect(() => { handleSaveRef.current = handleSave; });
+  // Keep the ref current so the OS file-open listener always calls the latest handleLoadFromPath
+  useEffect(() => { handleLoadFromPathRef.current = handleLoadFromPath; });
 
   const handleLoad = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -225,7 +307,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           const fd = validatedData.advocate?.filingDate ? new Date(validatedData.advocate.filingDate) : null;
           if (fd && fd < today) { (validatedData as any).advocate = { ...validatedData.advocate, filingDate: today }; }
           form.reset(validatedData);
-          
+          setCurrentFilePath(null);
           toast({ title: "Project Loaded", description: "Your project has been loaded successfully." });
         } catch (error) {
           console.error("Load error:", error);
@@ -253,15 +335,89 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       const fd = validatedData.advocate?.filingDate ? new Date(validatedData.advocate.filingDate) : null;
       if (fd && fd < today) { (validatedData as any).advocate = { ...validatedData.advocate, filingDate: today }; }
       form.reset(validatedData);
+      // Release lock on any previously open file
+      if (currentFilePath && window.electron?.deleteLockFile) {
+        await window.electron.deleteLockFile(currentFilePath);
+      }
+      setCurrentFilePath(null); // loaded from local userData — clear any shared path
     } catch (error) {
       console.error("Load error:", error);
       toast({ variant: "destructive", title: "Load Failed", description: "The selected file is not a valid .drafto project." });
     }
   };
 
+  /**
+   * Open a .drafto file from an absolute path.
+   * Checks for an advisory lock, loads, restores File objects, resets the form,
+   * writes our own lock, and tracks the current file path.
+   */
+  const handleLoadFromPath = async (filePath: string) => {
+    if (!window.electron) return;
+    try {
+      // Release lock on the previously open file before switching
+      if (currentFilePath && currentFilePath !== filePath && window.electron.deleteLockFile) {
+        await window.electron.deleteLockFile(currentFilePath);
+      }
+      // Advisory lock check + write our own lock
+      if (window.electron.writeLockFile) {
+        const lockResult = await window.electron.writeLockFile(filePath);
+        if (lockResult?.locked) {
+          const since = lockResult.since ? new Date(lockResult.since).toLocaleTimeString() : 'recently';
+          toast({
+            variant: "destructive",
+            title: "File in Use",
+            description: `${lockResult.user} has had this file open since ${since}. You can still open it, but coordinate before saving.`,
+          });
+          // Proceed anyway — advisory only
+        }
+      }
+      const content = await window.electron.loadProjectFromPath(filePath);
+      const data = JSON.parse(content);
+      if (window.electron.readFileByPath) await restoreFilesFromPaths(data);
+      const validatedData = draftoProjectSchema.parse(data);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const fd = validatedData.advocate?.filingDate ? new Date(validatedData.advocate.filingDate) : null;
+      if (fd && fd < today) { (validatedData as any).advocate = { ...validatedData.advocate, filingDate: today }; }
+      form.reset(validatedData);
+      setCurrentFilePath(filePath);
+      toast({ title: "Project Loaded", description: filePath.split(/[\\/]/).pop() });
+    } catch (err) {
+      console.error("Load from path error:", err);
+      toast({ variant: "destructive", title: "Load Failed", description: String(err) });
+    }
+  };
+
+  /** Save project to the configured shared folder and switch to saving there. */
+  const handleChangeSaveLocation = async () => {
+    if (!window.electron?.selectDirectory || !window.electron?.saveProjectToPath) return;
+    const dir = await window.electron.selectDirectory();
+    if (!dir) return;
+    const data = form.getValues();
+    const petitionerName = getProjectFileName(data);
+    const sep = dir.includes('/') ? '/' : '\\';
+    const destPath = `${dir}${sep}${petitionerName}.drafto`;
+    try {
+      const dataWithPaths = extractFilePaths(data);
+      const jsonString = JSON.stringify(dataWithPaths, null, 2);
+      // Remove the old location from recent files before saving to the new one
+      if (currentFilePath && window.electron.removeRecentFile) {
+        await window.electron.removeRecentFile(currentFilePath);
+      }
+      // Release the lock on the old file
+      if (currentFilePath && window.electron.deleteLockFile) {
+        await window.electron.deleteLockFile(currentFilePath);
+      }
+      await window.electron.saveProjectToPath({ filePath: destPath, content: jsonString });
+      setCurrentFilePath(destPath);
+      if (window.electron.writeLockFile) await window.electron.writeLockFile(destPath);
+      toast({ variant: "success", title: "Save Location Changed", description: destPath });
+    } catch (err) {
+      toast({ variant: "destructive", title: "Failed to Change Location", description: String(err) });
+    }
+  };
+
   // Helper function to restore File objects from saved paths (Electron only).
-  // restoreFileFromPath never throws — it returns null on any failure.
-  // Missing files are silently skipped; a single summary toast is shown at the end.
+  // restoreFileFromPath never throws — it returns null on any failure.  // Missing files are silently skipped; a single summary toast is shown at the end.
   const restoreFilesFromPaths = async (data: any) => {
     if (!window.electron?.readFileByPath) return;
 
@@ -346,6 +502,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
 
   const handleNew = () => {
     form.reset(draftoProjectSchema.parse({}));
+    setCurrentFilePath(null);
     toast({ title: "New Project", description: "A new blank project has been created." });
   };
   
@@ -355,13 +512,9 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       if (typeof window !== "undefined" && window.electron?.saveDocx) {
         const settings = getSettings();
         
-        // Get petitioner name for subfolder
+        // Get case name for subfolder
         const data = form.getValues();
-        const petitioners = data.petitioners;
-        const petitionerName =
-          !petitioners || petitioners.length === 0 || !petitioners[0]?.name
-            ? "Untitled"
-            : petitioners[0].name.replace(/\s+/g, "_").slice(0, 30);
+        const petitionerName = getProjectFileName(data);
         
         const savedPath = await window.electron.saveDocx({
           fileName,
@@ -372,6 +525,8 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         if (savedPath) {
           incrementGenerationCount('docx');
           toast({ title: "DOCX Generated", description: `Saved to ${savedPath}` });
+          const dir = savedPath.replace(/[\\/][^\\/]+$/, '');
+          window.electron.openFolderPath?.(dir);
           return;
         }
       }
@@ -536,9 +691,14 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         <h1 className="font-headline text-lg font-bold">DraftoSLP</h1>
       </div>
       <div className="flex items-center gap-1">
+        <Button variant="ghost" size="icon" title="Undo" onClick={undo} disabled={!canUndo}><Undo /></Button>
+        <Button variant="ghost" size="icon" title="Redo" onClick={redo} disabled={!canRedo}><Redo /></Button>
+
+        <Separator orientation="vertical" className="h-6" />
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm">File</Button>
+            <Button variant="ghost" size="sm">Project</Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent>
             <DropdownMenuItem onSelect={handleNew}><FilePlus className="mr-2" />New Project</DropdownMenuItem>
@@ -550,13 +710,30 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
                 fileInputRef.current?.click();
               }
             }}><FolderOpen className="mr-2" />Load Project</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {currentFilePath && (
+              <DropdownMenuItem disabled className="text-xs text-muted-foreground max-w-[280px] truncate">
+                📂 {currentFilePath.split(/[\\/]/).pop()}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onSelect={handleChangeSaveLocation} disabled={!window.electron?.saveProjectToPath}>
+              <FolderOpen className="mr-2" />Change Save Location
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
+        <Separator orientation="vertical" className="h-6" />
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" disabled={isPending}>
-              {isPending ? 'Exporting...' : 'Docx'}
+            <Button variant="ghost" size="icon" title="Export Word Document (.docx)" disabled={isPending}>
+              {isPending
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <span className="relative inline-flex items-center justify-center">
+                    <FileText className="h-5 w-5 text-blue-600" />
+                    <span className="absolute -bottom-1.5 -right-1.5 text-[6px] font-bold leading-none text-white bg-blue-600 rounded-sm px-0.5 py-px">DOC</span>
+                  </span>
+              }
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent>
@@ -591,21 +768,27 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         </DropdownMenu>
 
         <PdfGenerationDialog>
-          <Button variant="ghost" size="sm" disabled={isPending}>PDF</Button>
+          <Button variant="ghost" size="icon" title="Export PDF Paperbook" disabled={isPending}>
+            {isPending
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <span className="relative inline-flex items-center justify-center">
+                  <FileText className="h-5 w-5 text-red-600" />
+                  <span className="absolute -bottom-1.5 -right-1.5 text-[6px] font-bold leading-none text-white bg-red-600 rounded-sm px-0.5 py-px">PDF</span>
+                </span>
+            }
+          </Button>
         </PdfGenerationDialog>
 
-        <ThemeToggle />
+        <Separator orientation="vertical" className="h-6" />
 
         <SettingsDialog>
-          <Button variant="ghost" size="sm">
+          <Button variant="ghost" size="sm" className="relative">
             <Settings className="h-4 w-4" />
+            {updateAvailable && (
+              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-orange-500" />
+            )}
           </Button>
         </SettingsDialog>
-
-        <Button variant="ghost" size="icon" title="Undo" onClick={undo} disabled={!canUndo}><Undo /></Button>
-        <Button variant="ghost" size="icon" title="Redo" onClick={redo} disabled={!canRedo}><Redo /></Button>
-
-        <Separator orientation="vertical" className="h-6" />
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -635,7 +818,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       <LoadProjectDialog 
         open={showLoadDialog} 
         onOpenChange={setShowLoadDialog}
-        onLoad={handleLoadFromDialog}
+        onLoadFromPath={handleLoadFromPath}
       />
     </header>
   );

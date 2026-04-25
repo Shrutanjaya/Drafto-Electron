@@ -327,7 +327,7 @@ export function IasTab() {
         {/* ── Zone 1: Auto-included strip ── */}
         <div className="flex items-center justify-between gap-4 pb-3 border-b">
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Auto-included</span>
+            <span className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Auto-included</span>
             <Tooltip>
               <TooltipTrigger type="button">
                 <Info className="h-3.5 w-3.5 text-muted-foreground" />
@@ -370,7 +370,7 @@ export function IasTab() {
         {/* ── Zone 2: Configurable IAs split view ── */}
         <div>
           <div className="flex items-center gap-1.5 mb-1.5">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Configurable IAs</span>
+            <span className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Configurable IAs</span>
             <Tooltip>
               <TooltipTrigger type="button">
                 <Info className="h-3.5 w-3.5 text-muted-foreground" />
@@ -433,7 +433,7 @@ export function IasTab() {
                 {selectedId === "delay" && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{standardIaList[0].title}</h4>
+                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{standardIaList[0].title}</h4>
                       <FormField
                         control={form.control}
                         name="standardIas.condonationOfDelay.active"
@@ -465,7 +465,7 @@ export function IasTab() {
                       <p className="text-xs text-muted-foreground italic">Since there is no delay, this IA won't be included.</p>
                     )}
                     <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Grounds for Delay</h4>
+                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Grounds for Delay</h4>
                       <IaGroundTable name="standardIas.condonationOfDelay.grounds" />
                     </div>
                   </div>
@@ -475,7 +475,7 @@ export function IasTab() {
                 {selectedId === "cc" && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{standardIaList[1].title}</h4>
+                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{standardIaList[1].title}</h4>
                       <FormField
                         control={form.control}
                         name="standardIas.exemptionCertifiedCopy.active"
@@ -542,7 +542,7 @@ export function IasTab() {
                 {selectedId === "surrender" && isCriminal && (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{standardIaList[4].title}</h4>
+                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{standardIaList[4].title}</h4>
                       <FormField
                         control={form.control}
                         name="standardIas.exemptionFromSurrendering.active"
@@ -555,7 +555,7 @@ export function IasTab() {
                       />
                     </div>
                     <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Grounds for Exemption from Surrendering</h4>
+                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Grounds for Exemption from Surrendering</h4>
                       <IaGroundTable name="standardIas.exemptionFromSurrendering.grounds" />
                     </div>
                   </div>
@@ -580,11 +580,11 @@ export function IasTab() {
                       )}
                     />
                     <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Grounds</h4>
+                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Grounds</h4>
                       <IaGroundTable name={`customIas.${index}.grounds`} />
                     </div>
                     <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Prayers</h4>
+                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Prayers</h4>
                       <AamTable name={`customIas.${index}.prayers`} />
                     </div>
                   </div>

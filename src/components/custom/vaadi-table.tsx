@@ -37,6 +37,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import React, { useEffect, useState } from "react"
 import { Input } from "../ui/input"
+import { Textarea } from "../ui/textarea"
 
 type VaadiTableName =
   | "petitioners"
@@ -64,8 +65,8 @@ const SortableRow = ({ id, children }: { id: string, children: React.ReactNode }
   };
 
   return (
-    <TableRow ref={setNodeRef} style={style} {...attributes} className="border-none">
-      <TableCell className="p-0 align-top pt-1">
+    <TableRow ref={setNodeRef} style={style} {...attributes} className="border-none align-top">
+      <TableCell className="p-0 pt-1">
         <Button
           type="button"
           variant="ghost"
@@ -142,40 +143,58 @@ export function VaadiTable({ name, disabled = false }: VaadiTableProps) {
                     {fields.map((item, index) => (
                       <SortableRow key={item.id} id={item.id}>
                         <TableCell className="font-medium text-xs align-middle p-0 text-center">{index + 1}</TableCell>
-                        <TableCell className="p-0">
+                        <TableCell className="p-0 align-top">
                           <FormField
                             control={form.control}
                             name={`${name}.${index}.name` as any}
                             render={({ field }) => (
                               <FormItem>
                                 <FormControl>
-                                  <Input {...field} className="h-7 p-1 text-xs border-0 focus-visible:ring-0" />
+                                  <Textarea
+                                    {...field}
+                                    ref={(el) => { field.ref(el); if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+                                    rows={1}
+                                    className="p-1 text-xs border-0 focus-visible:ring-0 min-h-0 overflow-hidden resize-none"
+                                    onInput={(e) => { const t = e.currentTarget; t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }}
+                                  />
                                 </FormControl>
                               </FormItem>
                             )}
                           />
                         </TableCell>
-                        <TableCell className="p-0">
+                        <TableCell className="p-0 align-top">
                           <FormField
                             control={form.control}
                             name={`${name}.${index}.address` as any}
                             render={({ field }) => (
                               <FormItem>
                                 <FormControl>
-                                  <Input {...field} className="h-7 p-1 text-xs border-0 focus-visible:ring-0" />
+                                  <Textarea
+                                    {...field}
+                                    ref={(el) => { field.ref(el); if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+                                    rows={1}
+                                    className="p-1 text-xs border-0 focus-visible:ring-0 min-h-0 overflow-hidden resize-none"
+                                    onInput={(e) => { const t = e.currentTarget; t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }}
+                                  />
                                 </FormControl>
                               </FormItem>
                             )}
                           />
                         </TableCell>
-                        <TableCell className="p-0">
+                        <TableCell className="p-0 align-top">
                           <FormField
                             control={form.control}
                             name={`${name}.${index}.positionInEarlierCourt` as any}
                             render={({ field }) => (
                               <FormItem>
                                 <FormControl>
-                                  <Input {...field} className="h-7 p-1 text-xs border-0 focus-visible:ring-0" />
+                                  <Textarea
+                                    {...field}
+                                    ref={(el) => { field.ref(el); if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+                                    rows={1}
+                                    className="p-1 text-xs border-0 focus-visible:ring-0 min-h-0 overflow-hidden resize-none"
+                                    onInput={(e) => { const t = e.currentTarget; t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }}
+                                  />
                                 </FormControl>
                               </FormItem>
                             )}

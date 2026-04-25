@@ -699,13 +699,14 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                 // Final abort check before saving
                 if (cancelledRef.current) return;
 
-                // Generate filename based on petitioner name
-                const petitioners = projectData.petitioners;
-                const petitionerName =
-                    !petitioners || petitioners.length === 0 || !petitioners[0]?.name
-                        ? "Untitled"
-                        : petitioners[0].name.replace(/\s+/g, "_").slice(0, 30);
-                const baseFileName = `${petitionerName} Paperbook.pdf`;
+                // Generate filename based on case parties
+                const _firstWords = (s: string, n: number) => s.trim().split(/\s+/).slice(0, n).join(' ');
+                const _pet = projectData.petitioners?.[0]?.name?.trim();
+                const _res = projectData.respondents?.[0]?.name?.trim();
+                const _petPart = _pet ? _firstWords(_pet, 3) : '';
+                const _resPart = _res ? _firstWords(_res, 3) : '';
+                const caseName = _petPart && _resPart ? `${_petPart} v. ${_resPart}` : _petPart || _resPart || 'Untitled';
+                const baseFileName = `${caseName} Paperbook.pdf`;
                 
                 // Try Electron first (with default path)
                 try {
@@ -720,6 +721,8 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                             setProgress(100);
                             incrementGenerationCount('paperbook');
                             toast({ title: "PDF Generated", description: `Saved to ${savedPath}` });
+                            const dir = savedPath.replace(/[\\/][^\\/]+$/, '');
+                            window.electron.openFolderPath?.(dir);
                             onClose();
                             return;
                         }

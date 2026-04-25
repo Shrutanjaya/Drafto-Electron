@@ -59,13 +59,13 @@ export function InterimReliefContent() {
         control={form.control}
         name="wantsInterimRelief"
         render={({ field }) => (
-          <FormItem className="flex flex-row items-center space-x-2 space-y-0">
+          <FormItem className="flex flex-row items-center justify-end space-x-2 space-y-0">
+            <FormLabel className="font-normal text-xs cursor-pointer">
+              Include
+            </FormLabel>
             <FormControl>
               <Checkbox checked={field.value} onCheckedChange={field.onChange} />
             </FormControl>
-            <FormLabel className="font-normal text-xs">
-              I want to seek interim relief in this SLP.
-            </FormLabel>
           </FormItem>
         )}
       />

@@ -136,13 +136,13 @@ function CommonOrderGroupsUI() {
             </div>
             <div className="grid grid-cols-2 gap-2 h-[200px]">
               <div className="flex flex-col overflow-hidden border rounded-md p-1">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Petitioners</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Petitioners</h4>
                 <div className="flex-grow overflow-auto">
                   <VaadiTable name={`commonOrderParties.${index}.petitioners` as `commonOrderParties.${number}.petitioners`} />
                 </div>
               </div>
               <div className="flex flex-col overflow-hidden border rounded-md p-1">
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Respondents</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Respondents</h4>
                 <div className="flex-grow overflow-auto">
                   <VaadiTable name={`commonOrderParties.${index}.respondents` as `commonOrderParties.${number}.respondents`} />
                 </div>
@@ -418,14 +418,14 @@ export function BasicTab() {
                   <ResizablePanelGroup direction="horizontal" className="h-[300px] rounded-lg border" autoSaveId="basic-tab-parties-panels">
                     <ResizablePanel defaultSize={50}>
                       <div className="flex flex-col h-full p-1">
-                        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Petitioners</h4>
+                        <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Petitioners</h4>
                         <div className="flex-grow overflow-auto"><VaadiTable name="petitioners" /></div>
                       </div>
                     </ResizablePanel>
                     <ResizableHandle withHandle />
                     <ResizablePanel defaultSize={50}>
                       <div className="flex flex-col h-full p-1">
-                        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Respondents</h4>
+                        <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Respondents</h4>
                         <div className="flex-grow overflow-auto"><VaadiTable name="respondents" /></div>
                       </div>
                     </ResizablePanel>
@@ -436,7 +436,7 @@ export function BasicTab() {
 
             {selectedSection === 'impugned' && (
               <>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Impugned Order(s)</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Impugned Order(s)</h4>
                 <div className="space-y-1">
                   {fields.map((item, index) => (
                     <div key={item.id} className="relative group">
@@ -512,7 +512,7 @@ export function BasicTab() {
 
             {selectedSection === 'advocates' && (
               <>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Advocates</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Advocates</h4>
                 <Card>
                   <CardContent className="p-2 space-y-2 text-xs">
                     <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
@@ -550,7 +550,7 @@ export function BasicTab() {
 
             {selectedSection === 'deponent' && (
               <>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Deponent</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Deponent</h4>
                 <Card>
                   <CardContent className="p-2">
                     <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs">
