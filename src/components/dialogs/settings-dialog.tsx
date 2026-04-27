@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Settings, FolderOpen, RefreshCw, ExternalLink, Moon, Sun, Download, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
 import {
   Dialog,
@@ -64,6 +64,8 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle');
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   const [downloadPercent, setDownloadPercent] = useState<number>(0);
+  // True only while the user has explicitly clicked "Check for Updates"
+  const userCheckInProgress = useRef(false);
   const [settings, setSettings] = useState<SettingsData>({
     defaultDocxPath: "",
     defaultPdfPath: "",
@@ -118,11 +120,16 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!window.electron) return;
     window.electron.onAuUpdateAvailable?.((info: { version: string }) => {
+      userCheckInProgress.current = false;
       setUpdateVersion(info.version);
       setUpdateStatus('available');
     });
     window.electron.onAuUpdateNotAvailable?.(() => {
-      setUpdateStatus('up-to-date');
+      // Only surface "up-to-date" if the user explicitly asked
+      if (userCheckInProgress.current) {
+        setUpdateStatus('up-to-date');
+      }
+      userCheckInProgress.current = false;
     });
     window.electron.onAuDownloadProgress?.((prog: { percent: number }) => {
       setDownloadPercent(Math.round(prog.percent));
@@ -132,10 +139,12 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
       setUpdateStatus('downloaded');
     });
     window.electron.onAuError?.(() => {
-      setUpdateStatus('error');
+      // Silently ignore background startup errors; only show error for user-initiated checks
+      if (userCheckInProgress.current) {
+        setUpdateStatus('error');
+        userCheckInProgress.current = false;
+      }
     });
-    // Note: ipcRenderer.on listeners stack up across re-renders but the state
-    // updates are idempotent, so duplicate events are harmless.
   }, []);
 
   const handleSave = () => {
@@ -175,10 +184,11 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
 
   const handleUpdate = async () => {
     if (!window.electron?.auCheck) return;
+    userCheckInProgress.current = true;
     setUpdateStatus('checking');
     const result = await window.electron.auCheck();
-    if (result?.status === 'dev') setUpdateStatus('dev');
-    else if (result?.status === 'error') setUpdateStatus('error');
+    if (result?.status === 'dev') { userCheckInProgress.current = false; setUpdateStatus('dev'); }
+    else if (result?.status === 'error') { userCheckInProgress.current = false; setUpdateStatus('error'); }
     // Otherwise wait for au-update-available / au-update-not-available events
   };
 
