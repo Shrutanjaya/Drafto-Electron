@@ -2044,7 +2044,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
         }),
         new Paragraph({ children: [new TextRun({ text: "DEPONENT", bold: true })], alignment: AlignmentType.RIGHT }),
         new Paragraph({ children: [new TextRun({ text: "VERIFICATION", bold: true })] }),
-        new Paragraph(`Verified at ${deponent.location || '[Location]'} on this ___ day of _______ that the contents of the above affidavit are true and correct to the best of my knowledge and no part of it is false and nothing material has been concealed therefrom.`),
+        new Paragraph(`Verified at ${deponent.location || '_______'} on this ___ day of _______ that the contents of the above affidavit are true and correct to the best of my knowledge and no part of it is false and nothing material has been concealed therefrom.`),
         new Paragraph({ children: [new TextRun({ text: "DEPONENT", bold: true })], alignment: AlignmentType.RIGHT }),
     ];
     
@@ -2081,7 +2081,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
             }),
             new Paragraph({ children: [new TextRun({ text: "DEPONENT", bold: true })], alignment: AlignmentType.RIGHT }),
             new Paragraph({ children: [new TextRun({ text: "VERIFICATION", bold: true })] }),
-            new Paragraph(`Verified at ${deponent.location || '[Location]'} on this ___ day of _______ that the contents of the above affidavit are true and correct to the best of my knowledge and no part of it is false and nothing material has been concealed therefrom.`),
+            new Paragraph(`Verified at ${deponent.location || '_______'} on this ___ day of _______ that the contents of the above affidavit are true and correct to the best of my knowledge and no part of it is false and nothing material has been concealed therefrom.`),
             new Paragraph({ children: [new TextRun({ text: "DEPONENT", bold: true })], alignment: AlignmentType.RIGHT }),
         ];
 
@@ -2323,7 +2323,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
         
         // Load Times New Roman Bold font
         const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
-        const fontSize = 12;
+        const fontSize = 14;
         const textWidth = font.widthOfTextAtSize(headerText, fontSize);
         
         // Position header 0.2 inch (14.4 points) from top
@@ -2508,6 +2508,20 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
                 rotationAngle = 0;
             }
             
+            // Draw white background behind numeric page number
+            if (settings.annexureLabelBackground) {
+                const padding = 4;
+                if (rotation === 0) {
+                    page.drawRectangle({ x: x - padding, y: y - padding, width: textWidth + padding * 2, height: fontSize + padding * 2, color: rgb(1, 1, 1) });
+                } else if (rotation === 180) {
+                    page.drawRectangle({ x: x - textWidth - padding, y: y - fontSize - padding, width: textWidth + padding * 2, height: fontSize + padding * 2, color: rgb(1, 1, 1) });
+                } else if (rotation === 90) {
+                    page.drawRectangle({ x: x - padding, y: y - textWidth - padding, width: fontSize + padding * 2, height: textWidth + padding * 2, color: rgb(1, 1, 1) });
+                } else if (rotation === 270) {
+                    page.drawRectangle({ x: x - fontSize - padding, y: y - padding, width: fontSize + padding * 2, height: textWidth + padding * 2, color: rgb(1, 1, 1) });
+                }
+            }
+
             page.drawText(pageText, {
                 x,
                 y,

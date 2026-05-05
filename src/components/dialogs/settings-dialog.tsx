@@ -315,7 +315,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
                   />
                   <Label htmlFor="annexure-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                    Add white background behind Annexure Labels
+                    Add white background behind Annexure Labels and Page Numbers
                   </Label>
                 </div>
               </div>
