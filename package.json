@@ -1,8 +1,8 @@
 {
   "name": "drafto-slp",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "private": true,
-  "author": "Quindoph Legal Pvt. Ltd.",
+  "author": "Shrutanjaya Bhardwaj",
   "description": "DraftoSLP – Supreme Court petition drafting tool",
   "main": "electron/main.js",
   "scripts": {
@@ -102,7 +102,7 @@
     "afterSign": "./afterSign.js",
     "asar": true,
     "compression": "maximum",
-    "copyright": "Copyright © 2025 Quindoph Legal Pvt. Ltd.",
+    "copyright": "Copyright © 2026 Quindoph Legal Solutions Pvt. Ltd.",
     "publish": {
       "provider": "github",
       "owner": "Shrutanjaya",
