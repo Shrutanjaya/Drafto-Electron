@@ -1,5 +1,5 @@
 ﻿
-import { AlignmentType, Indent, Paragraph, TextRun, UnderlineType, Table, TableRow, TableCell, WidthType, BorderStyle } from "docx";
+import { AlignmentType, Indent, Paragraph, TextRun, UnderlineType, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType } from "docx";
 import { convertToSmartQuotes } from "./docx-helpers";
 
 // A simple representation of a DOM node
@@ -80,7 +80,7 @@ function htmlToTree(html: string): (SimpleNode | string)[] {
 }
 
 // Process the tree to create docx paragraphs and numbering configs
-function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: number }, listLevel = 0, inBlockquote = false, olRef?: string, spacing?: ParagraphSpacing, defaultNumbering?: { reference: string; level: number }): ParseResult {
+function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: number }, listLevel = 0, inBlockquote = false, olRef?: string, spacing?: ParagraphSpacing, defaultNumbering?: { reference: string; level: number }, exportHighlight = false): ParseResult {
     const result: ParseResult = { paragraphs: [], numbering: [] };
 
     nodes.forEach(node => {
@@ -129,7 +129,7 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                     const cells = trNode.children
                         .filter((c): c is SimpleNode => typeof c !== 'string' && (c.tagName === 'td' || c.tagName === 'th'))
                         .map(cellNode => {
-                            const cellResult = treeToDocx(cellNode.children, olCounterRef, 0, false, undefined, spacing);
+                            const cellResult = treeToDocx(cellNode.children, olCounterRef, 0, false, undefined, spacing, undefined, exportHighlight);
                             result.numbering.push(...cellResult.numbering);
                             // Ensure at least one paragraph in the cell
                             const cellChildren = cellResult.paragraphs.length > 0
@@ -162,7 +162,7 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 const convertedText = convertToSmartQuotes(plainText);
                 
                 const paragraphProps: any = {
-                    children: processInline(node.children, {}, convertedText, 0).runs,
+                    children: processInline(node.children, {}, convertedText, 0, exportHighlight).runs,
                     alignment: alignment,
                     style: "Normal",
                 };
@@ -178,12 +178,12 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 result.paragraphs.push(new Paragraph(paragraphProps));
                 break;
             case 'blockquote':
-                const blockquoteResult = treeToDocx(node.children, olCounterRef, listLevel, true, olRef, spacing, defaultNumbering);
+                const blockquoteResult = treeToDocx(node.children, olCounterRef, listLevel, true, olRef, spacing, defaultNumbering, exportHighlight);
                 result.paragraphs.push(...blockquoteResult.paragraphs);
                 result.numbering.push(...blockquoteResult.numbering);
                 break;
             case 'ul':
-                const ulResult = treeToDocx(node.children, olCounterRef, listLevel + 1, currentInBlockquote, undefined, spacing, defaultNumbering);
+                const ulResult = treeToDocx(node.children, olCounterRef, listLevel + 1, currentInBlockquote, undefined, spacing, defaultNumbering, exportHighlight);
                 result.paragraphs.push(...ulResult.paragraphs);
                 result.numbering.push(...ulResult.numbering);
                 break;
@@ -211,7 +211,7 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                         }],
                     });
                 }
-                const olResult = treeToDocx(node.children, olCounterRef, listLevel + 1, currentInBlockquote, currentOlRef, spacing, defaultNumbering);
+                const olResult = treeToDocx(node.children, olCounterRef, listLevel + 1, currentInBlockquote, currentOlRef, spacing, defaultNumbering, exportHighlight);
                 result.paragraphs.push(...olResult.paragraphs);
                 result.numbering.push(...olResult.numbering);
                 break;
@@ -221,7 +221,7 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 // Extract plain text, convert quotes, then process with formatting
                 const liPlainText = extractPlainText(directChildren);
                 const liConvertedText = convertToSmartQuotes(liPlainText);
-                const listItemChildren = processInline(directChildren, {}, liConvertedText, 0).runs;
+                const listItemChildren = processInline(directChildren, {}, liConvertedText, 0, exportHighlight).runs;
                 
                 if (listItemChildren.length > 0 || node.children.length === 0) {
                      const listParaProps: any = {
@@ -252,12 +252,12 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
 
                      result.paragraphs.push(new Paragraph(listParaProps));
                 }
-                const nestedListResult = treeToDocx(node.children.filter(c => typeof c !== 'string' && ['ul', 'ol'].includes(c.tagName)), olCounterRef, listLevel, currentInBlockquote, currentOlRef, spacing, defaultNumbering);
+                const nestedListResult = treeToDocx(node.children.filter(c => typeof c !== 'string' && ['ul', 'ol'].includes(c.tagName)), olCounterRef, listLevel, currentInBlockquote, currentOlRef, spacing, defaultNumbering, exportHighlight);
                 result.paragraphs.push(...nestedListResult.paragraphs);
                 result.numbering.push(...nestedListResult.numbering);
                 break;
             default:
-                 const defaultResult = treeToDocx(node.children, olCounterRef, listLevel, currentInBlockquote, olRef, spacing, defaultNumbering);
+                 const defaultResult = treeToDocx(node.children, olCounterRef, listLevel, currentInBlockquote, olRef, spacing, defaultNumbering, exportHighlight);
                  result.paragraphs.push(...defaultResult.paragraphs);
                  result.numbering.push(...defaultResult.numbering);
         }
@@ -287,7 +287,7 @@ function extractPlainText(nodes: (SimpleNode | string)[]): string {
 // Process inline elements like strong, em, u
 // fullText: the complete plain text (with smart quotes already converted) for context
 // offset: current position in the fullText
-function processInline(nodes: (SimpleNode | string)[], currentStyle = {}, fullText = '', offset = 0): { runs: TextRun[], offset: number } {
+function processInline(nodes: (SimpleNode | string)[], currentStyle = {}, fullText = '', offset = 0, exportHighlight = false): { runs: TextRun[], offset: number } {
     let runs: TextRun[] = [];
     let currentOffset = offset;
     
@@ -311,13 +311,24 @@ function processInline(nodes: (SimpleNode | string)[], currentStyle = {}, fullTe
                 case 'u':
                     style = { ...style, underline: { type: UnderlineType.SINGLE } };
                     break;
+                case 'mark':
+                    if (exportHighlight) {
+                        // Prefer data-color (always hex); fallback to hex in style (RGB may appear after browser re-serialization)
+                        const dataColor = node.attributes['data-color'];
+                        const styleHex = node.attributes.style?.match(/background-color:\s*(#[0-9a-fA-F]{6})/)?.[1];
+                        const hexColor = /^#[0-9a-fA-F]{6}$/i.test(dataColor ?? '') ? dataColor : styleHex;
+                        if (hexColor) {
+                            style = { ...style, shading: { type: ShadingType.CLEAR, color: 'auto', fill: hexColor.replace('#', '').toUpperCase() } };
+                        }
+                    }
+                    break;
                 case 'br':
                     runs.push(new TextRun({ break: 1, ...style}));
                     currentOffset += 1; // Account for \n in fullText
                     return; // Continue to next node
             }
             if (node.tagName !== 'br') {
-                const result = processInline(node.children, style, fullText, currentOffset);
+                const result = processInline(node.children, style, fullText, currentOffset, exportHighlight);
                 runs.push(...result.runs);
                 currentOffset = result.offset;
             }
@@ -330,12 +341,22 @@ function processInline(nodes: (SimpleNode | string)[], currentStyle = {}, fullTe
 export function parseHtml(html: string, spacing?: ParagraphSpacing, defaultNumbering?: { reference: string; level: number }): ParseResult {
     const emptyResult: ParseResult = { paragraphs: [new Paragraph("")], numbering: [] };
     if (!html || !html.trim()) return emptyResult;
-    
+
+    // Read exportHighlight from localStorage at export time
+    let exportHighlight = false;
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+        try {
+            const stored = window.localStorage.getItem('drafto-settings');
+            const parsed = stored ? JSON.parse(stored) : null;
+            exportHighlight = parsed?.exportHighlight === true;
+        } catch { /* ignore */ }
+    }
+
     const olCounterRef = { value: 0 };
     const sanitizedHtml = html.replace(/\n/g, '');
 
     const tree = htmlToTree(sanitizedHtml);
-    const docxResult = treeToDocx(tree, olCounterRef, 0, false, undefined, spacing, defaultNumbering);
+    const docxResult = treeToDocx(tree, olCounterRef, 0, false, undefined, spacing, defaultNumbering, exportHighlight);
     
     if (docxResult.paragraphs.length === 0 && !docxResult.numbering.length) {
       const plainText = html.replace(/<[^>]+>/g, '').trim();

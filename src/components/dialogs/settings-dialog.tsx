@@ -26,6 +26,7 @@ interface SettingsData {
 
   fontSize: FontSize;
   annexureLabelBackground: boolean;
+  exportHighlight: boolean;
   autosaveInterval: number;
   toastDuration: number;
   slpTabView: SlpTabView;
@@ -71,6 +72,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     defaultPdfPath: "",
     fontSize: 'small',
     annexureLabelBackground: false,
+    exportHighlight: false,
     autosaveInterval: 60,
     toastDuration: 1,
     slpTabView: 'splitter',
@@ -87,6 +89,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           defaultPdfPath: parsed.defaultPdfPath || "",
           fontSize: parsed.fontSize || 'small',
           annexureLabelBackground: parsed.annexureLabelBackground ?? false,
+          exportHighlight: parsed.exportHighlight ?? false,
           autosaveInterval: parsed.autosaveInterval ?? 60,
           toastDuration: parsed.toastDuration ?? 1,
           slpTabView: (parsed.slpTabView || 'splitter') as SlpTabView,
@@ -318,6 +321,29 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     Add white background behind Annexure Labels and Page Numbers
                   </Label>
                 </div>
+
+                {/* Export Highlights */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="export-highlight"
+                    checked={settings.exportHighlight}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setSettings((prev) => ({ ...prev, exportHighlight: checked }));
+                      // Persist immediately so parseHtml reads the correct value at export time
+                      try {
+                        const stored = localStorage.getItem(SETTINGS_KEY);
+                        const existing = stored ? JSON.parse(stored) : {};
+                        localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...existing, exportHighlight: checked }));
+                      } catch {}
+                    }}
+                    className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+                  />
+                  <Label htmlFor="export-highlight" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                    Export text highlights to DOCX and PDF
+                  </Label>
+                </div>
               </div>
             )}
 
@@ -543,6 +569,7 @@ export function getSettings(): SettingsData {
       defaultPdfPath: "",
       fontSize: 'small',
       annexureLabelBackground: false,
+      exportHighlight: false,
       autosaveInterval: 60,
       toastDuration: 1,
       slpTabView: 'splitter' as SlpTabView,
@@ -558,6 +585,7 @@ export function getSettings(): SettingsData {
         defaultPdfPath: parsed.defaultPdfPath || "",
         fontSize: parsed.fontSize || 'small',
         annexureLabelBackground: parsed.annexureLabelBackground ?? false,
+        exportHighlight: parsed.exportHighlight ?? false,
         autosaveInterval: parsed.autosaveInterval ?? 60,
         toastDuration: parsed.toastDuration ?? 1,
         slpTabView: (parsed.slpTabView || 'splitter') as SlpTabView,
@@ -572,6 +600,7 @@ export function getSettings(): SettingsData {
     defaultPdfPath: "",
     fontSize: 'small',
     annexureLabelBackground: false,
+    exportHighlight: false,
     autosaveInterval: 60,
     toastDuration: 1,
     slpTabView: 'splitter' as SlpTabView,
