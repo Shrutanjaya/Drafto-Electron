@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
 import { getGenerationCounts, type UsageCounts } from "@/lib/firebase/usage-service";
-import { LICENSE_TEXT, TERMS_TEXT } from "@/lib/legal";
+import { LICENSE_TEXT } from "@/lib/legal";
 import { cn } from "@/lib/utils";
 
 type FontSize = 'small' | 'medium' | 'large';
@@ -57,7 +57,6 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   const [selectedSection, setSelectedSection] = useState<SettingsSection>('view');
   const [usageCounts, setUsageCounts] = useState<UsageCounts | null>(null);
   const [licenseOpen, setLicenseOpen] = useState(false);
-  const [termsOpen, setTermsOpen] = useState(false);
   const [theme, setTheme] = useState(() =>
     typeof window !== 'undefined' ? (localStorage.getItem("theme") || "light") : "light"
   );
@@ -487,22 +486,13 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
 
                 <div className="space-y-1.5">
                   <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Legal</p>
-                  <div className="flex flex-col gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setLicenseOpen(true)}
-                      className="text-xs text-left text-primary underline underline-offset-2 hover:opacity-80 w-fit"
-                    >
-                      Software License Agreement
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTermsOpen(true)}
-                      className="text-xs text-left text-primary underline underline-offset-2 hover:opacity-80 w-fit"
-                    >
-                      Terms &amp; Conditions
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setLicenseOpen(true)}
+                    className="text-xs text-left text-primary underline underline-offset-2 hover:opacity-80 w-fit"
+                  >
+                    License Agreement
+                  </button>
                 </div>
 
                 <div className="space-y-1.5">
@@ -521,21 +511,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
         <Dialog open={licenseOpen} onOpenChange={setLicenseOpen}>
           <DialogContent className="max-w-2xl flex flex-col max-h-[80vh]">
             <DialogHeader>
-              <DialogTitle>Software License Agreement</DialogTitle>
+              <DialogTitle>License Agreement</DialogTitle>
             </DialogHeader>
             <div className="overflow-y-auto flex-1 text-[10px] leading-relaxed whitespace-pre-wrap font-mono text-muted-foreground border rounded p-3">
               {LICENSE_TEXT}
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        <Dialog open={termsOpen} onOpenChange={setTermsOpen}>
-          <DialogContent className="max-w-2xl flex flex-col max-h-[80vh]">
-            <DialogHeader>
-              <DialogTitle>Terms &amp; Conditions</DialogTitle>
-            </DialogHeader>
-            <div className="overflow-y-auto flex-1 text-[10px] leading-relaxed whitespace-pre-wrap font-mono text-muted-foreground border rounded p-3">
-              {TERMS_TEXT}
             </div>
           </DialogContent>
         </Dialog>

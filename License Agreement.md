@@ -1,14 +1,14 @@
-export const LICENSE_TEXT = `DRAFTO - SOFTWARE LICENSE AGREEMENT
+DRAFTO — SOFTWARE LICENSE AGREEMENT
 
 Copyright (c) 2026 Quindoph Legal Solutions Pvt. Ltd.  All rights reserved.
 
-IMPORTANT - PLEASE READ CAREFULLY BEFORE INSTALLING OR USING THIS SOFTWARE.
+IMPORTANT — PLEASE READ CAREFULLY BEFORE INSTALLING OR USING THIS SOFTWARE.
 BY CLICKING "I AGREE" OR BY INSTALLING, COPYING, OR USING DRAFTO ("SOFTWARE"),
 YOU AGREE TO BE BOUND BY THE TERMS OF THIS AGREEMENT.  IF YOU DO NOT AGREE,
 DO NOT INSTALL OR USE THE SOFTWARE.
 
 
-1. ABOUT DRAFTO
+1\. ABOUT DRAFTO
 
 Drafto is a desktop legal drafting and document formatting application
 developed and owned by Quindoph Legal Solutions Pvt. Ltd. ("Licensor").
@@ -16,17 +16,17 @@ The Software assists advocates in preparing draft documents for filing before
 the Supreme Court of India and does not constitute legal advice.
 
 
-2. GRANT OF LICENCE
+2\. GRANT OF LICENCE
 
 Quindoph Legal Solutions Pvt. Ltd. ("Licensor"), a company incorporated under
 the laws of India with its registered office in New Delhi, grants you a limited,
 non-exclusive, non-transferable, revocable licence to install and use the
-Software on a single device (except if permitted otherwise by your subscription
-plan) for your personal or internal business purposes, subject to payment of
+Software on a single device **(except if permitted otherwise by your subscription
+plan)** for your personal or internal business purposes, subject to payment of
 applicable subscription fees and compliance with this Agreement.
 
 
-3. SUBSCRIPTION AND FEES
+3\. SUBSCRIPTION AND FEES
 
 Use of the Software requires payment of subscription fees as published at
 drafto.quindoph.com.  Fees are subject to revision from time to time; the
@@ -36,7 +36,7 @@ Subscription fees are non-refundable except as required by applicable law.
 Access may be suspended or terminated for non-payment or breach of this Agreement.
 
 
-4. USER RESPONSIBILITIES
+4\. USER RESPONSIBILITIES
 
 4.1  You are solely responsible for all documents drafted, formatted, or
      generated using the Software.
@@ -54,9 +54,10 @@ Access may be suspended or terminated for non-payment or breach of this Agreemen
      documents) that you process through the Software.
 
 
-5. RESTRICTIONS AND ACCEPTABLE USE
+5\. RESTRICTIONS AND ACCEPTABLE USE
 
 You shall not:
+
   (a) copy, modify, adapt, or create derivative works of the Software;
   (b) reverse engineer, decompile, or disassemble the Software;
   (c) sell, sublicence, rent, lease, or transfer the Software to any third party;
@@ -68,17 +69,17 @@ You shall not:
   (h) attempt to gain unauthorised access to the Software or its data.
 
 
-6. INTELLECTUAL PROPERTY
+6\. INTELLECTUAL PROPERTY
 
-All intellectual property rights in the Software - including its design,
-features, branding, and all updates or enhancements - vest exclusively in
+All intellectual property rights in the Software — including its design,
+features, branding, and all updates or enhancements — vest exclusively in
 Quindoph Legal Solutions Pvt. Ltd. and are protected under Indian and
 international law.  This Agreement does not transfer any intellectual property
 rights to you and does not grant you any rights to the Licensor's trademarks,
 trade names, or logos.
 
 
-7. DISCLAIMER OF WARRANTIES
+7\. DISCLAIMER OF WARRANTIES
 
 THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.  TO THE MAXIMUM
 EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSOR EXPRESSLY DISCLAIMS ALL
@@ -91,7 +92,7 @@ THE FINAL RESPONSIBILITY OF ENSURING THE CORRECTNESS OF THE DRAFT AS WELL AS
 THE FILED PAPERBOOK RESTS WITH THE USER-ADVOCATE.
 
 
-8. LIMITATION OF LIABILITY
+8\. LIMITATION OF LIABILITY
 
 TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSOR SHALL NOT BE
 LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE
@@ -99,15 +100,15 @@ DAMAGES, OR ANY LOSS OF PROFITS, REVENUE, DATA, OR BUSINESS OPPORTUNITY,
 ARISING OUT OF OR IN CONNECTION WITH YOUR USE OF OR INABILITY TO USE THE
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 
-IN ANY EVENT, THE LICENSOR'S TOTAL CUMULATIVE LIABILITY ARISING OUT OF OR
+**IN ANY EVENT,** THE LICENSOR'S TOTAL CUMULATIVE LIABILITY ARISING OUT OF OR
 RELATED TO THIS AGREEMENT SHALL NOT EXCEED THE SUBSCRIPTION FEES PAID BY YOU
 IN THE THREE (3) MONTHS IMMEDIATELY PRECEDING THE CLAIM.
 
 
-9. DOCUMENT OUTPUT - USER VERIFICATION RESPONSIBILITY
+9\. DOCUMENT OUTPUT — USER VERIFICATION RESPONSIBILITY
 
-THE SOFTWARE IS A DRAFTING AND FORMATTING AID ONLY.  ALL OUTPUT - INCLUDING
-DOCUMENTS, DRAFTS, FORMS, AND SUMMARIES - IS PROVIDED FOR REFERENCE PURPOSES
+THE SOFTWARE IS A DRAFTING AND FORMATTING AID ONLY.  ALL OUTPUT — INCLUDING
+DOCUMENTS, DRAFTS, FORMS, AND SUMMARIES — IS PROVIDED FOR REFERENCE PURPOSES
 ONLY.  YOU ARE SOLELY AND ENTIRELY RESPONSIBLE FOR REVIEWING, VERIFYING, AND
 CONFIRMING THE ACCURACY, COMPLETENESS, AND LEGAL CORRECTNESS OF ALL OUTPUT
 BEFORE ANY USE, RELIANCE, FILING, OR SUBMISSION.  THE LICENSOR ACCEPTS NO
@@ -115,7 +116,7 @@ LIABILITY WHATSOEVER FOR ANY LOSS OR DAMAGE ARISING FROM RELIANCE ON SOFTWARE
 OUTPUT.
 
 
-10. DATA AND PRIVACY
+10\. DATA AND PRIVACY
 
 The Software does not collect, store, or transmit any personal data or document
 contents.  Only aggregate usage statistics (count of paperbooks and DOCX files
@@ -124,24 +125,24 @@ text, personal identifiers, or confidential information is transmitted to the
 Licensor or any third party.  No such data is sold or shared with any third party.
 
 
-11. NO SUPPORT
+11\. NO SUPPORT
 
 The Software is provided on a self-service basis.  No customer support,
 technical assistance, maintenance, updates, or bug fixes are guaranteed or
-provided under this Agreement.  The Licensor may, at its discretion, provide
+provided under this Agreement.  **The Licensor may, at its discretion, provide
 occasional support over email as per its resources; however, the same would in
 no way confer any right upon you to insist or demand on the continuance of such
-support at any time.
+support at any time.**
 
 
-12. TERMINATION
+12\. TERMINATION
 
 This Agreement terminates automatically and without notice upon your breach of
 any term hereof.  Upon termination, you must immediately cease all use of the
 Software and destroy all copies in your possession.
 
 
-13. AMENDMENTS
+13\. AMENDMENTS
 
 The Licensor reserves the right to modify this Agreement at any time.  The
 current version will be published at quindoph.com.  Your continued use of the
@@ -149,7 +150,7 @@ Software following any modification constitutes your acceptance of the revised
 Agreement.
 
 
-14. EXTERNAL SOFTWARE REQUIREMENTS
+14\. EXTERNAL SOFTWARE REQUIREMENTS
 
 Certain features of the Software (including PDF conversion) may require
 Microsoft Word or another compatible word-processor to be independently
@@ -159,7 +160,7 @@ any failure of functionality attributable to the absence or misconfiguration
 of such external software.
 
 
-15. THIRD-PARTY COMPONENTS AND DEPENDENCIES
+15\. THIRD-PARTY COMPONENTS AND DEPENDENCIES
 
 The Software incorporates, bundles, or relies upon the following third-party
 open-source and proprietary components ("Third-Party Components"), each
@@ -167,44 +168,44 @@ governed by its own separate licence:
 
   Runtime & Platform
   ------------------
-  Electron (MIT Licence) - desktop application framework embedding
+  Electron (MIT Licence) — desktop application framework embedding
     Chromium and Node.js.
-  Python 3.12 (Python Software Foundation Licence) - scripting runtime
+  Python 3.12 (Python Software Foundation Licence) — scripting runtime
     bundled within the Software for document-processing tasks.
 
   OCR Engine
   ----------
-  Tesseract OCR 5.x (Apache Licence 2.0) - optical character recognition
+  Tesseract OCR 5.x (Apache Licence 2.0) — optical character recognition
     engine used to extract text from scanned documents.
 
   Python Libraries (bundled)
   --------------------------
-  docx2pdf 0.1.8       (MIT)           - DOCX-to-PDF conversion.
-  PyMuPDF (fitz) 1.27  (GNU AGPL 3.0)  - PDF rendering and manipulation.
-  Pillow 12.x          (HPND Licence)  - image processing.
-  pytesseract 0.3.13   (MIT)           - Python wrapper for Tesseract OCR.
-  pikepdf 10.x         (MIT)           - PDF read/write via libqpdf.
-  lxml 6.x             (BSD)           - XML/HTML processing.
-  pywin32 311          (PSF)           - Windows API bindings.
-  tqdm 4.x             (MIT/MPL 2.0)   - progress reporting.
-  colorama 0.4.6       (BSD)           - terminal colour output.
+  docx2pdf 0.1.8       (MIT)           — DOCX-to-PDF conversion.
+  PyMuPDF (fitz) 1.27  (GNU AGPL 3.0)  — PDF rendering and manipulation.
+  Pillow 12.x          (HPND Licence)  — image processing.
+  pytesseract 0.3.13   (MIT)           — Python wrapper for Tesseract OCR.
+  pikepdf 10.x         (MIT)           — PDF read/write via libqpdf.
+  lxml 6.x             (BSD)           — XML/HTML processing.
+  pywin32 311          (PSF)           — Windows API bindings.
+  tqdm 4.x             (MIT/MPL 2.0)   — progress reporting.
+  colorama 0.4.6       (BSD)           — terminal colour output.
 
   JavaScript / UI Libraries (bundled)
   ------------------------------------
   React 18 (MIT), React DOM (MIT), React Router (MIT)
-  Tiptap editor suite (MIT) - rich-text editing, including:
+  Tiptap editor suite (MIT) — rich-text editing, including:
     @tiptap/starter-kit, @tiptap/react, @tiptap/extension-underline,
     @tiptap/extension-highlight, @tiptap/extension-text-align,
     @tiptap/extension-paragraph, @tiptap/extension-table,
     @tiptap/extension-table-row, @tiptap/extension-table-header,
     @tiptap/extension-table-cell.
-  docx 8.x (MIT) - programmatic DOCX generation.
-  pdf-lib (MIT) - PDF manipulation in JavaScript.
-  Firebase JS SDK (Apache 2.0) - authentication and usage metrics.
-  Radix UI primitives (MIT) - accessible UI components.
-  Tailwind CSS (MIT) - utility-first CSS framework.
-  Lucide React (ISC) - icon set.
-  Zod (MIT), React Hook Form (MIT), date-fns (MIT) - form and date
+  docx 8.x (MIT) — programmatic DOCX generation.
+  pdf-lib (MIT) — PDF manipulation in JavaScript.
+  Firebase JS SDK (Apache 2.0) — authentication and usage metrics.
+  Radix UI primitives (MIT) — accessible UI components.
+  Tailwind CSS (MIT) — utility-first CSS framework.
+  Lucide React (ISC) — icon set.
+  Zod (MIT), React Hook Form (MIT), date-fns (MIT) — form and date
     utilities.
   Various other MIT-licenced packages listed in package.json.
 
@@ -214,12 +215,12 @@ respective components.  Quindoph Legal Solutions Pvt. Ltd. makes no
 representations or warranties regarding the Third-Party Components.
 
 
-16. DISCLAIMER AND INDEMNIFICATION - THIRD-PARTY COMPONENTS
+16\. DISCLAIMER AND INDEMNIFICATION — THIRD-PARTY COMPONENTS
 
 16.1  THE THIRD-PARTY COMPONENTS ARE PROVIDED "AS IS" WITHOUT ANY WARRANTY
       OF ANY KIND BY QUINDOPH LEGAL SOLUTIONS PVT. LTD.  THE LICENSOR
-      EXPRESSLY DISCLAIMS ALL WARRANTIES, CONDITIONS, AND REPRESENTATIONS -
-      EXPRESS, IMPLIED, OR STATUTORY - WITH RESPECT TO THE THIRD-PARTY
+      EXPRESSLY DISCLAIMS ALL WARRANTIES, CONDITIONS, AND REPRESENTATIONS —
+      EXPRESS, IMPLIED, OR STATUTORY — WITH RESPECT TO THE THIRD-PARTY
       COMPONENTS, INCLUDING ANY WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
       PARTICULAR PURPOSE, SATISFACTORY QUALITY, TITLE, AND
       NON-INFRINGEMENT.
@@ -227,8 +228,8 @@ representations or warranties regarding the Third-Party Components.
 16.2  THE LICENSOR SHALL HAVE NO LIABILITY WHATSOEVER FOR ANY LOSS, DAMAGE,
       CORRUPTION OF DATA, SYSTEM FAILURE, SECURITY VULNERABILITY,
       INCOMPATIBILITY, INACCURACY, ERROR, CRASH, OR OTHER ADVERSE
-      CONSEQUENCE - DIRECT, INDIRECT, INCIDENTAL, CONSEQUENTIAL, SPECIAL, OR
-      PUNITIVE - ARISING FROM OR IN CONNECTION WITH: (i) ANY BUG, DEFECT,
+      CONSEQUENCE — DIRECT, INDIRECT, INCIDENTAL, CONSEQUENTIAL, SPECIAL, OR
+      PUNITIVE — ARISING FROM OR IN CONNECTION WITH: (i) ANY BUG, DEFECT,
       VULNERABILITY, OR MALFUNCTION IN ANY THIRD-PARTY COMPONENT; (ii) ANY
       FAILURE OF A THIRD-PARTY COMPONENT TO OPERATE AS EXPECTED ON YOUR
       HARDWARE OR OPERATING SYSTEM; (iii) ANY INCOMPATIBILITY BETWEEN A
@@ -246,12 +247,12 @@ representations or warranties regarding the Third-Party Components.
       THIRD-PARTY COMPONENT.
 
 
-17. ASSUMPTION OF RISK AND INDEMNIFICATION BY USER
+17\. ASSUMPTION OF RISK AND INDEMNIFICATION BY USER
 
 17.1  You expressly acknowledge that the operation of the Software on your
-      device involves the execution of third-party code - including but not
+      device involves the execution of third-party code — including but not
       limited to a Python 3.12 interpreter, Tesseract OCR, PyMuPDF, docx2pdf,
-      pikepdf, and Electron - over which Quindoph Legal Solutions Pvt. Ltd.
+      pikepdf, and Electron — over which Quindoph Legal Solutions Pvt. Ltd.
       has no ongoing operational control once delivered to you.  You assume
       all risk associated with the installation, execution, and operation of
       these components on your device and in your environment.
@@ -267,7 +268,7 @@ representations or warranties regarding the Third-Party Components.
       documents drafted, generated, filed, or submitted using the Software.
 
 
-18. GOVERNING LAW AND JURISDICTION
+18\. GOVERNING LAW AND JURISDICTION
 
 This Agreement is governed by and construed in accordance with the laws of
 India.  All disputes arising out of or relating to this Agreement shall be
@@ -275,7 +276,7 @@ subject to the exclusive jurisdiction of the courts of New Delhi, India.  You
 irrevocably consent to the personal jurisdiction of such courts.
 
 
-19. ENTIRE AGREEMENT
+19\. ENTIRE AGREEMENT
 
 This Agreement constitutes the entire agreement between you and Quindoph Legal
 Solutions Pvt. Ltd. with respect to the Software and supersedes all prior or
@@ -284,7 +285,7 @@ If any provision is held unenforceable, it will be enforced to the maximum
 extent possible and the remaining provisions will remain in full force and effect.
 
 
-20. CONTACT
+20\. CONTACT
 
 For any queries regarding this Agreement, please visit quindoph.com.
 
@@ -293,4 +294,4 @@ For any queries regarding this Agreement, please visit quindoph.com.
 Quindoph Legal Solutions Pvt. Ltd.
 New Delhi, India
 quindoph.com
--------------------------------------------------------------------------`;
+-------------------------------------------------------------------------
