@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <!-- Electron / V8 JIT. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Required for bundled LibreOffice. LibreOffice loads many of its own
+         dylibs that are signed by The Document Foundation (not by us), and it
+         relies on DYLD_LIBRARY_PATH / DYLD_FRAMEWORK_PATH at launch time to
+         resolve them. Hardened runtime blocks both by default. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+
+    <!-- LibreOffice has components that perform runtime code generation
+         (UNO bridge thunks, the Basic interpreter, embedded JavaScriptCore in
+         some filters). -->
+    <key>com.apple.security.cs.disable-executable-page-protection</key>
+    <true/>
+
+    <!-- LibreOffice reads the input DOCX and writes the output PDF at paths
+         we hand it. Without this entitlement, hardened runtime sandboxes
+         child processes' filesystem access in surprising ways. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+  </dict>
+</plist>

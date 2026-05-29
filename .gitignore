@@ -1,0 +1,43 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+dist-electron
+*.local
+
+# Bundled native resources (copied at build time, not tracked in git)
+python/
+build/libreoffice-staging/
+
+# Apple Developer credentials and the one-click build script (both contain
+# private keys / signing material — must never be pushed to GitHub).
+Apple/
+Apple.zip
+Build DraftoSLP.command
+
+# Windows source files folder (local reference only, not part of the repo)
+Windows Files/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

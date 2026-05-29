@@ -1,0 +1,80 @@
+That symptom — words being split mid-character — is the FIXED layout doing exactly what it's documented to do: never expand a column, ever, even if that means breaking a word. That's not a bug, it's the contract of `tblLayout=fixed`. So the previous fix overshot.
+
+You don't actually need FIXED layout. You need something more nuanced.
+
+## What's really going on inside the renderers
+
+There are three pieces of width information in a DOCX table, and renderers consult them in this order of priority:
+
+`<w:tcW>` — the width declared on **each individual cell**. Highest priority.
+
+`<w:tblGrid>` — the **table-level grid** of column widths. A "hint" only; renderers may ignore it.
+
+`<w:tblLayout>` — `fixed` or `autofit`. Tells the renderer whether to be strict (`fixed`) or content-aware (`autofit`).
+
+Your *original* code (before adding FIXED) was: autofit layout + `tblGrid` + no `tcW`. LibreOffice's autofit algorithm ignores `tblGrid` when there are no `tcW` widths to corroborate it, runs its own content-based algorithm, and produces near-equal widths. That's bug #1.
+
+The *attempted fix* was: FIXED layout + `tblGrid` + per-cell `tcW`. Now LibreOffice honors the widths exactly — too exactly — and breaks words mid-character to fit them in. That's bug #2.
+
+The version that works in both Word and LibreOffice is the one in between: **autofit layout + per-cell `tcW`** (no `tblLayout` element, or explicitly `autofit`). The per-cell `<w:tcW>` widths give LibreOffice a definitive answer it can't ignore (it's bound by the cell-level declaration, not just a table hint), but autofit layout means "if a cell's content is genuinely wider than this preferred width, you may expand the column to accommodate." That's exactly what Word on Windows does by default and is the source of the rendering fidelity you've been chasing.
+
+## What to change
+
+**Remove `layout: TableLayoutType.FIXED`** from every Table where it was added. Leave the layout property off entirely — the docx library defaults to autofit, which is now what you want.
+
+**Keep the per-cell `width: { size: X, type: WidthType.DXA }`** on every TableCell. This is the part that actually fixes the original LibreOffice "equal widths" bug. Do not remove this.
+
+**Optionally, drop the `columnWidths` array from the Table** (or keep it as a hint — it doesn't hurt). Once every cell carries its own width, the table-level `columnWidths` is redundant for rendering purposes.
+
+So the per-cell width is the thing doing the real work. The FIXED-layout setting was the overreach. Remove it.
+
+## Concrete shape
+
+For one of your proforma tables, the corrected form is:
+
+```typescript
+new Table({
+    width: { size: 9000, type: WidthType.DXA },   // optional but cleaner
+    columnWidths: [3150, 5850],                    // optional hint
+    borders: noBorders,
+    rows: [
+        new TableRow({
+            children: [
+                new TableCell({
+                    width: { size: 3150, type: WidthType.DXA },  // ← this is what matters
+                    borders: noBorders,
+                    children: [labelPara],
+                }),
+                new TableCell({
+                    width: { size: 5850, type: WidthType.DXA },  // ← this is what matters
+                    borders: noBorders,
+                    children: [valuePara],
+                }),
+            ],
+        }),
+        // ... more rows, same per-cell widths
+    ],
+})
+```
+
+Notice three things in this version. There's **no `layout: TableLayoutType.FIXED`**. Total widths sum to 9000 DXA (about 6.25 inches), which is what actually fits on A4 with 1-inch margins — the previous 10000 DXA totals were over-page and getting compressed unevenly. And **every cell in every row** carries its own DXA width matching its column position.
+
+## Also adjust the macro
+
+Now that the DOCX carries authoritative per-cell widths, the macro's `OptimalWidth = False` loop is doing nothing useful and may actually be hurting. Once the regeneration is done, you can simplify the macro back to just: load DOCX hidden → export to PDF. No column manipulation at all. LibreOffice will read the per-cell widths and honor them without help.
+
+## Why this gives you the best of both worlds
+
+Word on Windows (your existing docx2pdf path) treats per-cell `<w:tcW>` as the authoritative width and silently expands columns when content can't fit. That's why your Windows output has always looked right and is the behavior you want everywhere.
+
+LibreOffice in autofit mode with per-cell `<w:tcW>` widths behaves the same way: it respects the declared widths under normal conditions, and falls back to content-driven expansion when a word genuinely can't fit. Words don't split mid-character because the column is allowed to widen instead.
+
+The FIXED layout was telling LibreOffice "I would rather you split a word than violate this width" — which is essentially never what you want for a legal document where readability is paramount.
+
+## One thing to verify after the change
+
+After regenerating, check a few specific cells that previously broke words. If any *still* break mid-word (which would surprise me but is possible if the cell's preferred width is genuinely smaller than the longest unbreakable string and LibreOffice's autofit decides not to expand it), the remaining fix is to widen those specific column widths in code by 200–500 DXA. But I'd expect this not to be needed for normal proforma content.
+
+## What to tell Copilot in one line
+
+Remove `layout: TableLayoutType.FIXED` from every Table; keep the per-cell `width: { size: X, type: WidthType.DXA }` on every TableCell. The per-cell widths are doing the real work; FIXED layout was the overreach.
