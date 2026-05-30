@@ -57,7 +57,7 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build && electron-builder --mac --publish always
+        run: npm run build && npx electron-builder --mac --publish always
 
       - name: Clean up Apple API key
         if: always()
@@ -87,4 +87,4 @@ jobs:
       - name: Build and package Windows installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build && electron-builder --win --publish always
+        run: npm run build && npx electron-builder --win --publish always
