@@ -547,42 +547,36 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
 
 
     const lodTableRows = projectData.listOfDates.flatMap((lod, lodIndex) => {
-        const annexureTexts: TextRun[] = [];
         const relatedAnnexures = nonAdAnnexures.filter(annex => annex.lodId === lod.id);
-        
-        relatedAnnexures.forEach((annex, index) => {
-            const pNumber = annexureNumberingMap.get(annex.id);
-            if (pNumber) {
-                const annexureStringParts = createLodAnnexureText(pNumber, annex);
-                
-                if (index > 0) {
-                    annexureTexts.push(new TextRun({ break: 1 }));
-                }
 
-                annexureStringParts.forEach(part => {
-                    if (typeof part === 'string') {
-                        annexureTexts.push(smartTextRun(part));
-                    } else {
-                        annexureTexts.push(part);
-                    }
-                });
-            }
-        });
-        
+        // One paragraph per annexure so justified alignment works correctly —
+        // a single paragraph with TextRun breaks would cause every non-final
+        // "line" to be fully stretched by the justified renderer.
+        const annexureParagraphs: Paragraph[] = relatedAnnexures
+            .map(annex => {
+                const pNumber = annexureNumberingMap.get(annex.id);
+                if (!pNumber) return null;
+                const textRuns = createLodAnnexureText(pNumber, annex).map(part =>
+                    typeof part === 'string' ? smartTextRun(part) : part
+                );
+                return new Paragraph({ children: textRuns, style: "Normal", spacing: tableParagraphSpacing });
+            })
+            .filter((p): p is Paragraph => p !== null);
+
         const eventParagraphs = lodEventParagraphs.find(p => p.lodId === lod.id)?.paragraphs || [new Paragraph("")];
-        
+
         return new TableRow({
             children: [
-                new TableCell({ 
+                new TableCell({
                     children: [new Paragraph({ text: lod.date, style: "Normal", alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })],
                     width: { size: 20, type: WidthType.PERCENTAGE },
                     verticalAlign: VerticalAlign.TOP,
                     margins: defaultCellMargins
                 }),
-                new TableCell({ 
+                new TableCell({
                     children: [
                         ...eventParagraphs,
-                        ...(annexureTexts.length > 0 ? [new Paragraph({ children: annexureTexts, style: "Normal", spacing: tableParagraphSpacing, alignment: AlignmentType.LEFT })] : [])
+                        ...annexureParagraphs
                     ],
                     width: { size: 80, type: WidthType.PERCENTAGE },
                     verticalAlign: VerticalAlign.CENTER,
@@ -1355,7 +1349,7 @@ export async function generateIaDocx(
                                     const textRuns = annexureTextParts.map(part => 
                                         typeof part === 'string' ? smartTextRun(part) : part
                                     );
-                                    paragraphs.push(new Paragraph({ children: textRuns, style: "Normal", alignment: AlignmentType.LEFT }));
+                                    paragraphs.push(new Paragraph({ children: textRuns, style: "Normal" }));
                                 }
                             });
                         }
@@ -1556,7 +1550,7 @@ export async function generateIaDocx(
                                     const textRuns = annexureTextParts.map(part => 
                                         typeof part === 'string' ? smartTextRun(part) : part
                                     );
-                                    paragraphs.push(new Paragraph({ children: textRuns, style: "Normal", alignment: AlignmentType.LEFT }));
+                                    paragraphs.push(new Paragraph({ children: textRuns, style: "Normal" }));
                                 }
                             });
                         }
@@ -1621,7 +1615,7 @@ export async function generateIaDocx(
                                 const textRuns = annexureTextParts.map(part => 
                                     typeof part === 'string' ? smartTextRun(part) : part
                                 );
-                                paragraphs.push(new Paragraph({ children: textRuns, style: "Normal", alignment: AlignmentType.LEFT }));
+                                paragraphs.push(new Paragraph({ children: textRuns, style: "Normal" }));
                             }
                         });
                     }

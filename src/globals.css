@@ -164,6 +164,13 @@ body {
   }
 }
 
+/* Default editor paragraphs to justified alignment, matching the docx output.
+   Tiptap's TextAlign extension applies inline styles when the user explicitly
+   sets alignment, which take precedence over this rule. */
+.ProseMirror p {
+  text-align: justify;
+}
+
 /* Dark mode: force dark text on highlighted (marked) content so it remains readable
    regardless of the highlight colour chosen (yellow, green, pink, etc.) */
 .dark .prose mark,
