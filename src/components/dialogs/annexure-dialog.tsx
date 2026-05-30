@@ -17,7 +17,7 @@ import {
   FormMessage,
 } from "../ui/form";
 import { Input } from "../ui/input";
-import { PlusCircle, Trash2, Paperclip } from "lucide-react";
+import { PlusCircle, Trash2, Paperclip, Copy } from "lucide-react";
 import { Checkbox } from "../ui/checkbox";
 import { Card, CardContent } from "../ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
@@ -59,6 +59,30 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
   
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const typedFileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [cloneSelectValue, setCloneSelectValue] = useState("");
+
+  const cloneOptions = (() => {
+    const allLods = form.getValues("listOfDates") ?? [];
+    return allLods
+      .flatMap(lod => lod.annexures ?? [])
+      .filter(a => annexureNumberingMap.has(a.id))
+      .map(a => ({ id: a.id, pNumber: annexureNumberingMap.get(a.id)!, title: a.title }))
+      .sort((a, b) => a.pNumber - b.pNumber);
+  })();
+
+  const handleClone = (sourceId: string) => {
+    const allLods = form.getValues("listOfDates") ?? [];
+    const source = allLods.flatMap(lod => lod.annexures ?? []).find(a => a.id === sourceId);
+    if (!source) return;
+    append({
+      id: `annex_${Math.random()}`,
+      isAdditionalDocument: source.isAdditionalDocument,
+      copyType: source.copyType,
+      title: source.title,
+      date: source.date,
+      customText: source.customText,
+    });
+  };
 
 
   const handleIconClick = async (index: number, isTyped: boolean = false) => {
@@ -307,7 +331,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                   )
               })}
               </div>
-              <div className="flex-shrink-0 pt-1 border-t flex justify-between">
+              <div className="flex-shrink-0 pt-1 border-t flex items-center gap-2">
               <Button
                   type="button"
                   size="sm"
@@ -316,6 +340,23 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
               >
                   <PlusCircle className="mr-1 h-3.5 w-3.5" /> Add Annexure
               </Button>
+              <Select
+                value={cloneSelectValue}
+                onValueChange={(id) => { handleClone(id); setCloneSelectValue(""); }}
+                disabled={cloneOptions.length === 0}
+              >
+                <SelectTrigger className="h-8 text-xs w-auto gap-1.5 px-3">
+                  <Copy className="h-3.5 w-3.5 shrink-0" />
+                  <SelectValue placeholder="Clone Annexure..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {cloneOptions.map(opt => (
+                    <SelectItem key={opt.id} value={opt.id} className="text-xs">
+                      P-{opt.pNumber}{opt.title ? ` — ${opt.title}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               </div>
           </div>
         </TooltipProvider>
