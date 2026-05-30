@@ -164,6 +164,13 @@ body {
   }
 }
 
+/* Dark mode: force dark text on highlighted (marked) content so it remains readable
+   regardless of the highlight colour chosen (yellow, green, pink, etc.) */
+.dark .prose mark,
+.dark .ProseMirror mark {
+  color: #111827 !important;
+}
+
 /* Font size scaling */
 html.text-size-small {
   font-size: 16px; /* Base size - current compact view */

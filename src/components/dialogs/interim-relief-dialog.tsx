@@ -64,7 +64,7 @@ export function InterimReliefContent() {
               Include
             </FormLabel>
             <FormControl>
-              <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+              <Checkbox checked={field.value ?? false} onCheckedChange={field.onChange} />
             </FormControl>
           </FormItem>
         )}

@@ -58,6 +58,10 @@ const TabHandler = Extension.create({
         editor.chain().focus().toggleHighlight({ color: '#fef08a' }).run();
         return true;
       },
+      'Mod-r': ({ editor }) => {
+        editor.chain().focus().setTextAlign('right').run();
+        return true;
+      },
     }
   },
 })

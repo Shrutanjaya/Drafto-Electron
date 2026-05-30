@@ -582,7 +582,7 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
                 new TableCell({ 
                     children: [
                         ...eventParagraphs,
-                        ...(annexureTexts.length > 0 ? [new Paragraph({ children: annexureTexts, style: "Normal", spacing: tableParagraphSpacing })] : [])
+                        ...(annexureTexts.length > 0 ? [new Paragraph({ children: annexureTexts, style: "Normal", spacing: tableParagraphSpacing, alignment: AlignmentType.LEFT })] : [])
                     ],
                     width: { size: 80, type: WidthType.PERCENTAGE },
                     verticalAlign: VerticalAlign.CENTER,
@@ -1161,7 +1161,7 @@ export async function generateSlpDocx(projectData: DraftoProject) {
                 children: [smartTextRun({ text: "And for this act of kindness, the humble Petitioner(s) shall ever pray.", italics: true })]
             }),
             new Paragraph(""),
-            ...(advocateDetailsTable ? [advocateDetailsTable, new Paragraph("")] : [new Paragraph("")]),
+            ...(advocateDetailsTable ? [advocateDetailsTable, new Paragraph("")] : []),
             ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]"),
             new Paragraph({ children: [new PageBreak()] }),
             ...createSlpHeader(projectData.caseType, ioText),
@@ -1355,7 +1355,7 @@ export async function generateIaDocx(
                                     const textRuns = annexureTextParts.map(part => 
                                         typeof part === 'string' ? smartTextRun(part) : part
                                     );
-                                    paragraphs.push(new Paragraph({ children: textRuns, style: "Normal" }));
+                                    paragraphs.push(new Paragraph({ children: textRuns, style: "Normal", alignment: AlignmentType.LEFT }));
                                 }
                             });
                         }
@@ -1556,7 +1556,7 @@ export async function generateIaDocx(
                                     const textRuns = annexureTextParts.map(part => 
                                         typeof part === 'string' ? smartTextRun(part) : part
                                     );
-                                    paragraphs.push(new Paragraph({ children: textRuns, style: "Normal" }));
+                                    paragraphs.push(new Paragraph({ children: textRuns, style: "Normal", alignment: AlignmentType.LEFT }));
                                 }
                             });
                         }
@@ -1621,7 +1621,7 @@ export async function generateIaDocx(
                                 const textRuns = annexureTextParts.map(part => 
                                     typeof part === 'string' ? smartTextRun(part) : part
                                 );
-                                paragraphs.push(new Paragraph({ children: textRuns, style: "Normal" }));
+                                paragraphs.push(new Paragraph({ children: textRuns, style: "Normal", alignment: AlignmentType.LEFT }));
                             }
                         });
                     }

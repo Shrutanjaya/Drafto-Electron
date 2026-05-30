@@ -256,6 +256,14 @@ function createWindow() {
     }
   });
 
+  // Prevent Ctrl+R / Cmd+R from reloading the page (which would wipe all user data).
+  // Blocking navigation in the main window is safe — all routing is handled by React Router
+  // internally, and OAuth uses shell.openExternal (not in-window navigation).
+  // This also allows the Tiptap editor to use Ctrl+R freely for right text alignment.
+  mainWindow.webContents.on("will-navigate", (event) => {
+    event.preventDefault();
+  });
+
   // Auto-check for updates after the renderer has had time to mount (~4 s)
   if (!isDev) {
     mainWindow.webContents.once("did-finish-load", () => {
