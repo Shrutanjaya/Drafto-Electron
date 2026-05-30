@@ -68,15 +68,22 @@ export function SlpTab() {
     }
   }, [ioText, form]);
 
-  // Sync SLP tab view preference from settings (responds to settings save in same tab)
+  // View mode: controlled by the header toggle in real time; falls back to settings default on new project
   const [viewMode, setViewMode] = useState<'splitter' | 'navigation'>(() => getSettings().slpTabView ?? 'splitter');
   useEffect(() => {
-    const handler = () => setViewMode(getSettings().slpTabView ?? 'splitter');
-    window.addEventListener('drafto-settings-changed', handler);
-    window.addEventListener('storage', handler);
+    const handleToggle = (e: Event) => {
+      const mode = (e as CustomEvent).detail?.mode;
+      if (mode === 'splitter' || mode === 'navigation') setViewMode(mode);
+    };
+    const handleNewProject = (e: Event) => {
+      const mode = (e as CustomEvent).detail?.mode ?? getSettings().slpTabView ?? 'splitter';
+      setViewMode(mode);
+    };
+    window.addEventListener('drafto-slp-view-changed', handleToggle);
+    window.addEventListener('drafto-new-project', handleNewProject);
     return () => {
-      window.removeEventListener('drafto-settings-changed', handler);
-      window.removeEventListener('storage', handler);
+      window.removeEventListener('drafto-slp-view-changed', handleToggle);
+      window.removeEventListener('drafto-new-project', handleNewProject);
     };
   }, []);
 

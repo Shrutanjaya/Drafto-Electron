@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Slider } from "@/components/ui/slider";
 import { useToast } from "@/hooks/use-toast";
 import { getGenerationCounts, type UsageCounts } from "@/lib/firebase/usage-service";
 import { LICENSE_TEXT, TERMS_TEXT } from "@/lib/legal";
@@ -18,18 +19,28 @@ import { cn } from "@/lib/utils";
 
 type FontSize = 'small' | 'medium' | 'large';
 type SlpTabView = 'splitter' | 'navigation';
-type SettingsSection = 'view' | 'save' | 'durations' | 'support';
+type SettingsSection = 'view' | 'save' | 'durations' | 'customize' | 'support';
 
 interface SettingsData {
   defaultDocxPath: string;
   defaultPdfPath: string;
+  defaultDraftoPath: string;
 
   fontSize: FontSize;
   annexureLabelBackground: boolean;
+  annexureLabelSize: number;
   exportHighlight: boolean;
   autosaveInterval: number;
   toastDuration: number;
   slpTabView: SlpTabView;
+
+  // Volume splitting
+  volumeSplitThreshold: number;
+  volumeStepSize: number;
+  maxComponentSplitPages: number;
+  minVolumeTailPages: number;
+  minVolumeHeadPages: number;
+  separateVolumePdfs: boolean;
 }
 
 const SETTINGS_KEY = "drafto-settings";
@@ -70,12 +81,20 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<SettingsData>({
     defaultDocxPath: "",
     defaultPdfPath: "",
+    defaultDraftoPath: "",
     fontSize: 'small',
     annexureLabelBackground: false,
+    annexureLabelSize: 14,
     exportHighlight: false,
     autosaveInterval: 60,
     toastDuration: 1,
     slpTabView: 'splitter',
+    volumeSplitThreshold: 400,
+    volumeStepSize: 200,
+    maxComponentSplitPages: 50,
+    minVolumeTailPages: 20,
+    minVolumeHeadPages: 20,
+    separateVolumePdfs: true,
   });
 
   // Load settings from localStorage on mount
@@ -87,12 +106,20 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
         setSettings({
           defaultDocxPath: parsed.defaultDocxPath || "",
           defaultPdfPath: parsed.defaultPdfPath || "",
+          defaultDraftoPath: parsed.defaultDraftoPath || "",
           fontSize: parsed.fontSize || 'small',
           annexureLabelBackground: parsed.annexureLabelBackground ?? false,
+          annexureLabelSize: parsed.annexureLabelSize ?? 14,
           exportHighlight: parsed.exportHighlight ?? false,
           autosaveInterval: parsed.autosaveInterval ?? 60,
           toastDuration: parsed.toastDuration ?? 1,
           slpTabView: (parsed.slpTabView || 'splitter') as SlpTabView,
+          volumeSplitThreshold: parsed.volumeSplitThreshold ?? 400,
+          volumeStepSize: parsed.volumeStepSize ?? 200,
+          maxComponentSplitPages: parsed.maxComponentSplitPages ?? 50,
+          minVolumeTailPages: parsed.minVolumeTailPages ?? 20,
+          minVolumeHeadPages: parsed.minVolumeHeadPages ?? 20,
+          separateVolumePdfs: parsed.separateVolumePdfs ?? true,
         });
         if (parsed.fontSize) applyFontSize(parsed.fontSize);
       } catch (err) {
@@ -158,7 +185,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     setOpen(false);
   };
 
-  const handleBrowse = async (type: "docx" | "pdf") => {
+  const handleBrowse = async (type: "docx" | "pdf" | "drafto") => {
     if (window.electron?.selectDirectory) {
       try {
         const selectedPath = await window.electron.selectDirectory();
@@ -166,6 +193,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           const keyMap: Record<typeof type, keyof SettingsData> = {
             docx: "defaultDocxPath",
             pdf: "defaultPdfPath",
+            drafto: "defaultDraftoPath",
           };
           setSettings((prev) => ({ ...prev, [keyMap[type]]: selectedPath }));
         }
@@ -229,6 +257,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
             <SettingsNavRow label="View" selected={selectedSection === 'view'} onClick={() => setSelectedSection('view')} />
             <SettingsNavRow label="Save Locations" selected={selectedSection === 'save'} onClick={() => setSelectedSection('save')} />
             <SettingsNavRow label="Durations" selected={selectedSection === 'durations'} onClick={() => setSelectedSection('durations')} />
+            <SettingsNavRow label="Customize" selected={selectedSection === 'customize'} onClick={() => setSelectedSection('customize')} />
             <SettingsNavRow label="Support" selected={selectedSection === 'support'} onClick={() => setSelectedSection('support')} />
           </div>
 
@@ -289,9 +318,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   </RadioGroup>
                 </div>
 
-                {/* Petition View */}
+                {/* Petition View — controls the default on new project; real-time switching via the header toggle */}
                 <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Petition Tab Style</p>
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Default Petition View</p>
+                  <p className="text-xs text-muted-foreground">Applied when creating a new project. Use the Split / Nav toggle in the toolbar to switch views on the fly.</p>
                   <RadioGroup
                     value={settings.slpTabView}
                     onValueChange={(value: SlpTabView) => setSettings((prev) => ({ ...prev, slpTabView: value }))}
@@ -306,20 +336,6 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       <Label htmlFor="slp-view-navigation" className="text-xs font-normal cursor-pointer">Navigation</Label>
                     </div>
                   </RadioGroup>
-                </div>
-
-                {/* Annexure Labels */}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="annexure-bg"
-                    checked={settings.annexureLabelBackground}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, annexureLabelBackground: e.target.checked }))}
-                    className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
-                  />
-                  <Label htmlFor="annexure-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                    Add white background behind Annexure Labels and Page Numbers
-                  </Label>
                 </div>
 
                 {/* Export Highlights */}
@@ -384,6 +400,21 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   </div>
                 </div>
 
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Project Files (.drafto)</p>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="drafto-path"
+                      value={settings.defaultDraftoPath}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, defaultDraftoPath: e.target.value }))}
+                      placeholder="C:\...\Projects"
+                      className="h-7 text-xs flex-1"
+                    />
+                    <Button type="button" variant="outline" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleBrowse("drafto")} title="Browse">
+                      <FolderOpen className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
 
               </div>
             )}
@@ -422,6 +453,130 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     <Label htmlFor="autosave-interval" className="text-xs text-muted-foreground">seconds (0 = disabled)</Label>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* ── CUSTOMIZE ── */}
+            {selectedSection === 'customize' && (
+              <div className="space-y-6">
+
+                {/* Annexure Labels */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Annexure Labels</p>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="annexure-bg"
+                      checked={settings.annexureLabelBackground}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, annexureLabelBackground: e.target.checked }))}
+                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+                    />
+                    <Label htmlFor="annexure-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                      Add white background behind Annexure Labels and Page Numbers
+                    </Label>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-muted-foreground">Label text size</Label>
+                      <span className="text-xs font-semibold tabular-nums w-6 text-right">{settings.annexureLabelSize}</span>
+                    </div>
+                    <Slider
+                      min={10}
+                      max={24}
+                      step={1}
+                      value={[settings.annexureLabelSize]}
+                      onValueChange={([v]) => setSettings((prev) => ({ ...prev, annexureLabelSize: v }))}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>10</span><span>Default: 14</span><span>24</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Volume Splitting */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Volume Splitting</p>
+                  <p className="text-xs text-muted-foreground">Paperbooks exceeding the first threshold are automatically split into volumes. Each additional threshold adds another volume.</p>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">First threshold (pages)</Label>
+                      <Input
+                        type="number"
+                        min={100}
+                        step={50}
+                        value={settings.volumeSplitThreshold}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, volumeSplitThreshold: Math.max(100, parseInt(e.target.value) || 400) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Subsequent step (pages)</Label>
+                      <Input
+                        type="number"
+                        min={50}
+                        step={50}
+                        value={settings.volumeStepSize}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, volumeStepSize: Math.max(50, parseInt(e.target.value) || 200) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Keep components ≤ ___ pages intact across volume boundaries</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        step={5}
+                        value={settings.maxComponentSplitPages}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, maxComponentSplitPages: Math.max(1, parseInt(e.target.value) || 50) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Retain in current volume if ≤ ___ pages would spill over</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        step={5}
+                        value={settings.minVolumeTailPages}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, minVolumeTailPages: Math.max(1, parseInt(e.target.value) || 20) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Push to next volume if ≤ ___ pages would remain in current</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        step={5}
+                        value={settings.minVolumeHeadPages}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, minVolumeHeadPages: Math.max(1, parseInt(e.target.value) || 20) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <Label className="text-xs text-muted-foreground">Output format</Label>
+                      <RadioGroup
+                        value={settings.separateVolumePdfs ? 'separate' : 'consolidated'}
+                        onValueChange={(v) => setSettings((prev) => ({ ...prev, separateVolumePdfs: v === 'separate' }))}
+                        className="flex gap-4 pt-1"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <RadioGroupItem value="separate" id="vol-separate" />
+                          <Label htmlFor="vol-separate" className="text-xs font-normal cursor-pointer">Separate PDFs per volume</Label>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <RadioGroupItem value="consolidated" id="vol-consolidated" />
+                          <Label htmlFor="vol-consolidated" className="text-xs font-normal cursor-pointer">Single consolidated PDF</Label>
+                        </div>
+                      </RadioGroup>
+                    </div>
+                  </div>
+                </div>
+
               </div>
             )}
 
@@ -563,18 +718,26 @@ function applyFontSize(fontSize: FontSize) {
 
 // Helper function to get settings
 export function getSettings(): SettingsData {
-  if (typeof window === "undefined") {
-    return {
-      defaultDocxPath: "",
-      defaultPdfPath: "",
-      fontSize: 'small',
-      annexureLabelBackground: false,
-      exportHighlight: false,
-      autosaveInterval: 60,
-      toastDuration: 1,
-      slpTabView: 'splitter' as SlpTabView,
-    };
-  }
+  const defaults: SettingsData = {
+    defaultDocxPath: "",
+    defaultPdfPath: "",
+    defaultDraftoPath: "",
+    fontSize: 'small',
+    annexureLabelBackground: false,
+    annexureLabelSize: 14,
+    exportHighlight: false,
+    autosaveInterval: 60,
+    toastDuration: 1,
+    slpTabView: 'splitter' as SlpTabView,
+    volumeSplitThreshold: 400,
+    volumeStepSize: 200,
+    maxComponentSplitPages: 50,
+    minVolumeTailPages: 20,
+    minVolumeHeadPages: 20,
+    separateVolumePdfs: true,
+  };
+
+  if (typeof window === "undefined") return defaults;
 
   const stored = localStorage.getItem(SETTINGS_KEY);
   if (stored) {
@@ -583,28 +746,26 @@ export function getSettings(): SettingsData {
       return {
         defaultDocxPath: parsed.defaultDocxPath || "",
         defaultPdfPath: parsed.defaultPdfPath || "",
+        defaultDraftoPath: parsed.defaultDraftoPath || "",
         fontSize: parsed.fontSize || 'small',
         annexureLabelBackground: parsed.annexureLabelBackground ?? false,
+        annexureLabelSize: parsed.annexureLabelSize ?? 14,
         exportHighlight: parsed.exportHighlight ?? false,
         autosaveInterval: parsed.autosaveInterval ?? 60,
         toastDuration: parsed.toastDuration ?? 1,
         slpTabView: (parsed.slpTabView || 'splitter') as SlpTabView,
+        volumeSplitThreshold: parsed.volumeSplitThreshold ?? 400,
+        volumeStepSize: parsed.volumeStepSize ?? 200,
+        maxComponentSplitPages: parsed.maxComponentSplitPages ?? 50,
+        minVolumeTailPages: parsed.minVolumeTailPages ?? 20,
+        separateVolumePdfs: parsed.separateVolumePdfs ?? true,
       };
     } catch (err) {
       console.error("Failed to parse settings:", err);
     }
   }
 
-  return {
-    defaultDocxPath: "",
-    defaultPdfPath: "",
-    fontSize: 'small',
-    annexureLabelBackground: false,
-    exportHighlight: false,
-    autosaveInterval: 60,
-    toastDuration: 1,
-    slpTabView: 'splitter' as SlpTabView,
-  };
+  return defaults;
 }
 
 // Initialize font size on app load

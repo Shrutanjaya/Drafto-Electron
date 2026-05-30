@@ -127,7 +127,283 @@ const tableParagraphSpacing = {
     after: 120,  // 6pt = 120 twips
 };
 
-export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Map<number, string>) {
+// ── Volume-splitting utilities ─────────────────────────────────────────────────
+
+function toRomanNumeral(n: number): string {
+    const vals = [1000,900,500,400,100,90,50,40,10,9,5,4,1];
+    const syms = ['M','CM','D','CD','C','XC','L','XL','X','IX','V','IV','I'];
+    let result = '';
+    for (let i = 0; i < vals.length; i++) {
+        while (n >= vals[i]) { result += syms[i]; n -= vals[i]; }
+    }
+    return result;
+}
+
+interface NumericComponent {
+    id: string;
+    startNumericPage: number;
+    endNumericPage: number;
+    pageCount: number;
+    indexSNo?: number;
+}
+
+interface SplitPoint {
+    splitNumericPage: number;   // first numeric page of the next volume
+    isIntraComponent: boolean;  // true if we cut inside a component
+    componentId?: string;       // which component is being cut (intra only)
+    vol1: number;               // volume number before the cut
+    vol2: number;               // volume number after the cut
+}
+
+function calcNumVolumes(total: number, firstThreshold: number, step: number): number {
+    if (total <= firstThreshold) return 1;
+    return 1 + Math.ceil((total - firstThreshold) / step);
+}
+
+function findActualSplitPage(
+    targetPage: number,
+    components: NumericComponent[],
+    maxIntraComponentPages: number,
+    minTailPages: number,
+    minHeadPages: number,
+): { page: number; isIntra: boolean; componentId?: string } {
+    for (const comp of components) {
+        if (targetPage >= comp.startNumericPage && targetPage <= comp.endNumericPage) {
+            if (comp.pageCount <= maxIntraComponentPages) {
+                // Small component: keep intact, snap to nearest boundary
+                const distToStart = targetPage - comp.startNumericPage;
+                const distToEnd   = comp.endNumericPage - targetPage + 1;
+                if (distToStart <= distToEnd) {
+                    return { page: comp.startNumericPage, isIntra: false };
+                } else {
+                    return { page: comp.endNumericPage + 1, isIntra: false };
+                }
+            } else {
+                // Large component: eligible for intra-component split.
+                const tailPages = comp.endNumericPage - targetPage + 1; // pages spilling into next vol
+                const headPages = targetPage - comp.startNumericPage;   // pages staying in current vol
+
+                if (tailPages <= minTailPages) {
+                    // Spill too small → retain whole component in the current volume
+                    return { page: comp.endNumericPage + 1, isIntra: false };
+                }
+                if (headPages <= minHeadPages) {
+                    // Stub too small → push whole component to the next volume
+                    return { page: comp.startNumericPage, isIntra: false };
+                }
+                return { page: targetPage, isIntra: true, componentId: comp.id };
+            }
+        }
+    }
+    return { page: targetPage, isIntra: false };
+}
+
+// Build the ordered list of numeric components from Pass-1 data
+function buildNumericComponents(
+    fileMetas: { id: string }[],
+    docPageCounts: Map<string, { id: string; pageCount: number; shouldCombineWithNext: boolean }>,
+    docIdToIndexSNo: Map<string, number>,
+): NumericComponent[] {
+    const components: NumericComponent[] = [];
+    let runningPage = 1;
+    let seenImpugned = false;
+
+    for (const meta of fileMetas) {
+        if (meta.id.startsWith('impugnedOrder_')) seenImpugned = true;
+        if (!seenImpugned) continue;
+        if (['ci','or','lp','slod','advocateChecklist','slpAffidavit'].includes(meta.id)) continue;
+        if (meta.id.startsWith('ia_affidavit_') || meta.id.endsWith('_typed')) continue;
+
+        const info = docPageCounts.get(meta.id);
+        if (!info || info.pageCount === 0) continue;
+
+        let totalPages = info.pageCount;
+        if (info.shouldCombineWithNext) {
+            const idx = fileMetas.findIndex(m => m.id === meta.id);
+            if (idx >= 0 && idx < fileMetas.length - 1) {
+                const nxt = docPageCounts.get(fileMetas[idx + 1].id);
+                if (nxt) totalPages += nxt.pageCount;
+            }
+        }
+
+        components.push({
+            id: meta.id,
+            startNumericPage: runningPage,
+            endNumericPage:   runningPage + totalPages - 1,
+            pageCount: totalPages,
+            indexSNo: docIdToIndexSNo.get(meta.id),
+        });
+        runningPage += totalPages;
+    }
+    return components;
+}
+
+// Build volume index table rows (filtered to items assigned to `volumeNum`)
+function buildVolumeIndexTableRows(
+    particularsList: (string | (TextRun | string)[])[],
+    volumeNum: number,
+    sNoToVolume: Map<number, number>,
+    splitSNos: Map<number, { v1: number; v2: number; splitPage: number }>,
+    pageRanges: Map<number, string>,
+    volumePageRanges: Map<number, Map<number, string>>,
+): TableRow[] {
+    const rows: TableRow[] = [];
+    particularsList.forEach((item, index) => {
+        const sNo = index + 1;
+        const splitInfo = splitSNos.get(sNo);
+        const primaryVol = sNoToVolume.get(sNo) ?? 1;
+
+        // Decide if this item belongs to this volume's own index
+        if (sNo <= 9) {
+            if (volumeNum !== 1) return; // pre-numeric items only in Vol I
+        } else {
+            if (splitInfo) {
+                if (splitInfo.v1 !== volumeNum && splitInfo.v2 !== volumeNum) return;
+            } else if (primaryVol !== volumeNum) {
+                return;
+            }
+        }
+
+        let part1PageNum = '';
+        let part2PageNum = '';
+        if (sNo === 2) part1PageNum = 'A';
+        else if (sNo === 3) part1PageNum = 'A1-A2';
+        else if (sNo === 4) part2PageNum = 'A3';
+        else if (sNo === 5) part2PageNum = 'A4';
+        else if (sNo === 6) part2PageNum = 'A5';
+        else if (sNo === 7) part2PageNum = 'A6';
+        else if (sNo === 8) part2PageNum = 'NS1-NS_';
+        else {
+            // sNo >= 9: use volume-specific page range if available, else overall
+            const volSpecific = volumePageRanges.get(volumeNum)?.get(sNo);
+            part1PageNum = volSpecific ?? (pageRanges.get(sNo) ?? '');
+        }
+
+        rows.push(new TableRow({ children: [
+            new TableCell({ children: [new Paragraph({ text: `${sNo}.`, style: 'Normal', alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+            new TableCell({ children: [new Paragraph({ children: Array.isArray(item) ? item.map(i => (typeof i === 'string' ? smartTextRun(i) : i)) : [smartTextRun(item as string)], style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+            new TableCell({ children: [new Paragraph({ text: part1PageNum, style: 'Normal', alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+            new TableCell({ children: [new Paragraph({ text: part2PageNum, style: 'Normal', alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+            new TableCell({ children: [new Paragraph({ text: '', style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+        ]}));
+    });
+    return rows;
+}
+
+// Build master index table rows (all items + Volume column)
+// Build master index rows: standard 5-column table with merged "VOLUME X" section-header rows
+// separating items by volume. No separate Volume column.
+function buildMasterIndexTableRows(
+    particularsList: (string | (TextRun | string)[])[],
+    sNoToVolume: Map<number, number>,
+    splitSNos: Map<number, { v1: number; v2: number; splitPage: number }>,
+    pageRanges: Map<number, string>,
+    totalVolumes: number,
+): TableRow[] {
+    const rows: TableRow[] = [];
+
+    // Standard 5-column header (same as the per-volume index)
+    rows.push(
+        new TableRow({ children: [
+            new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'S.No.', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
+            new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Particulars of the Document', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
+            new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Page Nos. of Part to which it belongs', bold: true })], alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, columnSpan: 2, margins: defaultCellMargins }),
+            new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Remarks', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
+        ]}),
+        new TableRow({ children: [
+            new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Part 1 (Contents of the Paper Book)', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+            new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Part 2 (Contents of the file alone)', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+        ]}),
+    );
+
+    for (let v = 1; v <= totalVolumes; v++) {
+        // Merged section-header row for this volume
+        rows.push(new TableRow({ children: [
+            new TableCell({
+                columnSpan: 5,
+                children: [new Paragraph({
+                    alignment: AlignmentType.CENTER,
+                    children: [smartTextRun({ text: `VOLUME ${toRomanNumeral(v)}`, bold: true })],
+                    style: 'Normal',
+                    spacing: tableParagraphSpacing,
+                })],
+                margins: defaultCellMargins,
+            }),
+        ]}));
+
+        // Items belonging to this volume section
+        particularsList.forEach((item, index) => {
+            const sNo = index + 1;
+            const splitInfo = splitSNos.get(sNo);
+            const primaryVol = sNoToVolume.get(sNo) ?? 1;
+
+            // Determine if this item goes in this volume's section.
+            // Pre-numeric (sNo 1-9) → Volume I only.
+            // Split items appear in both volume sections (with their partial range).
+            // Non-split items appear in their assigned volume.
+            if (sNo <= 9) {
+                if (v !== 1) return;
+            } else if (splitInfo) {
+                if (splitInfo.v1 !== v && splitInfo.v2 !== v) return;
+            } else {
+                if (primaryVol !== v) return;
+            }
+
+            let part1PageNum = '';
+            let part2PageNum = '';
+            if (sNo === 2) part1PageNum = 'A';
+            else if (sNo === 3) part1PageNum = 'A1-A2';
+            else if (sNo === 4) part2PageNum = 'A3';
+            else if (sNo === 5) part2PageNum = 'A4';
+            else if (sNo === 6) part2PageNum = 'A5';
+            else if (sNo === 7) part2PageNum = 'A6';
+            else if (sNo === 8) part2PageNum = 'NS1-NS_';
+            else {
+                // For split items: show the portion belonging to this volume
+                if (splitInfo && splitInfo.v1 === v) {
+                    const parsed = pageRanges.get(sNo);
+                    if (parsed) {
+                        const full = parsed.split('-').map(s => s.trim());
+                        part1PageNum = full.length >= 2 ? `${full[0]}-${splitInfo.splitPage - 1}` : parsed;
+                    }
+                } else if (splitInfo && splitInfo.v2 === v) {
+                    const parsed = pageRanges.get(sNo);
+                    if (parsed) {
+                        const full = parsed.split('-').map(s => s.trim());
+                        part1PageNum = full.length >= 2 ? `${splitInfo.splitPage}-${full[full.length - 1]}` : parsed;
+                    }
+                } else {
+                    part1PageNum = pageRanges.get(sNo) ?? '';
+                }
+            }
+
+            rows.push(new TableRow({ children: [
+                new TableCell({ children: [new Paragraph({ text: `${sNo}.`, style: 'Normal', alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+                new TableCell({ children: [new Paragraph({ children: Array.isArray(item) ? item.map(i => (typeof i === 'string' ? smartTextRun(i) : i)) : [smartTextRun(item as string)], style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+                new TableCell({ children: [new Paragraph({ text: part1PageNum, style: 'Normal', alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+                new TableCell({ children: [new Paragraph({ text: part2PageNum, style: 'Normal', alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+                new TableCell({ children: [new Paragraph({ text: '', style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+            ]}));
+        });
+    }
+
+    return rows;
+}
+
+interface CiVolumeOptions {
+    volumeNum: number;
+    totalVolumes: number;
+    particularsList: (string | (TextRun | string)[])[];
+    sNoToVolume: Map<number, number>;
+    splitSNos: Map<number, { v1: number; v2: number; splitPage: number }>;
+    pageRanges: Map<number, string>;             // overall page ranges
+    volumePageRanges: Map<number, Map<number, string>>; // per-volume overrides for split items
+}
+
+// IDs that are user-uploaded and optional (Criminal SLPs only)
+const OPTIONAL_CRIMINAL_DOC_IDS = new Set(['custodyCertificate', 'firDetails']);
+
+export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Map<number, string>, volumeOptions?: CiVolumeOptions, optionalDocIds?: Set<string>) {
   const ioText = ` ${calculateIoText(projectData)}`;
   const effectivePetitioners = (projectData.isCommonOrder && (projectData.commonOrderParties?.length ?? 0) > 0)
     ? projectData.commonOrderParties[0].petitioners
@@ -279,7 +555,12 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
   });
   
   if (projectData.caseType === 'Criminal') {
-    particularsList.push("Custody Certificate");
+    // When optionalDocIds is provided (PDF generation), only include items that have files.
+    // When undefined (DOCX-only generation), always include both entries.
+    const includeCustody = !optionalDocIds || optionalDocIds.has('custodyCertificate');
+    const includeFir     = !optionalDocIds || optionalDocIds.has('firDetails');
+    if (includeCustody) particularsList.push("Custody Certificate");
+    if (includeFir)     particularsList.push("FIR Details");
   }
   particularsList.push("Memo of Parties", "Filing Memo", "Vakalatnama(s)");
 
@@ -351,28 +632,85 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
       })
   ];
   
+  // ── Build index children (volume-aware) ──────────────────────────────────────
+  const vo = volumeOptions;
+  let indexChildren: (Paragraph | Table)[];
+
+  if (!vo) {
+    // Standard single-volume index
+    indexChildren = [
+      new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: "INDEX", bold: true })] }),
+      new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: [1000, 5000, 1500, 1500, 1000], rows: indexTableRows }),
+    ];
+  } else {
+    // Volume-splitting mode
+    const pl = vo.particularsList;
+    indexChildren = [];
+
+    if (vo.volumeNum === 1) {
+      // Master Index: 5-column table with merged "VOLUME X" section-header rows embedded
+      indexChildren.push(
+        new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: 'MASTER INDEX', bold: true })] }),
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          columnWidths: [1000, 5000, 1500, 1500, 1000],
+          rows: buildMasterIndexTableRows(pl, vo.sNoToVolume, vo.splitSNos, vo.pageRanges, vo.totalVolumes),
+        }),
+        new Paragraph({ children: [new PageBreak()] }),
+        new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: `INDEX – VOLUME ${toRomanNumeral(1)}`, bold: true })] }),
+      );
+    } else {
+      indexChildren.push(
+        new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: `INDEX – VOLUME ${toRomanNumeral(vo.volumeNum)}`, bold: true })] }),
+      );
+    }
+
+    // Per-volume standard 5-column index table
+    const stdHeaderRows = [
+      new TableRow({ children: [
+        new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'S.No.', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
+        new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Particulars of the Document', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
+        new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Page Nos. of Part to which it belongs', bold: true })], alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, columnSpan: 2, margins: defaultCellMargins }),
+        new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Remarks', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
+      ]}),
+      new TableRow({ children: [
+        new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Part 1 (Contents of the Paper Book)', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+        new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Part 2 (Contents of the file alone)', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+      ]}),
+    ];
+    indexChildren.push(
+      new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        columnWidths: [1000, 5000, 1500, 1500, 1000],
+        rows: [...stdHeaderRows, ...buildVolumeIndexTableRows(pl, vo.volumeNum, vo.sNoToVolume, vo.splitSNos, vo.pageRanges, vo.volumePageRanges)],
+      }),
+    );
+  }
+
+  // ── Cover page paragraph before "PAPERBOOK" ──────────────────────────────────
+  // Vol 1 (or single-volume): blank paragraph; Vol 2+: "VOLUME X" in bold caps
+  const beforePaperbook = (!vo || vo.volumeNum === 1)
+    ? new Paragraph('')
+    : new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: `VOLUME ${toRomanNumeral(vo.volumeNum)}`, bold: true })] });
+
   const doc = new Document({
     styles: defaultStyles,
     sections: [
       { // Cover Page & Index
         properties: { page: { margin: defaultMargins } },
-        headers: {
-          default: new Header({ children: [] }),
-        },
-        footers: {
-            default: new Footer({ children: [] }),
-        },
+        headers: { default: new Header({ children: [] }) },
+        footers:  { default: new Footer({ children: [] }) },
         children: [
           ...createSlpHeader(projectData.caseType, ioText),
           ...createPartiesHeader(petHeader, resHeader),
-          ...createWithTable(iaList),
-          new Paragraph(""),
-          new Paragraph({ alignment: AlignmentType.CENTER, children: [ smartTextRun({ text: "PAPERBOOK", bold: true }) ] }),
-          new Paragraph({ alignment: AlignmentType.CENTER, children: [ smartTextRun({ text: "[For Index, please see inside]", italics: true }) ] }),
-          new Paragraph({ alignment: AlignmentType.CENTER, children: [ smartTextRun({ text: `Advocate for the Petitioner(s): ${aorName}`, bold: true }) ] }),
+          // IA table only for Volume I (or single-volume mode)
+          ...(!vo || vo.volumeNum === 1 ? createWithTable(iaList) : []),
+          beforePaperbook,
+          new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: 'PAPERBOOK', bold: true })] }),
+          new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: '[For Index, please see inside]', italics: true })] }),
+          new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: `Advocate for the Petitioner(s): ${aorName}`, bold: true })] }),
           new Paragraph({ children: [new PageBreak()] }),
-          new Paragraph({ alignment: AlignmentType.CENTER, children: [ smartTextRun({ text: "INDEX", bold: true }) ] }),
-          new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: [1000, 5000, 1500, 1500, 1000], rows: indexTableRows }),
+          ...indexChildren,
         ],
       },
     ],
@@ -2235,10 +2573,16 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
     }
     const fileMetas: {id: string, label: string, useSystem: boolean, fileName?: string}[] = JSON.parse(fileMetasString);
     const projectData: DraftoProject = JSON.parse(projectDataString);
-    
+
     // Parse settings (with defaults if not provided)
     const settings = settingsString ? JSON.parse(settingsString) : { annexureLabelBackground: false };
-    
+
+    // Determine which optional criminal docs actually have files attached
+    const optionalDocIds = new Set<string>();
+    for (const id of OPTIONAL_CRIMINAL_DOC_IDS) {
+        if (formData.get(id) instanceof File) optionalDocIds.add(id);
+    }
+
     const mergedPdf = await PDFDocument.create();
     const failedDocs: {label: string; reason: string}[] = [];
 
@@ -2315,6 +2659,8 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
         
         if (meta.id.startsWith('ia_affidavit_')) return null; // Part of IA
         
+        if (meta.id === 'custodyCertificate') return 'Custody Certificate';
+        if (meta.id === 'firDetails') return 'FIR Details';
         if (meta.id === 'memoOfParties') return 'Memo of Parties';
         if (meta.id === 'filingMemo') return 'Filing Memo';
         if (meta.id === 'vakalatnama') return 'Vakalatnama(s)';
@@ -2332,10 +2678,10 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
         
         // Load Times New Roman Bold font
         const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
-        const fontSize = 14;
+        const fontSize = Math.min(24, Math.max(10, (settings as any).annexureLabelSize ?? 14));
         const textWidth = font.widthOfTextAtSize(headerText, fontSize);
-        
-        // Position header 0.2 inch (14.4 points) from top
+
+        // Position header proportionally: 0.2 inch base margin, scaled with font size
         const topMargin = 14.4; // 0.2 inch = 14.4 points
         
         // Adjust coordinates based on rotation
@@ -2676,6 +3022,64 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
     }
     const bookmarks: BookmarkEntry[] = [];
 
+    // Apply a list of BookmarkEntry objects to a PDFDocument (entries already have remapped pageIndex)
+    const applyBookmarksToPdf = async (pdf: PDFDocument, entries: BookmarkEntry[]) => {
+        if (entries.length === 0) return;
+        try {
+            const ctx = pdf.context;
+            const pdfPages = pdf.getPages();
+            const items: PDFRef[] = [];
+
+            for (const bm of entries) {
+                if (bm.pageIndex < 0 || bm.pageIndex >= pdfPages.length) continue;
+                const pageRef = pdfPages[bm.pageIndex].ref;
+                const pageHeight = pdfPages[bm.pageIndex].getHeight();
+
+                let title = bm.title;
+                if (bm.isPaginated && bm.startPageNum !== undefined && bm.endPageNum !== undefined) {
+                    let suffix: string;
+                    if (bm.isAlphabetical) {
+                        const s = numberToAlphabet(bm.startPageNum);
+                        const e = numberToAlphabet(bm.endPageNum);
+                        suffix = s === e ? ` [p.${s}]` : ` [pp.${s}-${e}]`;
+                    } else {
+                        suffix = bm.startPageNum === bm.endPageNum
+                            ? ` [p.${bm.startPageNum}]`
+                            : ` [pp.${bm.startPageNum}-${bm.endPageNum}]`;
+                    }
+                    title = `${bm.title}${suffix}`;
+                }
+
+                const d = PDFDict.withContext(ctx);
+                d.set(PDFName.of('Title'), PDFString.of(title));
+                const dest = PDFArray.withContext(ctx);
+                dest.push(pageRef); dest.push(PDFName.of('XYZ'));
+                dest.push(PDFNumber.of(0)); dest.push(PDFNumber.of(pageHeight)); dest.push(PDFNumber.of(0));
+                d.set(PDFName.of('Dest'), dest);
+                items.push(ctx.register(d));
+            }
+
+            if (items.length === 0) return;
+
+            for (let i = 0; i < items.length; i++) {
+                const d = ctx.lookup(items[i]) as PDFDict;
+                if (i > 0) d.set(PDFName.of('Prev'), items[i - 1]);
+                if (i < items.length - 1) d.set(PDFName.of('Next'), items[i + 1]);
+            }
+
+            const outlines = PDFDict.withContext(ctx);
+            outlines.set(PDFName.of('Type'), PDFName.of('Outlines'));
+            outlines.set(PDFName.of('First'), items[0]);
+            outlines.set(PDFName.of('Last'), items[items.length - 1]);
+            outlines.set(PDFName.of('Count'), PDFNumber.of(items.length));
+            const outlinesRef = ctx.register(outlines);
+            for (const ref of items) { (ctx.lookup(ref) as PDFDict).set(PDFName.of('Parent'), outlinesRef); }
+            (ctx.lookup(ctx.trailerInfo.Root) as PDFDict).set(PDFName.of('Outlines'), outlinesRef);
+        } catch (e) {
+            console.warn('[PDF GEN] Volume bookmark application failed:', e);
+        }
+    };
+
     // ===== PASS 1: Generate all documents and count pages =====
     console.log('[PDF GEN] Pass 1: Generating all documents and counting pages...');
     
@@ -2715,12 +3119,12 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
                 
                 // Skip CI for now - we'll regenerate it in Pass 2 with page ranges
                 if (meta.id === 'ci') {
-                    result = await generateCiDocx(projectData);
+                    result = await generateCiDocx(projectData, undefined, undefined, optionalDocIds);
                 } else if (meta.id === 'or') {
                     result = await generateOrDocx(projectData);
                 } else if (meta.id === 'cior') {
                     // Legacy support - generate CI only
-                    result = await generateCiDocx(projectData);
+                    result = await generateCiDocx(projectData, undefined, undefined, optionalDocIds);
                 } else {
                     switch (meta.id) {
                         case 'lp': result = await generateLpDocx(projectData); break;
@@ -2950,14 +3354,167 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
     }
     
     console.log('[PDF GEN] Annexure page ranges calculated:', Array.from(annexurePageRanges.entries()));
-    
+
+    // ===== Volume-splitting detection =====
+    const totalNumericPages = currentNumericPageNum - 1;
+    const volSplitThreshold  = (settings as any).volumeSplitThreshold  ?? 400;
+    const volStepSize        = (settings as any).volumeStepSize        ?? 200;
+    const maxCompSplitPages  = (settings as any).maxComponentSplitPages ?? 50;
+    const minVolTailPages    = (settings as any).minVolumeTailPages     ?? 20;
+    const minVolHeadPages    = (settings as any).minVolumeHeadPages     ?? 20;
+    const separateVolumePdfs = (settings as any).separateVolumePdfs    ?? true;
+
+    const numVolumes = calcNumVolumes(totalNumericPages, volSplitThreshold, volStepSize);
+    const isVolumeSplitting = numVolumes > 1;
+
+    // Build ordered list of numeric components for split-point calculation
+    const numericComponents = buildNumericComponents(fileMetas, docPageCounts, docIdToIndexSNo);
+
+    // Calculate split points
+    const splitPoints: SplitPoint[] = [];
+    if (isVolumeSplitting) {
+        for (let v = 1; v < numVolumes; v++) {
+            const targetPage = Math.round(v * totalNumericPages / numVolumes) + 1;
+            const { page, isIntra, componentId } = findActualSplitPage(targetPage, numericComponents, maxCompSplitPages, minVolTailPages, minVolHeadPages);
+            splitPoints.push({ splitNumericPage: page, isIntraComponent: isIntra, componentId, vol1: v, vol2: v + 1 });
+        }
+    }
+
+    // Build sNo → volume mapping
+    const sNoToVolume = new Map<number, number>();
+    const splitSNos   = new Map<number, { v1: number; v2: number; splitPage: number }>();
+
+    // Pre-numeric items always in Volume I
+    for (let sno = 1; sno <= 9; sno++) sNoToVolume.set(sno, 1);
+
+    if (isVolumeSplitting) {
+        for (const [sno, rangeStr] of indexPageRanges) {
+            if (sno < 10) continue;
+            const parsed = parsePageRange(rangeStr);
+            if (!parsed || parsed.isAlphabetical) { sNoToVolume.set(sno, 1); continue; }
+
+            let startVol = 1;
+            for (const sp of splitPoints) {
+                if (parsed.start >= sp.splitNumericPage) startVol = sp.vol2;
+            }
+            let endVol = 1;
+            for (const sp of splitPoints) {
+                if (parsed.end >= sp.splitNumericPage) endVol = sp.vol2;
+            }
+
+            if (startVol === endVol) {
+                sNoToVolume.set(sno, startVol);
+            } else {
+                sNoToVolume.set(sno, startVol);
+                // Find the split point that bisects this item
+                const bisectSp = splitPoints.find(sp =>
+                    sp.splitNumericPage > parsed.start && sp.splitNumericPage <= parsed.end
+                );
+                if (bisectSp) {
+                    splitSNos.set(sno, { v1: startVol, v2: endVol, splitPage: bisectSp.splitNumericPage });
+                }
+            }
+        }
+    }
+
+    // Build per-volume page range overrides for split items
+    const volumePageRanges = new Map<number, Map<number, string>>();
+    for (let v = 1; v <= numVolumes; v++) volumePageRanges.set(v, new Map());
+
+    if (isVolumeSplitting) {
+        for (const [sno, splitInfo] of splitSNos) {
+            const fullRange = indexPageRanges.get(sno);
+            if (!fullRange) continue;
+            const parsed = parsePageRange(fullRange);
+            if (!parsed || parsed.isAlphabetical) continue;
+            volumePageRanges.get(splitInfo.v1)!.set(sno, `${parsed.start}-${splitInfo.splitPage - 1}`);
+            volumePageRanges.get(splitInfo.v2)!.set(sno, `${splitInfo.splitPage}-${parsed.end}`);
+        }
+    }
+
+    // Build the particularsList for volume CI generation (same logic as inside generateCiDocx)
+    // We need it ahead of time so we can pass it to generateCiDocx with volumeOptions
+    let ciParticularsListForVolume: (string | (TextRun | string)[])[] = [];
+    if (isVolumeSplitting) {
+        // Temporarily call generateCiDocx without volumeOptions to get the particularsList
+        // We reconstruct it here instead to avoid double-generation overhead
+        const _iaList = getIaList(projectData);
+        const _pl: (string | (TextRun | string)[])[] = [
+            'Court Fees', 'O/R on Limitation', 'Listing Proforma',
+            'Cover Page of Paper Book', 'Index of Record of Proceedings',
+            'Limitation Report prepared by the Registry', 'Defect List', 'Note Sheet',
+            'Synopsis and List of Dates',
+        ];
+        if (projectData.impugnedOrders && projectData.impugnedOrders.length > 0) {
+            [...projectData.impugnedOrders].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).forEach(order => {
+                const cn = order.court === 'Other' ? order.customCourt : order.court;
+                const od = order.date ? format(new Date(order.date), 'dd.MM.yyyy') : '[date]';
+                _pl.push(`Impugned ${order.type || '[Order Type]'}: True copy of the Impugned ${order.type || '[Order Type]'} dated ${od} passed by the ${cn || '[Court]'} in ${order.caseNumber || '[Case No.]'}`);
+            });
+        } else {
+            _pl.push('Impugned [Order Type]: True copy of [Impugned Order Details]');
+        }
+        _pl.push('Special Leave Petition with Certificate and Affidavit');
+        if (projectData.wantsAppendix && (projectData.appendixFile || projectData.appendixManualEntry) && projectData.appendixDescription) {
+            _pl.push(`Appendix: Relevant provisions of the ${projectData.appendixDescription}`);
+        }
+        const _allAnnexures: Annexure[] = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
+        const _nonAd = _allAnnexures.filter(a => !a.isAdditionalDocument);
+        const _ad    = _allAnnexures.filter(a => a.isAdditionalDocument);
+        const _annexMap = new Map<string, number>();
+        let _pc = 1;
+        _nonAd.forEach(a => _annexMap.set(a.id, _pc++));
+        _ad.forEach(a => _annexMap.set(a.id, _pc++));
+        _nonAd.forEach(a => { const n = _annexMap.get(a.id); if (n) _pl.push(createAnnexureText(n, a, true)); });
+        if (_ad.length > 0) {
+            const adIa = _iaList.find(ia => ia.id === 'additionalDocuments');
+            if (adIa) {
+                _pl.push([smartTextRun({ text: adIa.prefix, bold: true }), convertToSmartQuotes(`: ${adIa.title}`)]);
+                _ad.forEach(a => { const n = _annexMap.get(a.id); if (n) _pl.push(createAnnexureText(n, a, true)); });
+            }
+        }
+        const _allIaAnn: any[] = [];
+        if (projectData.standardIas?.condonationOfDelay?.active)
+            projectData.standardIas.condonationOfDelay.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: 'condonationOfDelay' })));
+        if (projectData.standardIas?.exemptionFromSurrendering?.active)
+            projectData.standardIas.exemptionFromSurrendering.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: 'exemptionFromSurrendering' })));
+        if (projectData.customIas) projectData.customIas.forEach(cia => cia.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: cia.id }))));
+        const _iaAnnMap = new Map<string, number>();
+        let _ac = 1;
+        _allIaAnn.forEach(a => _iaAnnMap.set(a.id, _ac++));
+        _iaList.filter(ia => ia.id !== 'additionalDocuments').forEach(ia => {
+            _pl.push([smartTextRun({ text: ia.prefix, bold: true }), convertToSmartQuotes(`: ${ia.title}`)]);
+            _allIaAnn.filter(a => a.iaId === ia.id).forEach(a => { const n = _iaAnnMap.get(a.id); if (n) _pl.push(createIaAnnexureText(n, a, true)); });
+            if (ia.id === 'exemptionCertifiedCopy' && projectData.standardIas?.exemptionCertifiedCopy?.hasApplied === 'yes') {
+                const rd = projectData.standardIas.exemptionCertifiedCopy.receiptDate;
+                const dt = rd ? ` dated ${format(new Date(rd), 'dd.MM.yyyy')}` : '';
+                _pl.push([smartTextRun({ text: 'Annexure-A', bold: true }), convertToSmartQuotes(`: True copy of the Receipt of application for certified copy${dt}.`)]);
+            }
+        });
+        if (projectData.caseType === 'Criminal') {
+            if (!optionalDocIds || optionalDocIds.has('custodyCertificate')) _pl.push('Custody Certificate');
+            if (!optionalDocIds || optionalDocIds.has('firDetails'))         _pl.push('FIR Details');
+        }
+        _pl.push('Memo of Parties', 'Filing Memo', 'Vakalatnama(s)');
+        ciParticularsListForVolume = _pl;
+    }
+
     // ===== PASS 2: Main document processing with page ranges =====
     console.log('[PDF GEN] Pass 2: Processing documents with calculated page ranges...');
 
+    // Track content page indices for volume splitting
+    // contentPagesSoFar counts pages added to mergedPdf in this pass (excl. CI in volume mode)
+    let contentPagesSoFar = 0;
+    const componentMergedPdfStart = new Map<string, number>(); // id → start page index in mergedPdf
+
     for (const meta of fileMetas) {
         if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+
+        // In volume mode skip CI entirely — we generate volume-specific CIs after this pass
+        if (isVolumeSplitting && meta.id === 'ci') continue;
+
         let pdfToMerge: PDFDocument | null = null;
-        
+
         try {
             if (!meta.useSystem) {
                 let userFile: File | null = formData.get(meta.id) as File | null;
@@ -2968,24 +3525,27 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
                     } else {
                         throw new Error("Uploaded file is empty.");
                     }
+                } else if (OPTIONAL_CRIMINAL_DOC_IDS.has(meta.id)) {
+                    // Optional criminal docs (Custody Certificate, FIR Details) — user chose to skip
+                    continue;
                 } else {
                     throw new Error("File not found in form data.");
                 }
             } else { // meta.useSystem is true
                 let result;
                 const iaIdentifier = meta.id.startsWith('ia_') ? meta.id.substring(3) : '';
-                
+
                 switch (meta.id) {
-                    case 'ci': 
+                    case 'ci':
                         // Regenerate CI with calculated page ranges
-                        result = await generateCiDocx(projectData, indexPageRanges); 
+                        result = await generateCiDocx(projectData, indexPageRanges, undefined, optionalDocIds);
                         break;
                     case 'or':
                         result = await generateOrDocx(projectData);
                         break;
                     case 'cior':
                         // Legacy support - generate CI with page ranges
-                        result = await generateCiDocx(projectData, indexPageRanges);
+                        result = await generateCiDocx(projectData, indexPageRanges, undefined, optionalDocIds);
                         break;
                     case 'lp': result = await generateLpDocx(projectData); break;
                     case 'slod': 
@@ -3091,8 +3651,10 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
                 }
                 
                 const totalPagesBefore = mergedPdf.getPageCount();
+                componentMergedPdfStart.set(meta.id, totalPagesBefore);
                 const copiedPages = await mergedPdf.copyPages(pdfToMerge, pdfToMerge.getPageIndices());
                 copiedPages.forEach((page) => mergedPdf.addPage(page));
+                contentPagesSoFar = mergedPdf.getPageCount();
                 
                 // Add bookmarks
                 if (copiedPages.length > 0) {
@@ -3313,6 +3875,203 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
             console.warn('[PDF GEN] Failed to create bookmarks:', bookmarkError);
             // Continue without bookmarks rather than failing
         }
+    }
+
+    // ===== Volume splitting: assemble per-volume PDFs =====
+    if (isVolumeSplitting) {
+        // Helper: convert PDF document to base64
+        const pdfToBase64 = async (pdf: PDFDocument): Promise<string> => {
+            const bytes = await pdf.save();
+            let b = '';
+            for (let i = 0; i < bytes.byteLength; i++) b += String.fromCharCode(bytes[i]);
+            return btoa(b);
+        };
+
+        // Helper: add a continuation label at bottom-right of a page
+        const addContinuationLabel = async (pdf: PDFDocument, pageIndex: number, text: string) => {
+            if (pageIndex < 0 || pageIndex >= pdf.getPageCount()) return;
+            const page = pdf.getPage(pageIndex);
+            const { width, height } = page.getSize();
+            const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
+            const fontSize = 16;
+            const textWidth = font.widthOfTextAtSize(text, fontSize);
+            const margin = 40;
+            page.drawText(text, {
+                x: width - margin - textWidth,
+                y: margin,
+                size: fontSize,
+                font,
+                color: rgb(0, 0, 0),
+            });
+        };
+
+        // Determine the PDF page index of the first numeric page
+        // (everything before the first impugned order in mergedPdf in volume mode)
+        let preNumericPageCount = 0;
+        for (const meta of fileMetas) {
+            if (meta.id === 'ci') continue;
+            if (meta.id.startsWith('impugnedOrder_')) break;
+            const info = docPageCounts.get(meta.id);
+            if (info) preNumericPageCount += info.pageCount;
+        }
+
+        // Split points as PDF page indices in mergedPdf (which excludes CI in volume mode)
+        const splitPdfIndices = splitPoints.map(sp => preNumericPageCount + sp.splitNumericPage - 1);
+
+        // Add continuation labels for intra-component splits
+        for (let i = 0; i < splitPoints.length; i++) {
+            const sp = splitPoints[i];
+            if (!sp.isIntraComponent) continue;
+            const splitPdfIdx = splitPdfIndices[i];
+            const nextVolRoman = toRomanNumeral(sp.vol2);
+            const prevVolRoman = toRomanNumeral(sp.vol1);
+            await addContinuationLabel(mergedPdf, splitPdfIdx - 1, `Continued in Volume ${nextVolRoman}...`);
+            await addContinuationLabel(mergedPdf, splitPdfIdx,     `...Continued from Volume ${prevVolRoman}`);
+        }
+
+        // Assemble volume boundaries [start, end) as PDF page indices in mergedPdf
+        const volumeBoundaries: { start: number; end: number }[] = [];
+        for (let v = 1; v <= numVolumes; v++) {
+            const start = v === 1 ? 0 : splitPdfIndices[v - 2];
+            const end   = v === numVolumes ? mergedPdf.getPageCount() : splitPdfIndices[v - 1];
+            volumeBoundaries.push({ start, end });
+        }
+
+        // Generate each volume
+        // volumeResults carries the bookmark entries so consolidation can remap them
+        const volumeResults: { pdf: string; volumeNum: number; label: string; bookmarkEntries: BookmarkEntry[] }[] = [];
+        const voBase: Omit<CiVolumeOptions, 'volumeNum'> = {
+            totalVolumes: numVolumes,
+            particularsList: ciParticularsListForVolume,
+            sNoToVolume,
+            splitSNos,
+            pageRanges: indexPageRanges,
+            volumePageRanges,
+        };
+
+        // Checklist page count — the checklist is always first in fileMetas and in mergedPdf (volume mode)
+        const checklistPageCount = docPageCounts.get('advocateChecklist')?.pageCount ?? 0;
+
+        for (let v = 1; v <= numVolumes; v++) {
+            const { start, end } = volumeBoundaries[v - 1];
+
+            // Generate CI for this volume
+            const ciResult = await generateCiDocx(projectData, indexPageRanges, { ...voBase, volumeNum: v }, optionalDocIds);
+            if (!ciResult.success || !ciResult.docx) {
+                return { success: false, message: `Failed to generate CI for Volume ${v}` };
+            }
+            const ciDocxBuffer = base64ToBuffer(ciResult.docx);
+            const { pdf: ciPdf } = await convertDocxToPdf(ciDocxBuffer);
+            const ciPageCount = ciPdf.getPageCount();
+
+            // ── Assemble volPdf in the correct order ─────────────────────────
+            // Correct page order: Checklist → CI → rest of content
+            // In mergedPdf (volume mode, CI skipped), the layout is:
+            //   [checklistPages][OR][LP][SLOD][numeric content…]
+            // For Volume I we prepend the checklist *before* the CI.
+            // For Volume II+, there is no checklist section.
+            const volPdf = await PDFDocument.create();
+
+            const contentStart = v === 1 ? 0   : start;  // full range incl. checklist for Vol I
+            const contentEnd   = end;
+
+            if (v === 1 && checklistPageCount > 0) {
+                // 1. Checklist (before CI)
+                const clPages = await volPdf.copyPages(mergedPdf, Array.from({ length: checklistPageCount }, (_, i) => i));
+                clPages.forEach(p => volPdf.addPage(p));
+            }
+
+            // 2. CI
+            const ciPages = await volPdf.copyPages(ciPdf, ciPdf.getPageIndices());
+            ciPages.forEach(p => volPdf.addPage(p));
+
+            // 3. Rest of content (skip the checklist block for Volume I — already added above)
+            const restStart = v === 1 ? checklistPageCount : start;
+            if (contentEnd > restStart) {
+                const restIndices = Array.from({ length: contentEnd - restStart }, (_, i) => restStart + i);
+                const restPages = await volPdf.copyPages(mergedPdf, restIndices);
+                restPages.forEach(p => volPdf.addPage(p));
+            }
+            // ─────────────────────────────────────────────────────────────────
+
+            // ── Bookmarks ────────────────────────────────────────────────────
+            // Page offsets in volPdf:
+            //   Vol I:   [0..clCount-1] = Checklist
+            //            [clCount..clCount+ciCount-1] = CI
+            //            [clCount+ciCount..] = rest of content (OR, LP, SLOD, numeric…)
+            //   Vol II+: [0..ciCount-1] = CI
+            //            [ciCount..] = numeric content
+            const ciStartInVol = v === 1 ? checklistPageCount : 0;
+
+            const volBookmarkEntries: BookmarkEntry[] = [];
+
+            // Checklist bookmark (Volume I only) — stays at position 0
+            if (v === 1) {
+                for (const bm of bookmarks) {
+                    if (bm.pageIndex < checklistPageCount) {
+                        volBookmarkEntries.push({ ...bm }); // pageIndex unchanged
+                    }
+                }
+            }
+
+            // CI bookmarks
+            volBookmarkEntries.push({ title: 'Cover Page', pageIndex: ciStartInVol, isPaginated: false });
+            if (ciPageCount >= 2) {
+                const idxTitle = v === 1 ? 'Master Index' : `Index – Volume ${toRomanNumeral(v)}`;
+                volBookmarkEntries.push({ title: idxTitle, pageIndex: ciStartInVol + 1, isPaginated: false });
+            }
+            if (v === 1 && ciPageCount >= 3) {
+                volBookmarkEntries.push({ title: `Index – Volume ${toRomanNumeral(1)}`, pageIndex: ciStartInVol + 2, isPaginated: false });
+            }
+
+            // Content bookmarks (non-checklist): remap mergedPdf index P → volPdf index
+            //   Vol I:  ciStartInVol + ciPageCount + (P - checklistPageCount)  [for P >= checklistPageCount]
+            //   Vol II+: ciPageCount + (P - start)
+            for (const bm of bookmarks) {
+                if (v === 1 && bm.pageIndex < checklistPageCount) continue; // already handled above
+                if (bm.pageIndex >= contentStart && bm.pageIndex < contentEnd) {
+                    const remappedIdx = ciStartInVol + ciPageCount + (bm.pageIndex - restStart);
+                    volBookmarkEntries.push({ ...bm, pageIndex: remappedIdx });
+                }
+            }
+
+            await applyBookmarksToPdf(volPdf, volBookmarkEntries);
+            // ─────────────────────────────────────────────────────────────────
+
+            const label = `Volume ${toRomanNumeral(v)}`;
+            const volBase64 = await pdfToBase64(volPdf);
+            volumeResults.push({ pdf: volBase64, volumeNum: v, label, bookmarkEntries: volBookmarkEntries });
+        }
+
+        // If consolidated: merge all volumes and carry the full detailed bookmarks
+        if (!separateVolumePdfs) {
+            const consolidated = await PDFDocument.create();
+            const allEntries: BookmarkEntry[] = [];
+
+            for (const vr of volumeResults) {
+                const vPdf = await PDFDocument.load(Uint8Array.from(atob(vr.pdf), c => c.charCodeAt(0)));
+                const startIdx = consolidated.getPageCount();
+
+                // For Vol II+, add a "VOLUME X" section-header bookmark before the per-volume entries
+                if (vr.volumeNum > 1) {
+                    allEntries.push({ title: `VOLUME ${toRomanNumeral(vr.volumeNum)}`, pageIndex: startIdx, isPaginated: false });
+                }
+
+                // Remap all per-volume bookmarks into the consolidated page space
+                for (const bm of vr.bookmarkEntries) {
+                    allEntries.push({ ...bm, pageIndex: startIdx + bm.pageIndex });
+                }
+
+                const pages = await consolidated.copyPages(vPdf, vPdf.getPageIndices());
+                pages.forEach(p => consolidated.addPage(p));
+            }
+
+            await applyBookmarksToPdf(consolidated, allEntries);
+            const consolidatedBase64 = await pdfToBase64(consolidated);
+            return { success: true, pdf: consolidatedBase64, volumes: undefined };
+        }
+
+        return { success: true, volumes: volumeResults.map(({ bookmarkEntries: _, ...rest }) => rest) };
     }
 
     const pdfBytes = await mergedPdf.save();

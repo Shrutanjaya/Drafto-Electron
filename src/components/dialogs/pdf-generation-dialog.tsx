@@ -201,6 +201,8 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+    const [showCriminalDocWarning, setShowCriminalDocWarning] = useState(false);
+    const pendingSubmitData = useRef<PdfMergeForm | null>(null);
     const [progress, setProgress] = useState(0);
     const cancelledRef = useRef(false);
     const abortControllerRef = useRef<AbortController | null>(null);
@@ -319,6 +321,12 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
              }
         });
 
+        // Custody Certificate and FIR Details are required for Criminal SLPs (optional to attach)
+        if (projectData.caseType === 'Criminal') {
+            list.push({ id: 'custodyCertificate', label: 'Custody Certificate' });
+            list.push({ id: 'firDetails', label: 'FIR Details' });
+        }
+
         list.push({ id: 'memoOfParties', label: 'Memo of Parties' });
         list.push({ id: 'filingMemo', label: 'Filing Memo' });
         list.push({ id: 'vakalatnama', label: 'Vakalatnama(s)' });
@@ -418,6 +426,16 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                 };
             }
             
+            // Optional Criminal SLP docs — user-upload, but not mandatory
+            if (c.id === 'custodyCertificate' || c.id === 'firDetails') {
+                const savedItem = savedPdfMergeItems?.find((s: any) => s.id === c.id);
+                return {
+                    ...c,
+                    useSystem: false,
+                    userFile: savedItem?.userFile instanceof File ? savedItem.userFile : null,
+                };
+            }
+
             // For certified copy receipt, always use current file from main form
             if (c.id === 'certified_copy_receipt') {
                 const receiptFile = mainForm.getValues('standardIas.exemptionCertifiedCopy.receiptFile');
@@ -631,7 +649,24 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         }
     }
 
+    const getMissingOptionalCriminalDocs = (data: PdfMergeForm): string[] => {
+        if (mainForm.getValues('caseType') !== 'Criminal') return [];
+        return data.mergeItems
+            .filter(item => ['custodyCertificate', 'firDetails'].includes(item.id))
+            .filter(item => !(item.userFile instanceof File))
+            .map(item => item.label);
+    };
+
     const onSubmit = async (data: PdfMergeForm) => {
+        // For Criminal SLPs: warn if optional docs are missing, but allow proceeding
+        const missingOptional = getMissingOptionalCriminalDocs(data);
+        if (missingOptional.length > 0 && !pendingSubmitData.current) {
+            pendingSubmitData.current = data;
+            setShowCriminalDocWarning(true);
+            return;
+        }
+        pendingSubmitData.current = null;
+
         setIsGenerating(true);
         const formData = new FormData();
         const fileMetas: {id: string, label: string, useSystem: boolean, fileName?: string}[] = [];
@@ -666,9 +701,50 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             // Abort if user cancelled while generation was running
             if (cancelledRef.current) return;
 
+            // ── Multi-volume result (separate PDFs) ────────────────────────────
+            if (result.success && result.volumes && result.volumes.length > 0) {
+                setProgress(100);
+                const _firstWords = (s: string, n: number) => s.trim().split(/\s+/).slice(0, n).join(' ');
+                const _pet = projectData.petitioners?.[0]?.name?.trim();
+                const _res = projectData.respondents?.[0]?.name?.trim();
+                const _petPart = _pet ? _firstWords(_pet, 3) : '';
+                const _resPart = _res ? _firstWords(_res, 3) : '';
+                const caseName = _petPart && _resPart ? `${_petPart} v. ${_resPart}` : _petPart || _resPart || 'Untitled';
+                const settings = getSettings();
+
+                for (const vol of result.volumes) {
+                    const fileName = `${caseName} Paperbook – ${vol.label}.pdf`;
+                    let saved = false;
+                    try {
+                        if (window.electron?.savePdf) {
+                            const savedPath = await window.electron.savePdf({
+                                fileName,
+                                content: vol.pdf,
+                                defaultPath: settings.defaultPdfPath || undefined,
+                            });
+                            if (savedPath) {
+                                saved = true;
+                                toast({ title: `${vol.label} Saved`, description: savedPath });
+                                const dir = savedPath.replace(/[\\/][^\\/]+$/, '');
+                                window.electron.openFolderPath?.(dir);
+                            }
+                        }
+                    } catch { /* fall through to download */ }
+
+                    if (!saved) {
+                        const bytes = Uint8Array.from(atob(vol.pdf), c => c.charCodeAt(0));
+                        saveAs(new Blob([bytes], { type: 'application/pdf' }), fileName);
+                    }
+                }
+                incrementGenerationCount('paperbook');
+                toast({ title: 'PDF Generated', description: `${result.volumes.length} volumes saved.` });
+                onClose();
+                return;
+            }
+
             if (result.success && result.pdf) {
                 setProgress(100);
-                
+
                 // If OCR is enabled, process it
                 if (enableOcr && window.electron) {
                     setIsGenerating(false);
@@ -895,6 +971,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                                     const isLocked = isLockedId(currentItem.id);
                                     const hasFile = currentItem.userFile instanceof File;
                                     const isSystemMode = currentItem.useSystem;
+                                    const isOptionalCriminal = currentItem.id === 'custodyCertificate' || currentItem.id === 'firDetails';
                                     const lockedTooltip = currentItem.id === 'ci'
                                         ? 'Cover page & index contains auto-calculated page numbers; cannot be replaced'
                                         : currentItem.id === 'slod'
@@ -942,7 +1019,12 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                                                     <button
                                                         type="button"
                                                         onClick={() => triggerFileUpload(index)}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 cursor-pointer"
+                                                        className={cn(
+                                                            "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs cursor-pointer",
+                                                            isOptionalCriminal
+                                                                ? "border border-yellow-500/40 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/20"
+                                                                : "border border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20"
+                                                        )}
                                                     >
                                                         <AlertCircle className="h-3 w-3 flex-shrink-0" />
                                                         Upload Required
@@ -990,6 +1072,34 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                     </Button>
                 </GoButtonWrapper>
             </DialogFooter>
+            {/* Warning for missing optional Criminal SLP documents */}
+            <AlertDialog open={showCriminalDocWarning} onOpenChange={setShowCriminalDocWarning}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Missing Criminal SLP Documents</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            The following documents have not been attached. They are required for Criminal SLPs where the Petitioner is in judicial custody:
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
+                        {pendingSubmitData.current && getMissingOptionalCriminalDocs(pendingSubmitData.current).map(label => (
+                            <li key={label}>{label}</li>
+                        ))}
+                    </ul>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => { setShowCriminalDocWarning(false); pendingSubmitData.current = null; }}>
+                            Go Back
+                        </AlertDialogCancel>
+                        <AlertDialogAction onClick={() => {
+                            setShowCriminalDocWarning(false);
+                            if (pendingSubmitData.current) onSubmit(pendingSubmitData.current);
+                        }}>
+                            Proceed Anyway
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
              <AlertDialog open={errorDialogOpen} onOpenChange={setErrorDialogOpen}>
                 <AlertDialogContent>
                     <AlertDialogHeader>

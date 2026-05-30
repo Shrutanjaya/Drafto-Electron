@@ -12,6 +12,8 @@ import {
   LogOut,
   User,
   Loader2,
+  Columns2,
+  LayoutList,
 } from "lucide-react";
 import { saveAs } from "file-saver";
 
@@ -38,6 +40,7 @@ import { LoadProjectDialog } from "./dialogs/load-project-dialog";
 import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
 import { getIaList } from "@/lib/ia-list-utils";
 import { restoreFileFromPath } from "@/lib/utils/pick-file";
+import { cn } from "@/lib/utils";
 import { useAuthContext } from "@/providers/auth-provider";
 import { incrementGenerationCount } from "@/lib/firebase/usage-service";
 
@@ -95,6 +98,13 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   const [showLoadDialog, setShowLoadDialog] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
+  const [slpViewMode, setSlpViewMode] = useState<'splitter' | 'navigation'>(() => getSettings().slpTabView ?? 'splitter');
+
+  const toggleSlpView = (mode: 'splitter' | 'navigation') => {
+    if (mode === slpViewMode) return;
+    setSlpViewMode(mode);
+    window.dispatchEvent(new CustomEvent('drafto-slp-view-changed', { detail: { mode } }));
+  };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -260,6 +270,22 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         console.error("Shared path save failed:", err);
         toast({ variant: "destructive", title: "Save Failed", description: String(err) });
         return;
+      }
+    }
+
+    // If user has configured a default .drafto folder, save there on first save
+    const defaultDraftoPath = getSettings().defaultDraftoPath;
+    if (defaultDraftoPath && window.electron?.saveProjectToPath) {
+      try {
+        const sep = defaultDraftoPath.includes('/') ? '/' : '\\';
+        const destPath = `${defaultDraftoPath}${sep}${petitionerName}.drafto`;
+        await window.electron.saveProjectToPath({ filePath: destPath, content: jsonString });
+        setCurrentFilePath(destPath);
+        if (window.electron.writeLockFile) await window.electron.writeLockFile(destPath);
+        toast({ variant: "success", title: "Saved" });
+        return;
+      } catch (err) {
+        console.error("Default drafto path save failed, falling back:", err);
       }
     }
 
@@ -503,6 +529,9 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   const handleNew = () => {
     form.reset(draftoProjectSchema.parse({}));
     setCurrentFilePath(null);
+    const defaultView = getSettings().slpTabView ?? 'splitter';
+    setSlpViewMode(defaultView);
+    window.dispatchEvent(new CustomEvent('drafto-new-project', { detail: { mode: defaultView } }));
     toast({ title: "New Project", description: "A new blank project has been created." });
   };
   
@@ -691,6 +720,38 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         <h1 className="font-headline text-lg font-bold">DraftoSLP</h1>
       </div>
       <div className="flex items-center gap-1">
+        {/* Petition view toggle — left of undo/redo */}
+        <div className="flex items-center rounded-md border overflow-hidden mr-1">
+          <button
+            type="button"
+            title="Splitter view"
+            onClick={() => toggleSlpView('splitter')}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 text-xs transition-colors",
+              slpViewMode === 'splitter'
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+          >
+            <Columns2 className="h-3 w-3" />
+            Split
+          </button>
+          <button
+            type="button"
+            title="Navigation view"
+            onClick={() => toggleSlpView('navigation')}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 text-xs transition-colors border-l",
+              slpViewMode === 'navigation'
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+          >
+            <LayoutList className="h-3 w-3" />
+            Nav
+          </button>
+        </div>
+
         <Button variant="ghost" size="icon" title="Undo" onClick={undo} disabled={!canUndo}><Undo /></Button>
         <Button variant="ghost" size="icon" title="Redo" onClick={redo} disabled={!canRedo}><Redo /></Button>
 
