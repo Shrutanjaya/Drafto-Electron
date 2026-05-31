@@ -83,7 +83,7 @@ if ($Force -or -not (Test-Path $PipExe)) {
 Write-Host ""
 Write-Host "── Python packages ──────────────────────────────────────────────" -ForegroundColor Cyan
 
-$packages = @("pymupdf", "pytesseract", "pillow", "pikepdf")
+$packages = @("pymupdf", "pytesseract", "pillow", "pikepdf", "docx2pdf")
 foreach ($pkg in $packages) {
     # Check if already installed (look for the package folder in site-packages)
     $sitePackages = Join-Path $PythonDest "Lib\site-packages"
