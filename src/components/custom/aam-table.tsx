@@ -149,6 +149,7 @@ export function AamTable({ name, defaultRows = 10, disabled = false }: AamTableP
                                     value={field.value}
                                     onChange={field.onChange}
                                     disabled={disabled}
+                                    path={field.name}
                                     onCtrlSpace={() => insert(index + 1, { id: `item_${Date.now()}`, particulars: "" })}
                                   />
                                 </FormControl>

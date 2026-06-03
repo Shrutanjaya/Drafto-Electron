@@ -8,6 +8,8 @@ import { draftoProjectSchema, type DraftoProject } from "@/lib/schema";
 import { Card } from "@/components/ui/card";
 import { Header } from "@/components/header";
 import { Workspace } from "@/components/workspace";
+import { FindReplaceBar } from "@/components/custom/find-replace-bar";
+import { FieldRevealProvider } from "@/components/custom/field-reveal-provider";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { useToast } from "@/hooks/use-toast";
 
@@ -40,12 +42,15 @@ export function DraftoClient() {
 
   return (
     <FormProvider {...form}>
-      <Card className="border-2 shadow-xl">
-        <Header undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo} />
-        <main>
-          <Workspace />
-        </main>
-      </Card>
+      <FieldRevealProvider>
+        <Card className="border-2 shadow-xl">
+          <Header undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo} />
+          <main>
+            <Workspace />
+          </main>
+        </Card>
+        <FindReplaceBar />
+      </FieldRevealProvider>
     </FormProvider>
   );
 }

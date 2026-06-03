@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { format } from "date-fns";
-import { FileText, FolderOpen, ExternalLink, Search, Clock, ArrowDownAZ } from "lucide-react";
+import { FileText, FolderOpen, Search, Clock, ArrowDownAZ } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface DraftoFileInfo {
@@ -163,17 +163,6 @@ export function LoadProjectDialog({ open, onOpenChange, onLoadFromPath }: LoadPr
               ))}
             </ul>
           )}
-        </div>
-
-        {/* ── Footer ── */}
-        <div className="px-4 py-2.5 border-t shrink-0 bg-muted/30">
-          <button
-            type="button"
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => window.electron?.openProjectsFolder?.()}
-          >
-            <ExternalLink className="h-3 w-3" /> Open local projects folder
-          </button>
         </div>
 
       </DialogContent>

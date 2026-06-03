@@ -24,9 +24,48 @@ import { AffidavitDialog } from "../dialogs/affidavit-dialog";
 import { VakalatnamaDialog } from "../dialogs/vakalatnama-dialog";
 import { getSettings } from "../dialogs/settings-dialog";
 import { useCalculatedValues } from "@/hooks/use-calculated-values";
+import { Columns2, LayoutList } from "lucide-react";
+import { FIND_REVEAL_EVENT, getPendingReveal } from "@/lib/find-reveal";
 
 type SlpSection = 'synopsis' | 'listOfDates' | 'grounds' | 'questionsOfLaw' | 'interimRelief' | 'appendix' | 'declarations';
 const EDITOR_SECTIONS: SlpSection[] = ['synopsis', 'listOfDates', 'grounds', 'questionsOfLaw', 'interimRelief', 'appendix'];
+
+// Splitter/Navigation view toggle for the Petition tab. Lives next to the
+// formatting toolbar (not the global header) so it reads as tab-scoped.
+function ViewToggle({ mode, onChange }: { mode: 'splitter' | 'navigation'; onChange: (m: 'splitter' | 'navigation') => void }) {
+  return (
+    <div className="flex items-center rounded-md border overflow-hidden">
+      <button
+        type="button"
+        title="Splitter view"
+        onClick={() => onChange('splitter')}
+        className={cn(
+          "flex items-center gap-1 px-2 py-1 text-xs transition-colors",
+          mode === 'splitter'
+            ? "bg-primary text-primary-foreground"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted"
+        )}
+      >
+        <Columns2 className="h-3 w-3" />
+        Split
+      </button>
+      <button
+        type="button"
+        title="Navigation view"
+        onClick={() => onChange('navigation')}
+        className={cn(
+          "flex items-center gap-1 px-2 py-1 text-xs transition-colors border-l",
+          mode === 'navigation'
+            ? "bg-primary text-primary-foreground"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted"
+        )}
+      >
+        <LayoutList className="h-3 w-3" />
+        Nav
+      </button>
+    </div>
+  );
+}
 
 function NavRow({ label, active, selected, onClick }: { label: string; active: boolean; selected: boolean; onClick: () => void }) {
   return (
@@ -68,26 +107,37 @@ export function SlpTab() {
     }
   }, [ioText, form]);
 
-  // View mode: controlled by the header toggle in real time; falls back to settings default on new project
+  // View mode: toggled in-tab (next to the formatting toolbar); falls back to the
+  // settings default when a new project is created.
   const [viewMode, setViewMode] = useState<'splitter' | 'navigation'>(() => getSettings().slpTabView ?? 'splitter');
   useEffect(() => {
-    const handleToggle = (e: Event) => {
-      const mode = (e as CustomEvent).detail?.mode;
-      if (mode === 'splitter' || mode === 'navigation') setViewMode(mode);
-    };
     const handleNewProject = (e: Event) => {
       const mode = (e as CustomEvent).detail?.mode ?? getSettings().slpTabView ?? 'splitter';
       setViewMode(mode);
     };
-    window.addEventListener('drafto-slp-view-changed', handleToggle);
     window.addEventListener('drafto-new-project', handleNewProject);
     return () => {
-      window.removeEventListener('drafto-slp-view-changed', handleToggle);
       window.removeEventListener('drafto-new-project', handleNewProject);
     };
   }, []);
 
   const [selectedSection, setSelectedSection] = useState<SlpSection>('synopsis');
+
+  // Find & Replace navigation: when a match targets a Petition section, switch to
+  // Navigation view and select that section so the field is mounted and revealable.
+  // Also applied on mount, in case the tab switch mounted us after the event fired.
+  useEffect(() => {
+    const applyPending = () => {
+      const p = getPendingReveal();
+      if (p && p.tab === 'slp' && p.section) {
+        setViewMode('navigation');
+        setSelectedSection(p.section as SlpSection);
+      }
+    };
+    window.addEventListener(FIND_REVEAL_EVENT, applyPending);
+    applyPending();
+    return () => window.removeEventListener(FIND_REVEAL_EVENT, applyPending);
+  }, []);
 
   // Dot-active watches
   const synopsis = useWatch({ control: form.control, name: 'synopsis' });
@@ -138,11 +188,11 @@ export function SlpTab() {
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize={75} minSize={60}>
               <div className="flex flex-col h-full p-2 space-y-2">
-                {EDITOR_SECTIONS.includes(selectedSection) && (
-                  <div className="flex items-center gap-1 shrink-0">
-                    <EditorToolbar />
-                  </div>
-                )}
+                <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex-grow"></div>
+                  {EDITOR_SECTIONS.includes(selectedSection) && <EditorToolbar />}
+                  <ViewToggle mode={viewMode} onChange={setViewMode} />
+                </div>
                 <div className="flex-grow overflow-auto">
                   {selectedSection === 'synopsis' && (
                     <FormField
@@ -151,7 +201,7 @@ export function SlpTab() {
                       render={({ field }) => (
                         <FormItem className="h-full flex flex-col">
                           <FormControl>
-                            <BadhiyaBox value={field.value} onChange={field.onChange} />
+                            <BadhiyaBox value={field.value} onChange={field.onChange} path={field.name} />
                           </FormControl>
                         </FormItem>
                       )}
@@ -183,6 +233,7 @@ export function SlpTab() {
           <AppendixDialog />
           <div className="flex-grow"></div>
           <EditorToolbar />
+          <ViewToggle mode={viewMode} onChange={setViewMode} />
         </div>
 
         <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId="slp-tab-panels">
@@ -216,6 +267,7 @@ export function SlpTab() {
                       <BadhiyaBox
                         value={field.value}
                         onChange={field.onChange}
+                        path={field.name}
                       />
                     </FormControl>
                   </FormItem>

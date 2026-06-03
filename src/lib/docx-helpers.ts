@@ -2,12 +2,17 @@
 import {
   AlignmentType,
   BorderStyle,
+  HorizontalPositionAlign,
+  HorizontalPositionRelativeFrom,
+  ImageRun,
   Paragraph,
   Table,
   TableCell,
   TableRow,
   TextRun,
+  TextWrappingType,
   VerticalAlign,
+  VerticalPositionRelativeFrom,
   WidthType,
 } from "docx";
 import type { VaadiTableItem, Annexure } from "./schema";
@@ -222,7 +227,10 @@ export const createPartiesHeader = (petHeader: string, resHeader: string) => {
     }),
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
-      columnWidths: [7500, 2500],
+      // Right column holds "...Petitioner(s)" / "...Respondent(s)"; widened so the
+      // label fits on one line even in wider fonts (e.g. Arial) at the constrained
+      // size, avoiding a forced break that splits the closing bracket.
+      columnWidths: [6300, 3700],
       borders: noBorders,
       rows: [
         new TableRow({
@@ -235,7 +243,9 @@ export const createPartiesHeader = (petHeader: string, resHeader: string) => {
             new TableCell({
               children: [new Paragraph({
                 alignment: AlignmentType.RIGHT,
-                children: [smartTextRun("...Petitioner(s)")],
+                // Word joiners (U+2060) keep "(s)" from breaking onto a new line
+                // (some renderers split before the ")") so the label stays intact.
+                children: [smartTextRun("...Petitioner⁠(⁠s⁠)")],
               })],
               borders: noBorders,
               verticalAlign: VerticalAlign.CENTER,
@@ -264,7 +274,7 @@ export const createPartiesHeader = (petHeader: string, resHeader: string) => {
             new TableCell({
               children: [new Paragraph({
                 alignment: AlignmentType.RIGHT,
-                children: [smartTextRun("...Respondent(s)")],
+                children: [smartTextRun("...Respondent⁠(⁠s⁠)")],
               })],
               borders: noBorders,
               verticalAlign: VerticalAlign.CENTER,
@@ -332,6 +342,27 @@ export const createWithTable = (iaList: { prefix: string; title: string }[]) => 
 };
 
 
+/**
+ * Reads the AoR signature settings from localStorage. Runs in the renderer
+ * (the same context that generates the .docx). Returns null when no signature
+ * is configured or the "place in paperbook" toggle is off.
+ */
+const getFiledBySignature = (): { data: Uint8Array; widthPx: number; heightPx: number } | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+        const raw = window.localStorage.getItem('drafto-settings');
+        if (!raw) return null;
+        const s = JSON.parse(raw);
+        if (!s.placeSignatureInPaperbook || !s.aorSignaturePng || !s.aorSignatureW || !s.aorSignatureH) return null;
+        const base64 = String(s.aorSignaturePng).split(',').pop() || '';
+        const widthPx = Math.max(24, Math.round(s.signatureSizePx ?? 120));
+        const heightPx = Math.max(1, Math.round(widthPx * (s.aorSignatureH / s.aorSignatureW)));
+        return { data: base64ToBuffer(base64), widthPx, heightPx };
+    } catch {
+        return null;
+    }
+};
+
 export const createFiledByTable = (filingDate: Date, aorName: string) => {
     const formattedDate = filingDate ? format(new Date(filingDate), "dd.MM.yyyy") : "";
     const noBorders = {
@@ -343,6 +374,30 @@ export const createFiledByTable = (filingDate: Date, aorName: string) => {
         insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
     };
     const paraSpacing = { after: 0, line: 240 };
+
+    // The signature is a *floating* image anchored to the "Filed by" line and drawn
+    // behind the document text, so it overlays the page without displacing any
+    // content (the line never gets pushed down). It is right-aligned to the cell
+    // column and lifted above the baseline by its own height so it sits over the name.
+    const signature = getFiledBySignature();
+    const EMU_PER_PX = 9525;   // 914400 EMU/in ÷ 96 px/in
+    const EMU_PER_PT = 12700;  // 914400 EMU/in ÷ 72 pt/in
+    const SIGNATURE_OVERLAP_PT = 6; // signature dips this many pt into the "Filed by" line
+    const signatureRuns = signature
+        ? [
+            new ImageRun({
+                data: signature.data,
+                transformation: { width: signature.widthPx, height: signature.heightPx },
+                floating: {
+                    horizontalPosition: { relative: HorizontalPositionRelativeFrom.COLUMN, align: HorizontalPositionAlign.RIGHT },
+                    verticalPosition: { relative: VerticalPositionRelativeFrom.PARAGRAPH, offset: -(signature.heightPx * EMU_PER_PX - SIGNATURE_OVERLAP_PT * EMU_PER_PT) },
+                    behindDocument: true,
+                    allowOverlap: true,
+                    wrap: { type: TextWrappingType.NONE },
+                },
+            }),
+        ]
+        : [];
 
     return [
         new Table({
@@ -364,6 +419,7 @@ export const createFiledByTable = (filingDate: Date, aorName: string) => {
                                 new Paragraph({
                                     alignment: AlignmentType.RIGHT,
                                     children: [
+                                        ...signatureRuns,
                                         smartTextRun(`Filed by: ${aorName}`),
                                     ],
                                     spacing: paraSpacing,

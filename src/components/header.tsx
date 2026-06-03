@@ -12,8 +12,6 @@ import {
   LogOut,
   User,
   Loader2,
-  Columns2,
-  LayoutList,
 } from "lucide-react";
 import { saveAs } from "file-saver";
 
@@ -98,13 +96,6 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   const [showLoadDialog, setShowLoadDialog] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
-  const [slpViewMode, setSlpViewMode] = useState<'splitter' | 'navigation'>(() => getSettings().slpTabView ?? 'splitter');
-
-  const toggleSlpView = (mode: 'splitter' | 'navigation') => {
-    if (mode === slpViewMode) return;
-    setSlpViewMode(mode);
-    window.dispatchEvent(new CustomEvent('drafto-slp-view-changed', { detail: { mode } }));
-  };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -720,38 +711,6 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         <h1 className="font-headline text-lg font-bold">DraftoSLP</h1>
       </div>
       <div className="flex items-center gap-1">
-        {/* Petition view toggle — left of undo/redo */}
-        <div className="flex items-center rounded-md border overflow-hidden mr-1">
-          <button
-            type="button"
-            title="Splitter view"
-            onClick={() => toggleSlpView('splitter')}
-            className={cn(
-              "flex items-center gap-1 px-2 py-1 text-xs transition-colors",
-              slpViewMode === 'splitter'
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            )}
-          >
-            <Columns2 className="h-3 w-3" />
-            Split
-          </button>
-          <button
-            type="button"
-            title="Navigation view"
-            onClick={() => toggleSlpView('navigation')}
-            className={cn(
-              "flex items-center gap-1 px-2 py-1 text-xs transition-colors border-l",
-              slpViewMode === 'navigation'
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted"
-            )}
-          >
-            <LayoutList className="h-3 w-3" />
-            Nav
-          </button>
-        </div>
-
         <Button variant="ghost" size="icon" title="Undo" onClick={undo} disabled={!canUndo}><Undo /></Button>
         <Button variant="ghost" size="icon" title="Redo" onClick={redo} disabled={!canRedo}><Redo /></Button>
 

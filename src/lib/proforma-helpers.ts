@@ -117,7 +117,7 @@ export const createListingProforma = (data: DraftoProject) => {
         // Numbered List
         new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
-            columnWidths: [300, 3200, 6500],
+            columnWidths: [500, 3200, 6300],
             borders: noBorders,
             rows: [
                 new TableRow({ children: [ new TableCell({children: [para("1.")], borders: noBorders}), new TableCell({children: [boldLeftPara("Nature of matter:")], borders: noBorders}), new TableCell({children: [new Paragraph({ children: [caseType === 'Civil' ? tick() : empty(), new TextRun(" Civil  "), caseType === 'Criminal' ? tick() : empty(), new TextRun(" Criminal")] }) ], borders: noBorders}) ]}),

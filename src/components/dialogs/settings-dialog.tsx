@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Settings, FolderOpen, RefreshCw, ExternalLink, Moon, Sun, Download, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { Settings, FolderOpen, RefreshCw, ExternalLink, Moon, Sun, Download, CheckCircle, AlertCircle, Loader2, Info } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { getGenerationCounts, type UsageCounts } from "@/lib/firebase/usage-service";
 import { LICENSE_TEXT, TERMS_TEXT } from "@/lib/legal";
@@ -19,7 +21,9 @@ import { cn } from "@/lib/utils";
 
 type FontSize = 'small' | 'medium' | 'large';
 type SlpTabView = 'splitter' | 'navigation';
-type SettingsSection = 'view' | 'save' | 'durations' | 'customize' | 'support';
+type QuoteLineSpacing = 'default' | 'single';
+type TrueCopyPosition = 'left' | 'center';
+type SettingsSection = 'appearance' | 'workspace' | 'formatting' | 'paperbook' | 'save' | 'shortcuts' | 'support';
 
 interface SettingsData {
   defaultDocxPath: string;
@@ -33,6 +37,7 @@ interface SettingsData {
   autosaveInterval: number;
   toastDuration: number;
   slpTabView: SlpTabView;
+  quoteLineSpacing: QuoteLineSpacing;
 
   // Volume splitting
   volumeSplitThreshold: number;
@@ -41,9 +46,131 @@ interface SettingsData {
   minVolumeTailPages: number;
   minVolumeHeadPages: number;
   separateVolumePdfs: boolean;
+
+  // AoR Signature & True Copy (Beta)
+  aorSignaturePng: string;   // data URL (data:image/png;base64,...)
+  aorSignatureW: number;     // natural pixel width  (for aspect ratio)
+  aorSignatureH: number;     // natural pixel height (for aspect ratio)
+  placeSignatureInPaperbook: boolean;
+  placeTrueCopyText: boolean;
+  signatureSizePx: number;   // display width of the Filed-by signature, in px
+  trueCopyPosition: TrueCopyPosition;  // bottom-left or bottom-center of annexure pages
+  trueCopyBackground: boolean;         // white background behind the True Copy stamp
+
+  // Output text formatting (body of the SLP)
+  outputFont: string;
+  outputFontSizePt: number;
+  outputLineSpacing: number;
+  outputParaAfterPt: number;
 }
 
+// Fonts offered for the output text formatting
+const OUTPUT_FONTS = [
+  "Arial", "Cambria", "Calibri", "Tahoma", "Verdana", "Georgia", "Garamond",
+  "Times New Roman", "Equity Text A", "Tinos", "Calisto MT", "Bookman Old Style",
+  "Century Schoolbook", "Century",
+];
+
 const SETTINGS_KEY = "drafto-settings";
+
+// Keyboard shortcuts shown in Settings → Shortcuts. `keys` is a list of key
+// combinations (alternatives) where each combination is an array of key labels.
+type Shortcut = { keys: string[][]; action: string; note?: string };
+type ShortcutGroup = { title: string; hint?: string; items: Shortcut[] };
+
+const SHORTCUT_GROUPS: ShortcutGroup[] = [
+  {
+    title: "Global",
+    hint: "Work anywhere in the app.",
+    items: [
+      { keys: [["Ctrl", "S"]], action: "Save project" },
+      { keys: [["Ctrl", "F"]], action: "Open the Find & Replace bar" },
+      { keys: [["Ctrl", "R"]], action: "Right-align text (inside a text field). Page reload is disabled so your work is never lost." },
+    ],
+  },
+  {
+    title: "Find & Replace bar",
+    items: [
+      { keys: [["Enter"]], action: "Go to next match" },
+      { keys: [["Shift", "Enter"]], action: "Go to previous match" },
+      { keys: [["Esc"]], action: "Close the bar" },
+    ],
+  },
+  {
+    title: "Text formatting",
+    hint: "Inside any text field (synopsis, grounds, particulars, prayers, etc.).",
+    items: [
+      { keys: [["Ctrl", "B"]], action: "Bold" },
+      { keys: [["Ctrl", "I"]], action: "Italic" },
+      { keys: [["Ctrl", "U"]], action: "Underline" },
+      { keys: [["Ctrl", "H"]], action: "Highlight (yellow)", note: "Always Ctrl, even on Mac" },
+    ],
+  },
+  {
+    title: "Alignment",
+    items: [
+      { keys: [["Ctrl", "L"]], action: "Align left" },
+      { keys: [["Ctrl", "E"]], action: "Align centre" },
+      { keys: [["Ctrl", "R"]], action: "Align right" },
+      { keys: [["Ctrl", "J"]], action: "Justify" },
+    ],
+  },
+  {
+    title: "Lists & structure",
+    items: [
+      { keys: [["Tab"]], action: "Indent / nest a list item (up to 5 levels)" },
+      { keys: [["Shift", "Tab"]], action: "Outdent a list item" },
+      { keys: [["Enter"]], action: "New paragraph / list item (also exits a quote inside a list)" },
+      { keys: [["Shift", "Enter"]], action: "Line break within the same paragraph" },
+      { keys: [["Backspace"]], action: "At the start of a line right after a list, rejoins it into the last point" },
+      { keys: [["Ctrl", "Shift", "7"]], action: "Numbered list" },
+      { keys: [["Ctrl", "Shift", "8"]], action: "Bullet list" },
+      { keys: [["Ctrl", "Shift", "B"]], action: "Blockquote" },
+      { keys: [["Ctrl", "Shift", "S"]], action: "Strikethrough" },
+    ],
+  },
+  {
+    title: "Undo / redo",
+    hint: "Applies to the text inside the field you are editing.",
+    items: [
+      { keys: [["Ctrl", "Z"]], action: "Undo" },
+      { keys: [["Ctrl", "Shift", "Z"], ["Ctrl", "Y"]], action: "Redo" },
+    ],
+  },
+  {
+    title: "Tables",
+    hint: "In the List of Dates and particulars/grounds rows.",
+    items: [
+      { keys: [["Ctrl", "Space"]], action: "Insert a new row directly below", note: "Always Ctrl, even on Mac" },
+    ],
+  },
+];
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="inline-flex items-center justify-center min-w-[1.4rem] px-1.5 py-0.5 rounded border border-border bg-muted text-[10px] font-semibold leading-none text-foreground shadow-[0_1px_0_rgba(0,0,0,0.08)]">
+      {children}
+    </kbd>
+  );
+}
+
+function ShortcutKeys({ keys }: { keys: string[][] }) {
+  return (
+    <span className="flex items-center gap-1 flex-wrap justify-end">
+      {keys.map((combo, ci) => (
+        <span key={ci} className="flex items-center gap-1">
+          {ci > 0 && <span className="text-[10px] text-muted-foreground px-0.5">or</span>}
+          {combo.map((k, ki) => (
+            <span key={ki} className="flex items-center gap-1">
+              {ki > 0 && <span className="text-[10px] text-muted-foreground">+</span>}
+              <Kbd>{k}</Kbd>
+            </span>
+          ))}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 function SettingsNavRow({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
   return (
@@ -65,7 +192,8 @@ function SettingsNavRow({ label, selected, onClick }: { label: string; selected:
 export function SettingsDialog({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
-  const [selectedSection, setSelectedSection] = useState<SettingsSection>('view');
+  const [selectedSection, setSelectedSection] = useState<SettingsSection>('appearance');
+  const [showAdvancedVolume, setShowAdvancedVolume] = useState(false);
   const [usageCounts, setUsageCounts] = useState<UsageCounts | null>(null);
   const [licenseOpen, setLicenseOpen] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
@@ -89,12 +217,25 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     autosaveInterval: 60,
     toastDuration: 1,
     slpTabView: 'splitter',
+    quoteLineSpacing: 'default',
     volumeSplitThreshold: 400,
     volumeStepSize: 200,
     maxComponentSplitPages: 50,
     minVolumeTailPages: 20,
     minVolumeHeadPages: 20,
     separateVolumePdfs: true,
+    aorSignaturePng: "",
+    aorSignatureW: 0,
+    aorSignatureH: 0,
+    placeSignatureInPaperbook: false,
+    placeTrueCopyText: false,
+    signatureSizePx: 120,
+    trueCopyPosition: 'left',
+    trueCopyBackground: false,
+    outputFont: 'Times New Roman',
+    outputFontSizePt: 14,
+    outputLineSpacing: 1.5,
+    outputParaAfterPt: 12,
   });
 
   // Load settings from localStorage on mount
@@ -114,12 +255,25 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           autosaveInterval: parsed.autosaveInterval ?? 60,
           toastDuration: parsed.toastDuration ?? 1,
           slpTabView: (parsed.slpTabView || 'splitter') as SlpTabView,
+          quoteLineSpacing: (parsed.quoteLineSpacing || 'default') as QuoteLineSpacing,
           volumeSplitThreshold: parsed.volumeSplitThreshold ?? 400,
           volumeStepSize: parsed.volumeStepSize ?? 200,
           maxComponentSplitPages: parsed.maxComponentSplitPages ?? 50,
           minVolumeTailPages: parsed.minVolumeTailPages ?? 20,
           minVolumeHeadPages: parsed.minVolumeHeadPages ?? 20,
           separateVolumePdfs: parsed.separateVolumePdfs ?? true,
+          aorSignaturePng: parsed.aorSignaturePng ?? "",
+          aorSignatureW: parsed.aorSignatureW ?? 0,
+          aorSignatureH: parsed.aorSignatureH ?? 0,
+          placeSignatureInPaperbook: parsed.placeSignatureInPaperbook ?? false,
+          placeTrueCopyText: parsed.placeTrueCopyText ?? false,
+          signatureSizePx: parsed.signatureSizePx ?? 120,
+          trueCopyPosition: (parsed.trueCopyPosition || 'left') as TrueCopyPosition,
+          trueCopyBackground: parsed.trueCopyBackground ?? false,
+          outputFont: parsed.outputFont || 'Times New Roman',
+          outputFontSizePt: parsed.outputFontSizePt ?? 14,
+          outputLineSpacing: parsed.outputLineSpacing ?? 1.5,
+          outputParaAfterPt: parsed.outputParaAfterPt ?? 12,
         });
         if (parsed.fontSize) applyFontSize(parsed.fontSize);
       } catch (err) {
@@ -213,6 +367,34 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const signatureInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== "image/png") {
+      toast({ variant: "destructive", title: "PNG required", description: "Please upload a .png signature image." });
+      e.target.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const img = new window.Image();
+      img.onload = () => {
+        setSettings((prev) => ({
+          ...prev,
+          aorSignaturePng: dataUrl,
+          aorSignatureW: img.naturalWidth,
+          aorSignatureH: img.naturalHeight,
+        }));
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   const handleUpdate = async () => {
     if (!window.electron?.auCheck) return;
     userCheckInProgress.current = true;
@@ -254,28 +436,21 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
         <div className="flex flex-1 min-h-0 rounded-lg border overflow-hidden">
           {/* Left nav */}
           <div className="w-36 shrink-0 border-r flex flex-col p-2 space-y-0.5 bg-muted/30">
-            <SettingsNavRow label="View" selected={selectedSection === 'view'} onClick={() => setSelectedSection('view')} />
+            <SettingsNavRow label="Appearance" selected={selectedSection === 'appearance'} onClick={() => setSelectedSection('appearance')} />
+            <SettingsNavRow label="Workspace" selected={selectedSection === 'workspace'} onClick={() => setSelectedSection('workspace')} />
+            <SettingsNavRow label="Document Formatting" selected={selectedSection === 'formatting'} onClick={() => setSelectedSection('formatting')} />
+            <SettingsNavRow label="Paperbook" selected={selectedSection === 'paperbook'} onClick={() => setSelectedSection('paperbook')} />
             <SettingsNavRow label="Save Locations" selected={selectedSection === 'save'} onClick={() => setSelectedSection('save')} />
-            <SettingsNavRow label="Durations" selected={selectedSection === 'durations'} onClick={() => setSelectedSection('durations')} />
-            <SettingsNavRow label="Customize" selected={selectedSection === 'customize'} onClick={() => setSelectedSection('customize')} />
+            <SettingsNavRow label="Shortcuts" selected={selectedSection === 'shortcuts'} onClick={() => setSelectedSection('shortcuts')} />
             <SettingsNavRow label="Support" selected={selectedSection === 'support'} onClick={() => setSelectedSection('support')} />
           </div>
 
           {/* Right content */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
 
-            {/* ── VIEW ── */}
-            {selectedSection === 'view' && (
+            {/* ── APPEARANCE ── */}
+            {selectedSection === 'appearance' && (
               <div className="space-y-4">
-                {/* Usage counts */}
-                <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/40 border">
-                  <span className="text-xs text-muted-foreground dark:text-slate-300 shrink-0">Your Usage:</span>
-                  <span className="text-xs tabular-nums font-semibold">{usageCounts === null ? "…" : usageCounts.paperbooksGenerated}</span>
-                  <span className="text-xs text-muted-foreground">Paperbooks (PDFs),</span>
-                  <span className="text-xs tabular-nums font-semibold">{usageCounts === null ? "…" : usageCounts.docxGenerated}</span>
-                  <span className="text-xs text-muted-foreground">Drafts (Docx)</span>
-                </div>
-
                 {/* Theme */}
                 <div className="space-y-1.5">
                   <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Mode</p>
@@ -301,9 +476,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   </div>
                 </div>
 
-                {/* Text Size */}
+                {/* Interface Text Size */}
                 <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Text Size</p>
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Interface Text Size</p>
+                  <p className="text-xs text-muted-foreground">Adjusts the size of Drafto's on-screen text. Does not affect the generated document.</p>
                   <RadioGroup
                     value={settings.fontSize}
                     onValueChange={(value: FontSize) => setSettings((prev) => ({ ...prev, fontSize: value }))}
@@ -316,49 +492,6 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       </div>
                     ))}
                   </RadioGroup>
-                </div>
-
-                {/* Petition View — controls the default on new project; real-time switching via the header toggle */}
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Default Petition View</p>
-                  <p className="text-xs text-muted-foreground">Applied when creating a new project. Use the Split / Nav toggle in the toolbar to switch views on the fly.</p>
-                  <RadioGroup
-                    value={settings.slpTabView}
-                    onValueChange={(value: SlpTabView) => setSettings((prev) => ({ ...prev, slpTabView: value }))}
-                    className="flex gap-3"
-                  >
-                    <div className="flex items-center gap-1">
-                      <RadioGroupItem value="splitter" id="slp-view-splitter" />
-                      <Label htmlFor="slp-view-splitter" className="text-xs font-normal cursor-pointer">Splitter</Label>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <RadioGroupItem value="navigation" id="slp-view-navigation" />
-                      <Label htmlFor="slp-view-navigation" className="text-xs font-normal cursor-pointer">Navigation</Label>
-                    </div>
-                  </RadioGroup>
-                </div>
-
-                {/* Export Highlights */}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="export-highlight"
-                    checked={settings.exportHighlight}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      setSettings((prev) => ({ ...prev, exportHighlight: checked }));
-                      // Persist immediately so parseHtml reads the correct value at export time
-                      try {
-                        const stored = localStorage.getItem(SETTINGS_KEY);
-                        const existing = stored ? JSON.parse(stored) : {};
-                        localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...existing, exportHighlight: checked }));
-                      } catch {}
-                    }}
-                    className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
-                  />
-                  <Label htmlFor="export-highlight" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                    Export text highlights to DOCX and PDF
-                  </Label>
                 </div>
               </div>
             )}
@@ -419,11 +552,32 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
               </div>
             )}
 
-            {/* ── DURATIONS ── */}
-            {selectedSection === 'durations' && (
+            {/* ── WORKSPACE ── */}
+            {selectedSection === 'workspace' && (
               <div className="space-y-4">
+                {/* Default Petition View — controls the default on new project; real-time switching via the header toggle */}
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Default Petition View</p>
+                  <p className="text-xs text-muted-foreground">Applied when creating a new project. Use the Split / Nav toggle in the toolbar to switch views on the fly.</p>
+                  <RadioGroup
+                    value={settings.slpTabView}
+                    onValueChange={(value: SlpTabView) => setSettings((prev) => ({ ...prev, slpTabView: value }))}
+                    className="flex gap-3"
+                  >
+                    <div className="flex items-center gap-1">
+                      <RadioGroupItem value="splitter" id="slp-view-splitter" />
+                      <Label htmlFor="slp-view-splitter" className="text-xs font-normal cursor-pointer">Splitter</Label>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <RadioGroupItem value="navigation" id="slp-view-navigation" />
+                      <Label htmlFor="slp-view-navigation" className="text-xs font-normal cursor-pointer">Navigation</Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
                 <div className="space-y-1.5">
                   <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Notifications</p>
+                  <p className="text-xs text-muted-foreground">How long pop-up messages stay on screen.</p>
                   <div className="flex items-center gap-2">
                     <Input
                       id="toast-duration"
@@ -456,13 +610,154 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
               </div>
             )}
 
-            {/* ── CUSTOMIZE ── */}
-            {selectedSection === 'customize' && (
+            {/* ── DOCUMENT FORMATTING ── */}
+            {selectedSection === 'formatting' && (
+              <div className="space-y-6">
+
+                {/* Output Text Formatting */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Output Text Formatting</p>
+                    <TooltipProvider delayDuration={150}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="About output formatting">
+                            <Info className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-[280px] text-xs font-normal leading-relaxed whitespace-pre-line">
+                          For best results, Times New Roman at 14&nbsp;pt with 1.5 line spacing and 12&nbsp;pt after-paragraph spacing is strongly recommended.
+                          {"\n\n"}
+                          To preserve the paperbook structure, these settings are not fully reflected in the Cover Page, Listing Proforma, Index and Office Report on Limitation — only the font type is applied to those sections; their size and spacing remain fixed.
+                          {"\n\n"}
+                          Also, please make sure the chosen font is installed on your computer. If it isn't, the document may appear in a different, substitute font.
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Font, size and spacing applied to the body text of the generated SLP. (Defaults: Times New Roman, 14&nbsp;pt, 1.5&nbsp;line spacing, 12&nbsp;pt after each paragraph.)</p>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1 col-span-2">
+                      <Label className="text-xs text-muted-foreground">Font</Label>
+                      <Select
+                        value={settings.outputFont}
+                        onValueChange={(v) => setSettings((prev) => ({ ...prev, outputFont: v }))}
+                      >
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {OUTPUT_FONTS.map((f) => (
+                            <SelectItem key={f} value={f} className="text-xs" style={{ fontFamily: f }}>{f}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Font size (pt)</Label>
+                      <Input
+                        type="number"
+                        min={8}
+                        max={24}
+                        step={0.5}
+                        value={settings.outputFontSizePt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, outputFontSizePt: Math.min(24, Math.max(8, parseFloat(e.target.value) || 14)) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Line spacing</Label>
+                      <Select
+                        value={String(settings.outputLineSpacing)}
+                        onValueChange={(v) => setSettings((prev) => ({ ...prev, outputLineSpacing: parseFloat(v) }))}
+                      >
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
+                          <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
+                          <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
+                          <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1 col-span-2">
+                      <Label className="text-xs text-muted-foreground">Spacing after each paragraph (pt)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={36}
+                        step={1}
+                        value={settings.outputParaAfterPt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, outputParaAfterPt: Math.min(36, Math.max(0, parseFloat(e.target.value) || 0)) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quotes */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Quotes</p>
+                  <p className="text-xs text-muted-foreground">Line spacing applied to text formatted as a Quote. Quoted blocks are wrapped in quotation marks and italicised on export.</p>
+                  <RadioGroup
+                    value={settings.quoteLineSpacing}
+                    onValueChange={(value: QuoteLineSpacing) => setSettings((prev) => ({ ...prev, quoteLineSpacing: value }))}
+                    className="flex gap-4 pt-1"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <RadioGroupItem value="default" id="quote-spacing-default" />
+                      <Label htmlFor="quote-spacing-default" className="text-xs font-normal cursor-pointer">Default spacing</Label>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <RadioGroupItem value="single" id="quote-spacing-single" />
+                      <Label htmlFor="quote-spacing-single" className="text-xs font-normal cursor-pointer">Single spacing (18&nbsp;pt after each quote)</Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+
+                {/* Export Highlights */}
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Highlights</p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="export-highlight"
+                      checked={settings.exportHighlight}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setSettings((prev) => ({ ...prev, exportHighlight: checked }));
+                        // Persist immediately so parseHtml reads the correct value at export time
+                        try {
+                          const stored = localStorage.getItem(SETTINGS_KEY);
+                          const existing = stored ? JSON.parse(stored) : {};
+                          localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...existing, exportHighlight: checked }));
+                        } catch {}
+                      }}
+                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+                    />
+                    <Label htmlFor="export-highlight" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                      Export text highlights to DOCX and PDF (off = highlights stay on-screen only)
+                    </Label>
+                  </div>
+                </div>
+
+              </div>
+            )}
+
+            {/* ── PAPERBOOK ── */}
+            {selectedSection === 'paperbook' && (
               <div className="space-y-6">
 
                 {/* Annexure Labels */}
                 <div className="space-y-3">
                   <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Annexure Labels</p>
+                  <p className="text-xs text-muted-foreground">The "Annexure P-X" label stamped on the first page of each annexure.</p>
 
                   <div className="flex items-center gap-2">
                     <input
@@ -473,7 +768,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
                     />
                     <Label htmlFor="annexure-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                      Add white background behind Annexure Labels and Page Numbers
+                      Add white background behind Annexure Labels (also applies to Page Numbers)
                     </Label>
                   </div>
 
@@ -493,6 +788,159 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     <div className="flex justify-between text-[10px] text-muted-foreground">
                       <span>10</span><span>Default: 14</span><span>24</span>
                     </div>
+                  </div>
+                </div>
+
+                {/* AoR Signature & True Copy (Beta) */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">AoR Signature &amp; True Copy</p>
+                    <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Beta</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    The signature is placed above the AoR's name in every "Filed&nbsp;by" block. The True Copy mark (a small signature above the words "True&nbsp;Copy") is stamped at the bottom-left of every annexure page.
+                  </p>
+                  <p className="text-xs text-muted-foreground italic">
+                    Pro-Tip: For the cleanest appearance, use a signature with a transparent background and minimal white margins.
+                  </p>
+
+                  <div className="rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700/60 dark:bg-amber-900/20 p-2.5">
+                    <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" /> Important
+                    </p>
+                    <p className="text-xs text-amber-800/90 dark:text-amber-200/90 mt-1 leading-relaxed">
+                      Please note that Drafto merely assists you in collating the paperbook and electronically placing your signatures on it. The responsibility for the contents of the paperbook continues to rest with you, and we urge you to examine the paperbook comprehensively before it is filed.
+                    </p>
+                  </div>
+
+                  <input
+                    ref={signatureInputRef}
+                    type="file"
+                    accept="image/png"
+                    onChange={handleSignatureUpload}
+                    className="hidden"
+                  />
+
+                  <div className="flex items-center gap-3">
+                    {settings.aorSignaturePng ? (
+                      <div className="flex items-center justify-center border rounded bg-white p-1" style={{ width: 96, height: 48 }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={settings.aorSignaturePng} alt="AoR signature" className="max-w-full max-h-full object-contain" />
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center border border-dashed rounded text-[10px] text-muted-foreground" style={{ width: 96, height: 48 }}>
+                        No signature
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-1.5">
+                      <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => signatureInputRef.current?.click()}>
+                        {settings.aorSignaturePng ? "Replace PNG" : "Upload PNG"}
+                      </Button>
+                      {settings.aorSignaturePng && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-muted-foreground"
+                          onClick={() => setSettings((prev) => ({ ...prev, aorSignaturePng: "", aorSignatureW: 0, aorSignatureH: 0 }))}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="place-signature"
+                      checked={settings.placeSignatureInPaperbook}
+                      disabled={!settings.aorSignaturePng}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, placeSignatureInPaperbook: e.target.checked }))}
+                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0 disabled:opacity-40"
+                    />
+                    <Label htmlFor="place-signature" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                      Place AoR signature above the name in every "Filed by" block
+                    </Label>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="place-truecopy"
+                      checked={settings.placeTrueCopyText}
+                      disabled={!settings.aorSignaturePng}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, placeTrueCopyText: e.target.checked }))}
+                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0 disabled:opacity-40"
+                    />
+                    <Label htmlFor="place-truecopy" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                      Stamp "True Copy" (with small signature) on every annexure page
+                    </Label>
+                  </div>
+
+                  {settings.placeTrueCopyText && (
+                    <div className="space-y-3 pl-6 border-l border-border ml-1.5">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">True Copy position</Label>
+                        <RadioGroup
+                          value={settings.trueCopyPosition}
+                          onValueChange={(value: TrueCopyPosition) => setSettings((prev) => ({ ...prev, trueCopyPosition: value }))}
+                          className="flex gap-4 pt-0.5"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <RadioGroupItem value="left" id="truecopy-left" />
+                            <Label htmlFor="truecopy-left" className="text-xs font-normal cursor-pointer">Bottom-left</Label>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <RadioGroupItem value="center" id="truecopy-center" />
+                            <Label htmlFor="truecopy-center" className="text-xs font-normal cursor-pointer">Bottom-centre</Label>
+                          </div>
+                        </RadioGroup>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="truecopy-bg"
+                          checked={settings.trueCopyBackground}
+                          onChange={(e) => setSettings((prev) => ({ ...prev, trueCopyBackground: e.target.checked }))}
+                          className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+                        />
+                        <Label htmlFor="truecopy-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                          Add white background behind the True Copy stamp
+                        </Label>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-muted-foreground">Signature width</Label>
+                      <span className="text-xs font-semibold tabular-nums w-12 text-right">{settings.signatureSizePx}&nbsp;px</span>
+                    </div>
+                    <Slider
+                      min={48}
+                      max={240}
+                      step={4}
+                      value={[settings.signatureSizePx]}
+                      onValueChange={([v]) => setSettings((prev) => ({ ...prev, signatureSizePx: v }))}
+                      className="w-full"
+                    />
+                    {settings.aorSignaturePng && settings.aorSignatureW > 0 && (
+                      <div className="flex items-center justify-center border rounded bg-white p-2 mt-1">
+                        {/* Live size preview at the chosen width */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={settings.aorSignaturePng}
+                          alt="signature size preview"
+                          style={{
+                            width: settings.signatureSizePx,
+                            height: settings.signatureSizePx * (settings.aorSignatureH / settings.aorSignatureW),
+                          }}
+                        />
+                      </div>
+                    )}
+                    <p className="text-[10px] text-muted-foreground">The True Copy signature is rendered at half this width.</p>
                   </div>
                 </div>
 
@@ -524,6 +972,18 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                         className="h-7 text-xs"
                       />
                     </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvancedVolume((v) => !v)}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    {showAdvancedVolume ? "Hide advanced options" : "Show advanced options"}
+                  </button>
+
+                  {showAdvancedVolume && (
+                  <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">Keep components ≤ ___ pages intact across volume boundaries</Label>
                       <Input
@@ -575,14 +1035,52 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       </RadioGroup>
                     </div>
                   </div>
+                  )}
                 </div>
 
+              </div>
+            )}
+
+            {/* ── SHORTCUTS ── */}
+            {selectedSection === 'shortcuts' && (
+              <div className="space-y-5">
+                <p className="text-xs text-muted-foreground">
+                  Keyboard shortcuts available in Drafto. On a Mac, use <span className="font-semibold">⌘</span> wherever <span className="font-semibold">Ctrl</span> is shown, except where noted.
+                </p>
+                {SHORTCUT_GROUPS.map((group) => (
+                  <div key={group.title} className="space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{group.title}</p>
+                    {group.hint && <p className="text-[11px] text-muted-foreground -mt-1">{group.hint}</p>}
+                    <div className="rounded-md border border-border divide-y divide-border">
+                      {group.items.map((item, i) => (
+                        <div key={i} className="flex items-center justify-between gap-3 px-2.5 py-1.5">
+                          <span className="text-xs text-foreground">
+                            {item.action}
+                            {item.note && <span className="text-[10px] text-muted-foreground italic ml-1">({item.note})</span>}
+                          </span>
+                          <ShortcutKeys keys={item.keys} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
             {/* ── SUPPORT ── */}
             {selectedSection === 'support' && (
               <div className="space-y-4">
+                {/* Usage counts */}
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Your Usage</p>
+                  <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/40 border">
+                    <span className="text-xs tabular-nums font-semibold">{usageCounts === null ? "…" : usageCounts.paperbooksGenerated}</span>
+                    <span className="text-xs text-muted-foreground">Paperbooks (PDFs),</span>
+                    <span className="text-xs tabular-nums font-semibold">{usageCounts === null ? "…" : usageCounts.docxGenerated}</span>
+                    <span className="text-xs text-muted-foreground">Drafts (Docx)</span>
+                  </div>
+                </div>
+
                 <div className="space-y-1.5">
                   <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Updates</p>
                   {updateStatus === 'idle' && (
@@ -729,12 +1227,25 @@ export function getSettings(): SettingsData {
     autosaveInterval: 60,
     toastDuration: 1,
     slpTabView: 'splitter' as SlpTabView,
+    quoteLineSpacing: 'default' as QuoteLineSpacing,
     volumeSplitThreshold: 400,
     volumeStepSize: 200,
     maxComponentSplitPages: 50,
     minVolumeTailPages: 20,
     minVolumeHeadPages: 20,
     separateVolumePdfs: true,
+    aorSignaturePng: "",
+    aorSignatureW: 0,
+    aorSignatureH: 0,
+    placeSignatureInPaperbook: false,
+    placeTrueCopyText: false,
+    signatureSizePx: 120,
+    trueCopyPosition: 'left' as TrueCopyPosition,
+    trueCopyBackground: false,
+    outputFont: 'Times New Roman',
+    outputFontSizePt: 14,
+    outputLineSpacing: 1.5,
+    outputParaAfterPt: 12,
   };
 
   if (typeof window === "undefined") return defaults;
@@ -754,11 +1265,25 @@ export function getSettings(): SettingsData {
         autosaveInterval: parsed.autosaveInterval ?? 60,
         toastDuration: parsed.toastDuration ?? 1,
         slpTabView: (parsed.slpTabView || 'splitter') as SlpTabView,
+        quoteLineSpacing: (parsed.quoteLineSpacing || 'default') as QuoteLineSpacing,
         volumeSplitThreshold: parsed.volumeSplitThreshold ?? 400,
         volumeStepSize: parsed.volumeStepSize ?? 200,
         maxComponentSplitPages: parsed.maxComponentSplitPages ?? 50,
         minVolumeTailPages: parsed.minVolumeTailPages ?? 20,
+        minVolumeHeadPages: parsed.minVolumeHeadPages ?? 20,
         separateVolumePdfs: parsed.separateVolumePdfs ?? true,
+        aorSignaturePng: parsed.aorSignaturePng ?? "",
+        aorSignatureW: parsed.aorSignatureW ?? 0,
+        aorSignatureH: parsed.aorSignatureH ?? 0,
+        placeSignatureInPaperbook: parsed.placeSignatureInPaperbook ?? false,
+        placeTrueCopyText: parsed.placeTrueCopyText ?? false,
+        signatureSizePx: parsed.signatureSizePx ?? 120,
+        trueCopyPosition: (parsed.trueCopyPosition || 'left') as TrueCopyPosition,
+        trueCopyBackground: parsed.trueCopyBackground ?? false,
+        outputFont: parsed.outputFont || 'Times New Roman',
+        outputFontSizePt: parsed.outputFontSizePt ?? 14,
+        outputLineSpacing: parsed.outputLineSpacing ?? 1.5,
+        outputParaAfterPt: parsed.outputParaAfterPt ?? 12,
       };
     } catch (err) {
       console.error("Failed to parse settings:", err);

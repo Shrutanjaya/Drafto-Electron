@@ -82,28 +82,84 @@ const getIaList = (projectData: DraftoProject) => {
     return ias;
 }
 
-const defaultStyles = {
-    paragraphStyles: [
-      {
-        id: "Normal",
-        name: "Normal",
-        basedOn: "Normal",
-        next: "Normal",
-        quickFormat: true,
-        run: {
-          font: "Times New Roman",
-          size: 28, // 14pt
-        },
-        paragraph: {
-          spacing: {
-            line: 360, // 1.5 lines
-            after: 240, // 12pt
-            before: 0
+// User-configurable output text formatting (read from drafto-settings at export
+// time, in the renderer). Falls back to the historical defaults.
+const getOutputFormatting = () => {
+    const d = { font: "Times New Roman", sizePt: 14, lineSpacing: 1.5, afterPt: 12 };
+    if (typeof window === 'undefined') return d;
+    try {
+        const raw = window.localStorage.getItem('drafto-settings');
+        if (!raw) return d;
+        const s = JSON.parse(raw);
+        return {
+            font: s.outputFont || d.font,
+            sizePt: s.outputFontSizePt ?? d.sizePt,
+            lineSpacing: s.outputLineSpacing ?? d.lineSpacing,
+            afterPt: s.outputParaAfterPt ?? d.afterPt,
+        };
+    } catch {
+        return d;
+    }
+};
+
+const getDefaultStyles = () => {
+    const f = getOutputFormatting();
+    return {
+        paragraphStyles: [
+          {
+            id: "Normal",
+            name: "Normal",
+            basedOn: "Normal",
+            next: "Normal",
+            quickFormat: true,
+            run: {
+              font: f.font,
+              size: Math.round(f.sizePt * 2), // half-points
+            },
+            paragraph: {
+              spacing: {
+                line: Math.round(f.lineSpacing * 240), // multiplier of single (240)
+                after: Math.round(f.afterPt * 20),     // twips (1pt = 20 twips)
+                before: 0
+              },
+              alignment: AlignmentType.JUSTIFIED,
+            },
           },
-          alignment: AlignmentType.JUSTIFIED,
-        },
-      },
-    ],
+        ],
+    };
+};
+
+// Cover Page and Office Report must always fit on a single page, so their size
+// and spacing are enforced regardless of the user's output-formatting choices.
+// The user's chosen font *family* is honoured; size is pinned to 13pt for Arial
+// (wider metrics) and 14pt for every other font, with fixed 1.5 line spacing and
+// 12pt after-paragraph spacing — the values known to fit.
+const getConstrainedStyles = () => {
+    const f = getOutputFormatting();
+    const sizePt = f.font === 'Arial' ? 13 : 14;
+    return {
+        paragraphStyles: [
+          {
+            id: "Normal",
+            name: "Normal",
+            basedOn: "Normal",
+            next: "Normal",
+            quickFormat: true,
+            run: {
+              font: f.font,
+              size: sizePt * 2, // half-points
+            },
+            paragraph: {
+              spacing: {
+                line: 360, // 1.5 lines
+                after: 240, // 12pt
+                before: 0
+              },
+              alignment: AlignmentType.JUSTIFIED,
+            },
+          },
+        ],
+    };
 };
 
 const defaultMargins = {
@@ -305,7 +361,7 @@ function buildMasterIndexTableRows(
     // Standard 5-column header (same as the per-volume index)
     rows.push(
         new TableRow({ children: [
-            new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'S.No.', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
+            new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'S. No.', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
             new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Particulars of the Document', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
             new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Page Nos. of Part to which it belongs', bold: true })], alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, columnSpan: 2, margins: defaultCellMargins }),
             new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Remarks', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
@@ -568,7 +624,7 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
   const indexTableRows = [
       new TableRow({
           children: [
-              new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: "S.No.", bold: true})], alignment: AlignmentType.CENTER, style: "Normal", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
+              new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: "S. No.", bold: true})], alignment: AlignmentType.CENTER, style: "Normal", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
               new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: "Particulars of the Document", bold: true})], alignment: AlignmentType.CENTER, style: "Normal", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
               new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: "Page Nos. of Part to which it belongs", bold: true})], alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, columnSpan: 2, margins: defaultCellMargins }),
               new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: "Remarks", bold: true})], alignment: AlignmentType.CENTER, style: "Normal", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
@@ -668,7 +724,7 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
     // Per-volume standard 5-column index table
     const stdHeaderRows = [
       new TableRow({ children: [
-        new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'S.No.', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
+        new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'S. No.', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
         new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Particulars of the Document', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
         new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Page Nos. of Part to which it belongs', bold: true })], alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, columnSpan: 2, margins: defaultCellMargins }),
         new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: 'Remarks', bold: true })], alignment: AlignmentType.CENTER, style: 'Normal', spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, rowSpan: 2, margins: defaultCellMargins }),
@@ -694,7 +750,7 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
     : new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: `VOLUME ${toRomanNumeral(vo.volumeNum)}`, bold: true })] });
 
   const doc = new Document({
-    styles: defaultStyles,
+    styles: getConstrainedStyles(),
     sections: [
       { // Cover Page & Index
         properties: { page: { margin: defaultMargins } },
@@ -733,7 +789,7 @@ export async function generateOrDocx(projectData: DraftoProject) {
   const aorName = projectData.advocate.aorName || "[AoR Name]";
   
   const doc = new Document({
-    styles: defaultStyles,
+    styles: getConstrainedStyles(),
     sections: [
       { // Office Report
         properties: { 
@@ -757,6 +813,7 @@ export async function generateOrDocx(projectData: DraftoProject) {
           new Paragraph({ children: [smartTextRun("2. The Petition is barred by time and there is a delay of __ days in filing SLP against the judgment dated ____ and application for condonation of __ days' delay has been filed.")] }),
           new Paragraph({ children: [smartTextRun("3. There is delay of __ days in re-filing the petition and petition for condonation of __ days delay in re-filing has been/not been filed.")] }),
           new Paragraph({ alignment: AlignmentType.RIGHT, children: [ smartTextRun({ text: "BRANCH OFFICER", bold: true }) ] }),
+          new Paragraph({}),
           ...createFiledByTable(projectData.advocate.filingDate, aorName),
         ],
       },
@@ -773,6 +830,9 @@ export async function generateCiorDocx(projectData: DraftoProject, pageRanges?: 
 }
 
 export async function generateLpDocx(projectData: DraftoProject) {
+    // Listing Proforma is a rigid SC format: size (13pt) and spacing are fixed so
+    // it keeps its prescribed one-page structure, but the font family follows the
+    // user's choice (Output Text Formatting).
     const lpStyles = {
         paragraphStyles: [
           {
@@ -782,7 +842,7 @@ export async function generateLpDocx(projectData: DraftoProject) {
             next: "Normal",
             quickFormat: true,
             run: {
-              font: "Times New Roman",
+              font: getOutputFormatting().font,
               size: 26, // 13pt
             },
             paragraph: {
@@ -952,7 +1012,7 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
         numbering: {
             config: uniqueNumberingConfigs,
         },
-        styles: defaultStyles,
+        styles: getDefaultStyles(),
         sections: [{
             properties: { page: { margin: defaultMargins } },
             children: [
@@ -1028,7 +1088,7 @@ export async function generateSlpDocx(projectData: DraftoProject) {
                 new TableRow({
                     children: [
                         new TableCell({
-                            children: [new Paragraph({ children: [smartTextRun({ text: "S.No.", bold: true })], alignment: AlignmentType.CENTER })],
+                            children: [new Paragraph({ children: [smartTextRun({ text: "S. No.", bold: true })], alignment: AlignmentType.CENTER })],
                             rowSpan: 2,
                             verticalAlign: VerticalAlign.CENTER
                         }),
@@ -1517,7 +1577,7 @@ export async function generateSlpDocx(projectData: DraftoProject) {
         numbering: {
             config: uniqueNumberingConfigs,
         },
-        styles: defaultStyles,
+        styles: getDefaultStyles(),
         sections: sections,
     });
 
@@ -1539,7 +1599,7 @@ export async function generateAppendixDocx(projectData: DraftoProject) {
         numbering: {
             config: uniqueNumberingConfigs,
         },
-        styles: defaultStyles,
+        styles: getDefaultStyles(),
         sections: [{
             properties: { page: { margin: defaultMargins } },
             children: [
@@ -2051,7 +2111,7 @@ export async function generateIaDocx(
         numbering: {
             config: uniqueNumberingConfigs,
         },
-        styles: defaultStyles,
+        styles: getDefaultStyles(),
         sections: [{
             properties: { page: { margin: defaultMargins } },
             children: [
@@ -2156,7 +2216,7 @@ export async function generateFilingMemoDocx(projectData: DraftoProject) {
     ];
 
     const doc = new Document({
-        styles: defaultStyles,
+        styles: getDefaultStyles(),
         sections: [{
             properties: { page: { margin: defaultMargins } },
             children: [
@@ -2395,7 +2455,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
     ];
     
     const slpAffidavitDoc = new Document({
-        styles: defaultStyles,
+        styles: getDefaultStyles(),
         numbering: { config: [affidavitNumbering] },
         sections: [{ properties: { page: { margin: defaultMargins } }, children: slpAffidavitChildren }]
     });
@@ -2432,7 +2492,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
         ];
 
         const iaAffidavitDoc = new Document({
-            styles: defaultStyles,
+            styles: getDefaultStyles(),
             numbering: { config: [affidavitNumbering] },
             sections: [{ properties: { page: { margin: defaultMargins } }, children: iaAffidavitChildren }]
         });
@@ -2491,7 +2551,7 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject) 
     });
 
     const doc = new Document({
-        styles: defaultStyles,
+        styles: getDefaultStyles(),
         sections: [{
             properties: { page: { margin: defaultMargins } },
             children: [
@@ -2764,6 +2824,97 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
             color: rgb(0, 0, 0),
             rotate: degrees(rotationAngle),
         });
+    };
+
+    // Stamp the "True Copy" mark (small AoR signature above the words "True Copy")
+    // at the visual bottom-left of EVERY page of an annexure PDF. Rotation-aware:
+    // anchors are derived from the page's visual frame so the stamp reads correctly
+    // regardless of how a scanned annexure is rotated. (Beta feature.)
+    const addTrueCopyStamp = async (pdf: PDFDocument) => {
+        const s = settings as any;
+        if (!s.placeTrueCopyText || !s.aorSignaturePng || !s.aorSignatureW || !s.aorSignatureH) return;
+        const pageCount = pdf.getPageCount();
+        if (pageCount === 0) return;
+
+        let sigImage;
+        try {
+            const base64 = String(s.aorSignaturePng).split(',').pop() || '';
+            sigImage = await pdf.embedPng(base64ToBuffer(base64));
+        } catch {
+            return; // not a valid PNG — skip silently
+        }
+        const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
+
+        const margin = 36;     // 0.5 inch
+        const fontSize = 9;
+        const gap = 3;
+        const text = 'True Copy';
+        const textWidth = font.widthOfTextAtSize(text, fontSize);
+        // "very small": half the configured Filed-by width, converted px -> pt (×0.75)
+        const imgW = (s.signatureSizePx ?? 120) * 0.5 * 0.75;
+        const imgH = imgW * (s.aorSignatureH / s.aorSignatureW);
+        const isCentre = s.trueCopyPosition === 'center';
+        const wantsBg = !!s.trueCopyBackground;
+
+        for (let i = 0; i < pageCount; i++) {
+            const page = pdf.getPage(i);
+            const { width, height } = page.getSize();
+            const rotation = page.getRotation().angle;
+
+            // Visual bottom-left corner (cx,cy) and the visual right/up unit vectors,
+            // expressed in unrotated mediabox coordinates.
+            let cx, cy, rx, ry, ux, uy;
+            if (rotation === 90) {
+                cx = width; cy = 0;      rx = 0;  ry = 1;  ux = -1; uy = 0;
+            } else if (rotation === 180) {
+                cx = width; cy = height; rx = -1; ry = 0;  ux = 0;  uy = -1;
+            } else if (rotation === 270) {
+                cx = 0;     cy = height; rx = 0;  ry = -1; ux = 1;  uy = 0;
+            } else {
+                cx = 0;     cy = 0;      rx = 1;  ry = 0;  ux = 0;  uy = 1;
+            }
+
+            // Width of the visible page along the visual "right" axis
+            const visualWidth = (rotation === 90 || rotation === 270) ? height : width;
+
+            // Offsets along the visual right axis (left edge of each element).
+            // Left mode: hug the margin. Centre mode: centre each element on the page.
+            const textRightOff = isCentre ? (visualWidth - textWidth) / 2 : margin;
+            const imgRightOff  = isCentre ? (visualWidth - imgW) / 2      : margin;
+            // Offsets along the visual up axis (distance above the bottom edge).
+            const textUpOff = margin;                       // text baseline
+            const imgUpOff  = margin + fontSize + gap;       // image sits above the text
+
+            // Convert (alongRight, alongUp) in the visual frame to mediabox (x,y).
+            const toXY = (aRight: number, aUp: number) => ({
+                x: cx + aRight * rx + aUp * ux,
+                y: cy + aRight * ry + aUp * uy,
+            });
+
+            // White background behind the whole stamp (mirrors annexure label / page number behaviour)
+            if (wantsBg) {
+                const pad = 3;
+                const rOffMin = Math.min(textRightOff, imgRightOff) - pad;
+                const rOffMax = Math.max(textRightOff + textWidth, imgRightOff + imgW) + pad;
+                const upMin = textUpOff - fontSize * 0.25 - pad;            // just below the baseline
+                const upMax = imgUpOff + imgH + pad;                        // top of the image
+                const rectAnchor = toXY(rOffMin, upMin);
+                page.drawRectangle({
+                    x: rectAnchor.x,
+                    y: rectAnchor.y,
+                    width: rOffMax - rOffMin,
+                    height: upMax - upMin,
+                    color: rgb(1, 1, 1),
+                    rotate: degrees(rotation),
+                });
+            }
+
+            const textAnchor = toXY(textRightOff, textUpOff);
+            const imgAnchor = toXY(imgRightOff, imgUpOff);
+
+            page.drawImage(sigImage, { x: imgAnchor.x, y: imgAnchor.y, width: imgW, height: imgH, rotate: degrees(rotation) });
+            page.drawText(text, { x: textAnchor.x, y: textAnchor.y, size: fontSize, font, color: rgb(0, 0, 0), rotate: degrees(rotation) });
+        }
     };
 
     // Helper function to convert number to alphabetical format (B, C, D... Z, AA, AB, etc.)
@@ -3649,7 +3800,12 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
                 if (meta.id === 'certified_copy_receipt') {
                     await addAnnexureHeader(pdfToMerge, 'Annexure-A');
                 }
-                
+
+                // Stamp "True Copy" + small AoR signature on every annexure page (Beta)
+                if (meta.id.startsWith('annexure_') || meta.id.startsWith('ia_annexure_') || meta.id === 'certified_copy_receipt') {
+                    await addTrueCopyStamp(pdfToMerge);
+                }
+
                 const totalPagesBefore = mergedPdf.getPageCount();
                 componentMergedPdfStart.set(meta.id, totalPagesBefore);
                 const copiedPages = await mergedPdf.copyPages(pdfToMerge, pdfToMerge.getPageIndices());

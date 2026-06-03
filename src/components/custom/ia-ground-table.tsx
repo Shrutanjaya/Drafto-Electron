@@ -186,6 +186,7 @@ export function IaGroundTable({ name, disabled = false }: IaGroundTableProps) {
                                       value={field.value}
                                       onChange={field.onChange}
                                       disabled={disabled}
+                                      path={field.name}
                                     />
                                   </FormControl>
                                 </FormItem>

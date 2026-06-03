@@ -118,6 +118,12 @@ body {
   .prose ul ul ul {
     list-style-type: square;
   }
+  .prose ul ul ul ul {
+    list-style-type: disc;
+  }
+  .prose ul ul ul ul ul {
+    list-style-type: circle;
+  }
   .prose ol {
     list-style-type: decimal;
     margin-left: 1rem;
@@ -128,8 +134,57 @@ body {
   .prose ol ol ol {
     list-style-type: lower-roman;
   }
+  .prose ol ol ol ol {
+    list-style-type: upper-alpha;
+  }
+  .prose ol ol ol ol ol {
+    list-style-type: upper-roman;
+  }
   .prose blockquote {
     @apply border-l-4 border-muted-foreground/50 pl-4 italic text-muted-foreground;
+    position: relative;
+    padding-right: 1rem;
+  }
+  /* A list item that leads with a quote is not a numbered point: dropping it from
+     `display: list-item` removes its marker AND excludes it from the browser's list
+     numbering, so the count of real items never skips. Quotes that sit *after* text
+     in an item are non-first children, so this rule doesn't touch them. */
+  .prose li:has(> blockquote:first-child) {
+    display: block;
+  }
+  /* Faint corner cues: show where opening/closing smart quotes will be
+     auto-added on export. Toggled per-block by the QuoteCue ProseMirror plugin,
+     so a cue vanishes the moment the user types their own quote at that end.
+     Pseudo-elements only — never part of the exported HTML. */
+  .prose blockquote.quote-show-open::before {
+    content: '\201C';
+    position: absolute;
+    top: -0.1em;
+    left: 0.35rem;
+    font-size: 1.4em;
+    line-height: 1;
+    color: hsl(var(--muted-foreground) / 0.4);
+    pointer-events: none;
+    user-select: none;
+  }
+  .prose blockquote.quote-show-close::after {
+    content: '\201D';
+    position: absolute;
+    bottom: -0.3em;
+    right: 0.2rem;
+    font-size: 1.4em;
+    line-height: 1;
+    color: hsl(var(--muted-foreground) / 0.4);
+    pointer-events: none;
+    user-select: none;
+  }
+  /* Single-quote variants: override only the glyph (positioning/colour come from
+     the .quote-show-* rules above, which are also applied to the block). */
+  .prose blockquote.quote-open-single::before {
+    content: '\2018';
+  }
+  .prose blockquote.quote-close-single::after {
+    content: '\2019';
   }
   /* Tiptap table styles */
   .prose table {

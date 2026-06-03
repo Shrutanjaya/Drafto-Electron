@@ -250,6 +250,7 @@ export function LoDTable() {
                                   <BadhiyaBox
                                     value={field.value}
                                     onChange={field.onChange}
+                                    path={field.name}
                                     onCtrlSpace={() => insert(index + 1, { id: `lod_${Date.now()}`, date: "", event: "", annexures: [] })}
                                   />
                                 </FormControl>
