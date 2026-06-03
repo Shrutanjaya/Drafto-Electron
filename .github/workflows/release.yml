@@ -71,6 +71,9 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    # Temporarily disabled for the v1.1.8 mac-only DMG re-release.
+    # Re-enable (remove this `if`) after the mac build publishes.
+    if: ${{ false }}
 
     steps:
       - uses: actions/checkout@v4
