@@ -224,6 +224,8 @@
     },
     "dmg": {
       "title": "${productName} ${version}",
+      "format": "UDZO",
+      "shrink": false,
       "window": {
         "width": 540,
         "height": 380
