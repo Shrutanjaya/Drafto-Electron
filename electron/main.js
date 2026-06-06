@@ -3,10 +3,12 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const crypto = require("crypto");
-const { execFile, exec } = require("child_process");
+const { execFile, exec, spawn } = require("child_process");
 const { promisify } = require("util");
 const execAsync = promisify(exec);
 const { autoUpdater } = require("electron-updater");
+const { scanFolder } = require("./ipc/pdf-extract");
+const { splitDocuments } = require("./ipc/pdf-split");
 
 // ── Environment ─────────────────────────────────────────────────────────────
 const isDev = !app.isPackaged;
@@ -352,6 +354,441 @@ ipcMain.handle("get-env", () => ({
 
 // ── IPC: open external link ──────────────────────────────────────────────────
 ipcMain.handle("open-external", (_event, url) => shell.openExternal(url));
+
+// ── AI Plugin (Beta): prerequisite detection ─────────────────────────────────
+// GUI-launched apps on macOS/Linux do NOT inherit the user's login-shell PATH,
+// so a `claude` / `node` installed via Homebrew, nvm, fnm, volta, or npm-global
+// is invisible unless we widen PATH ourselves. Build an augmented env once.
+function aiAugmentedEnv() {
+  const home = os.homedir();
+  const extra =
+    process.platform === "win32"
+      ? [
+          path.join(process.env.APPDATA || "", "npm"),
+          path.join(home, "AppData", "Roaming", "npm"),
+          "C:\\Program Files\\nodejs",
+        ]
+      : [
+          "/opt/homebrew/bin",
+          "/usr/local/bin",
+          "/usr/bin",
+          "/bin",
+          path.join(home, ".npm-global", "bin"),
+          path.join(home, ".local", "bin"),
+          path.join(home, ".volta", "bin"),
+          path.join(home, ".bun", "bin"),
+          path.join(home, "n", "bin"),
+        ];
+  const sep = process.platform === "win32" ? ";" : ":";
+  const current = process.env.PATH || "";
+  const merged = [current, ...extra].filter(Boolean).join(sep);
+  return { ...process.env, PATH: merged, Path: merged };
+}
+
+// Resolve a runnable command + report its `--version`. Returns { found, version, path }.
+function aiProbeCommand(command, env) {
+  try {
+    const out = require("child_process")
+      .execFileSync(command, ["--version"], { stdio: "pipe", env, timeout: 8000 })
+      .toString()
+      .trim();
+    return { found: true, version: out.split("\n")[0].trim(), path: command };
+  } catch {
+    return { found: false, version: null, path: null };
+  }
+}
+
+// Locate the `claude` binary: explicit override → PATH lookup → probe.
+function aiResolveClaude(customPath, env) {
+  const candidates = [];
+  if (customPath && customPath.trim()) candidates.push(customPath.trim());
+
+  // which/where against the widened PATH
+  try {
+    const finder = process.platform === "win32" ? "where" : "which";
+    const found = require("child_process")
+      .execFileSync(finder, ["claude"], { stdio: "pipe", env, timeout: 8000 })
+      .toString()
+      .trim()
+      .split("\n")[0]
+      .trim();
+    if (found) candidates.push(found);
+  } catch {}
+
+  candidates.push("claude"); // last resort: rely on env PATH
+
+  for (const c of candidates) {
+    const probe = aiProbeCommand(c, env);
+    if (probe.found) return probe;
+  }
+  return { found: false, version: null, path: null };
+}
+
+// Cheap, instant authentication check via `claude auth status --json`. This
+// makes no inference call (no token cost), so it is safe to run automatically.
+// Returns { loggedIn, authMethod }. Exit code is non-zero when not logged in,
+// but the JSON still arrives on stdout, so we parse regardless of the error.
+function aiAuthStatus(claudePath, env) {
+  return new Promise((resolve) => {
+    execFile(claudePath, ["auth", "status", "--json"], { env, timeout: 12000 }, (_err, stdout) => {
+      try {
+        const j = JSON.parse(stdout);
+        resolve({ loggedIn: !!j.loggedIn, authMethod: j.authMethod || "none" });
+      } catch {
+        resolve({ loggedIn: false, authMethod: "none", message: "Could not read authentication status." });
+      }
+    });
+  });
+}
+
+ipcMain.handle("ai-check-prerequisites", async (_event, opts) => {
+  const env = aiAugmentedEnv();
+  const node = aiProbeCommand("node", env);
+  const claude = aiResolveClaude(opts && opts.customClaudePath, env);
+  // Auth status is free + instant, so we always check it when the binary exists.
+  let login = null;
+  if (claude.found) {
+    login = await aiAuthStatus(claude.path, env);
+  }
+  return {
+    platform: process.platform,
+    node,                 // { found, version, path }
+    claude,               // { found, version, path }
+    // `ok` = the plugin can actually run: a working, logged-in `claude` binary.
+    ok: claude.found && !!login && login.loggedIn === true,
+    nodeOk: node.found,
+    loggedIn: login ? login.loggedIn : null,    // null = binary not found
+    authMethod: login ? login.authMethod : undefined,
+    needsLogin: !!(claude.found && login && !login.loggedIn),
+  };
+});
+
+// Opens a Terminal and runs `claude auth login` so the user can sign in without
+// knowing any commands. The interactive OAuth flow opens their browser; we keep
+// it in a visible Terminal so any prompt is transparent. Returns once launched.
+ipcMain.handle("ai-login", (_event, opts) => {
+  const env = aiAugmentedEnv();
+  const claude = aiResolveClaude(opts && opts.claudePath, env);
+  if (!claude.found) return { ok: false, error: "Claude Code CLI not found. Install it first (see Settings → Mayur)." };
+
+  try {
+    if (process.platform === "darwin") {
+      const shellCmd = `'${claude.path}' auth login --claudeai`;
+      const appleScript = `tell application "Terminal" to do script "${shellCmd}"`;
+      spawn("osascript", ["-e", appleScript, "-e", 'tell application "Terminal" to activate'], { env, detached: true });
+    } else if (process.platform === "win32") {
+      spawn("cmd", ["/c", "start", "cmd", "/k", `"${claude.path}" auth login --claudeai`], { env, windowsHide: false, detached: true });
+    } else {
+      // Linux: try the common terminal emulators in order.
+      const cmd = `'${claude.path}' auth login --claudeai`;
+      const terminals = ["x-terminal-emulator", "gnome-terminal", "konsole", "xterm"];
+      const term = terminals.find((t) => { try { require("child_process").execFileSync("which", [t], { stdio: "pipe", env }); return true; } catch { return false; } });
+      if (!term) return { ok: false, error: "No terminal emulator found. Run `claude auth login` manually." };
+      spawn(term, ["-e", `sh -c "${cmd}; exec sh"`], { env, detached: true });
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// A human-friendly label for a streamed tool call, so the user sees what the
+// assistant is doing (e.g. "Reading judgment.pdf…") instead of a blank spinner.
+function aiToolLabel(block) {
+  const name = block.name || "tool";
+  const input = block.input || {};
+  const base = (p) => { try { return require("path").basename(String(p)); } catch { return String(p); } };
+  if (name === "Read" && input.file_path) return `Reading ${base(input.file_path)}…`;
+  if (name === "Glob") return "Looking through the folder…";
+  if (name === "Grep") return "Searching the documents…";
+  if (name === "Bash") return "Inspecting files…";
+  return `Working (${name})…`;
+}
+
+// A friendly label for a Drafto field path, for the activity log.
+const AI_FIELD_LABELS = {
+  caseType: "Case Type",
+  petitioners: "Petitioners",
+  respondents: "Respondents",
+  impugnedOrders: "Impugned Order(s)",
+  synopsis: "Synopsis",
+  listOfDates: "List of Dates",
+  questionsOfLaw: "Questions of Law",
+  grounds: "Grounds",
+  wantsInterimRelief: "Interim Relief",
+};
+function aiFieldLabel(path) {
+  if (AI_FIELD_LABELS[path]) return AI_FIELD_LABELS[path];
+  if (path.startsWith("advocate.")) return "Advocate details";
+  if (path.startsWith("deponent.")) return "Deponent";
+  if (path.startsWith("listingProforma")) return "Listing Proforma";
+  const seg = String(path).split(".").pop() || String(path);
+  return seg.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()).trim();
+}
+
+// Tracks the in-flight assistant process so it can be cancelled, and records an
+// explicit cancel so we can report "Stopped" rather than a generic error.
+let activeAiChild = null;
+let aiCancelRequested = false;
+
+// Run a single turn against the user's Claude Code CLI, STREAMING progress.
+// Read-only by construction: the available toolset is restricted to Read/Glob/
+// Grep (no Write/Edit/Bash/ExitPlanMode), so Claude can read the source files
+// but literally cannot modify anything — and it won't drop into plan mode's
+// "present a plan and wait for approval" flow (which has no headless approval,
+// so it would just stall). Stream events are forwarded to the renderer
+// ("ai-stream") for live activity; an *idle* timeout (reset on every event)
+// replaces a flat timeout so long-but-active tasks aren't killed mid-work.
+const AI_READONLY_TOOLS = "Read,Glob,Grep";
+// Allowed model aliases for the plugin's model selector. "default" = whatever the
+// CLI is configured to use (currently Sonnet); no --model flag is passed.
+const AI_ALLOWED_MODELS = new Set(["haiku", "sonnet", "opus"]);
+// A clean, empty working directory for the spawned CLI. Running in the user's
+// home (or any real project) makes Claude Code auto-load its CLAUDE.md / personal
+// auto-memory, which leaks dev notes into the assistant and sends it reading
+// unrelated files. An empty temp dir has no project memory, so none loads.
+// (Config-dir / --bare isolation can't be used — they break OAuth login.)
+function aiScratchCwd() {
+  const dir = path.join(os.tmpdir(), "drafto-ai-cwd");
+  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+  return dir;
+}
+ipcMain.handle("ai-run", async (_event, opts) => {
+  opts = opts || {};
+  const env = aiAugmentedEnv();
+  const claude = aiResolveClaude(opts.claudePath, env);
+  if (!claude.found) {
+    return { ok: false, error: "Claude Code CLI not found. Check Settings → Mayur." };
+  }
+
+  const args = [
+    "-p", "--output-format", "stream-json", "--verbose",
+    // Stream token-level deltas so stdout flows continuously while the model is
+    // generating — otherwise a long, silent final generation trips the idle
+    // timeout even though it's actively working.
+    "--include-partial-messages",
+    "--permission-mode", "default",
+    "--tools", AI_READONLY_TOOLS,
+    "--allowedTools", AI_READONLY_TOOLS,
+  ];
+  // Optional model override (haiku/sonnet/opus). "default"/unset → CLI default.
+  if (opts.model && AI_ALLOWED_MODELS.has(String(opts.model))) {
+    args.push("--model", String(opts.model));
+  }
+  // Conversation continuity: resume the prior session so the model remembers the
+  // chat. The system prompt is only set when starting a fresh session (on resume
+  // it's already in the session history).
+  if (opts.resumeSessionId) {
+    args.push("--resume", String(opts.resumeSessionId));
+  } else if (opts.systemPrompt) {
+    args.push("--append-system-prompt", String(opts.systemPrompt));
+  }
+  // addDirs (extracted-text context dir, optionally the original PDF folder for
+  // scanned-page images) supersedes the legacy single sourceFolder. Re-granted
+  // every turn so file access persists across resumes.
+  const addDirs = Array.isArray(opts.addDirs) && opts.addDirs.length
+    ? opts.addDirs
+    : (opts.sourceFolder ? [opts.sourceFolder] : []);
+  for (const d of addDirs) args.push("--add-dir", String(d));
+
+  const send = (payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("ai-stream", payload);
+  };
+
+  aiCancelRequested = false;
+
+  return await new Promise((resolve) => {
+    let buf = "";
+    let finalText = "";
+    let finalErr = null;
+    let needsLogin = false;
+    let settled = false;
+    let sessionId = null;
+    let inputTokens = 0;   // peak context size seen (input + cached)
+    let finalInput = 0, finalOutput = 0, finalCost = null;
+    let child;
+
+    const IDLE_MS = 300000; // give up only after 5 min of *total* silence (with
+                            // partial-message streaming, active work is never silent)
+    const MAX_TOTAL_MS = 1200000; // hard backstop: 20 min, even if actively streaming
+    let idle;
+    const finish = (res) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(idle);
+      clearTimeout(hardCap);
+      activeAiChild = null;
+      resolve(res);
+    };
+    const onIdle = () => {
+      try { child && child.kill(); } catch {}
+      finish({ ok: false, error: "The assistant went quiet for too long and was stopped. Try a narrower request — e.g. just the parties, or just the synopsis.", partialText: genBuf });
+    };
+    // Total-time backstop against a runaway/looping task (partial streaming
+    // defeats the idle timer, so a slow loop could otherwise run forever).
+    const hardCap = setTimeout(() => {
+      try { child && child.kill(); } catch {}
+      finish({ ok: false, error: "This task ran for 20 minutes and was stopped. It's likely too large for one request — try splitting it (e.g. fill the tabs first, then map and attach the annexures separately).", partialText: genBuf });
+    }, MAX_TOTAL_MS);
+    const bump = () => { clearTimeout(idle); idle = setTimeout(onIdle, IDLE_MS); };
+
+    // Send a status line only when it changes, so each one is a distinct step in
+    // the renderer's activity log.
+    let lastStatus = null;
+    const sendStatus = (text) => {
+      if (text && text !== lastStatus) {
+        lastStatus = text;
+        send({ kind: "status", text });
+      }
+    };
+    // Accumulate the model's streamed output text and announce which Drafto field
+    // it has started filling (and when it begins the annexure map).
+    let genBuf = "";
+    const announced = new Set();
+    const scanGeneration = () => {
+      const re = /"path"\s*:\s*"([^"]+)"/g;
+      let m;
+      while ((m = re.exec(genBuf))) {
+        const p = m[1];
+        if (!announced.has(p)) {
+          announced.add(p);
+          sendStatus(`Filling ${aiFieldLabel(p)}…`);
+        }
+      }
+      if (!announced.has("__docs") && /"documents"\s*:/.test(genBuf)) {
+        announced.add("__docs");
+        sendStatus("Mapping annexures…");
+      }
+    };
+    // Live token usage: accurate input (from message_start), estimated output
+    // (from the streamed text so far). Throttled so we don't spam IPC.
+    let lastUsageAt = 0;
+    const sendUsage = (force) => {
+      const now = Date.now();
+      if (!force && now - lastUsageAt < 600) return;
+      lastUsageAt = now;
+      send({ kind: "usage", input: inputTokens, output: Math.ceil(genBuf.length / 4) });
+    };
+
+    const handleEvent = (evt) => {
+      if (!evt || typeof evt !== "object") return;
+      if (evt.session_id) sessionId = evt.session_id;
+      if (evt.type === "system" && evt.subtype === "init") {
+        sendStatus("Reading your request…");
+      } else if (evt.type === "stream_event" && evt.event) {
+        // Token-level deltas: accumulate text + detect fields being filled.
+        const ev = evt.event;
+        if (ev.type === "content_block_delta" && ev.delta) {
+          if (ev.delta.type === "text_delta" && typeof ev.delta.text === "string") {
+            genBuf += ev.delta.text;
+            scanGeneration();
+            sendUsage();
+          } else if (ev.delta.type === "thinking_delta") {
+            // Model is reasoning (no visible text yet) — show it's working.
+            if (announced.size === 0) sendStatus("Reasoning…");
+          }
+        } else if (ev.type === "message_start" && ev.message && ev.message.usage) {
+          const u = ev.message.usage;
+          const ctx = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+          inputTokens = Math.max(inputTokens, ctx);
+          sendStatus("Thinking…");
+          sendUsage(true);
+        }
+      } else if (evt.type === "assistant" && evt.message && Array.isArray(evt.message.content)) {
+        for (const block of evt.message.content) {
+          if (block.type === "tool_use") sendStatus(aiToolLabel(block));
+          else if (block.type === "text" && block.text) {
+            genBuf += block.text; // in case partial deltas were missed
+            scanGeneration();
+          }
+        }
+      } else if (evt.type === "result") {
+        if (evt.usage) {
+          finalInput = (evt.usage.input_tokens || 0) + (evt.usage.cache_read_input_tokens || 0) + (evt.usage.cache_creation_input_tokens || 0);
+          finalOutput = evt.usage.output_tokens || 0;
+        }
+        if (typeof evt.total_cost_usd === "number") finalCost = evt.total_cost_usd;
+        if (evt.is_error) {
+          finalErr = evt.result || "The assistant reported an error.";
+          needsLogin = /log\s?in|logged in|authenticat/i.test(finalErr);
+        } else {
+          finalText = evt.result ?? finalText;
+        }
+      }
+    };
+
+    try {
+      // Always run in a clean dir (the extracted-text context dir is one, or an
+      // empty scratch dir) — never the user's home/project — so Claude Code does
+      // not auto-load CLAUDE.md / personal memory into the assistant.
+      child = spawn(claude.path, args, { env, cwd: addDirs[0] || aiScratchCwd() });
+    } catch (e) {
+      finish({ ok: false, error: `Could not start Claude Code: ${e.message}` });
+      return;
+    }
+    activeAiChild = child;
+    idle = setTimeout(onIdle, IDLE_MS);
+
+    child.stdout.on("data", (d) => {
+      bump();
+      buf += d.toString();
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (line) { try { handleEvent(JSON.parse(line)); } catch {} }
+      }
+    });
+    child.stderr.on("data", () => { bump(); });
+    child.on("error", (e) => finish({ ok: false, error: `Could not start Claude Code: ${e.message}` }));
+    child.on("close", () => {
+      const last = buf.trim();
+      if (last) { try { handleEvent(JSON.parse(last)); } catch {} }
+      if (aiCancelRequested) { aiCancelRequested = false; finish({ ok: false, error: "Stopped.", cancelled: true, partialText: genBuf, sessionId, inputTokens: finalInput, outputTokens: finalOutput, costUsd: finalCost }); return; }
+      if (finalErr) finish({ ok: false, error: finalErr, needsLogin, sessionId, inputTokens: finalInput, outputTokens: finalOutput, costUsd: finalCost });
+      else finish({ ok: true, text: finalText, sessionId, inputTokens: finalInput, outputTokens: finalOutput, costUsd: finalCost });
+    });
+
+    try {
+      child.stdin.write(String(opts.prompt || ""));
+      child.stdin.end();
+    } catch (e) {
+      try { child.kill(); } catch {}
+      finish({ ok: false, error: `Could not send the prompt: ${e.message}` });
+    }
+  });
+});
+
+// Cancel an in-flight assistant turn (the Stop button).
+ipcMain.handle("ai-cancel", () => {
+  if (activeAiChild) {
+    aiCancelRequested = true;
+    try { activeAiChild.kill(); } catch {}
+    return { ok: true };
+  }
+  return { ok: false };
+});
+
+// Extract text from every PDF in a folder (pdf.js) into a temp context dir and
+// report scanned-page counts + a token estimate, so the renderer can show the
+// cost and let the user decide before any image reading happens.
+ipcMain.handle("ai-scan-folder", async (_event, folderPath) => {
+  try {
+    return await scanFolder(String(folderPath));
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// Split an approved document map into separate PDFs (pdf-lib) in a managed
+// folder next to the .drafto project. Deterministic; source files untouched.
+ipcMain.handle("ai-split-documents", async (_event, opts) => {
+  try {
+    return await splitDocuments(opts || {});
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
 
 // ── Auto-updater ─────────────────────────────────────────────────────────────
 autoUpdater.autoDownload = false;

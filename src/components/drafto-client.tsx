@@ -5,10 +5,12 @@ import { useEffect } from "react";
 import { useForm, FormProvider } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { draftoProjectSchema, type DraftoProject } from "@/lib/schema";
+import { newBlankProject } from "@/lib/project-defaults";
 import { Card } from "@/components/ui/card";
 import { Header } from "@/components/header";
 import { Workspace } from "@/components/workspace";
 import { FindReplaceBar } from "@/components/custom/find-replace-bar";
+import { AiChatPanel } from "@/components/custom/ai-chat-panel";
 import { FieldRevealProvider } from "@/components/custom/field-reveal-provider";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { useToast } from "@/hooks/use-toast";
@@ -16,7 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 export function DraftoClient() {
   const form = useForm<DraftoProject>({
     resolver: zodResolver(draftoProjectSchema),
-    defaultValues: draftoProjectSchema.parse({}),
+    defaultValues: newBlankProject(),
     // mode: 'onChange' // This can be performance intensive
   });
 
@@ -50,6 +52,7 @@ export function DraftoClient() {
           </main>
         </Card>
         <FindReplaceBar />
+        <AiChatPanel />
       </FieldRevealProvider>
     </FormProvider>
   );

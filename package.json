@@ -1,6 +1,6 @@
 {
   "name": "drafto-slp",
-  "version": "1.1.9",
+  "version": "1.2.0",
   "private": true,
   "author": "Shrutanjaya Bhardwaj",
   "description": "DraftoSLP – Supreme Court petition drafting tool",
@@ -60,9 +60,11 @@
     "file-saver": "^2.0.5",
     "firebase": "^11.9.1",
     "html-to-text": "^9.0.5",
+    "jsonrepair": "^3.14.0",
     "lodash-es": "^4.17.21",
     "lucide-react": "^0.475.0",
     "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^3.11.174",
     "pdfmake": "^0.2.20",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
@@ -104,6 +106,9 @@
     "afterSign": "./afterSign.js",
     "beforePack": "./beforePack.js",
     "asar": true,
+    "asarUnpack": [
+      "**/node_modules/pdfjs-dist/**"
+    ],
     "compression": "maximum",
     "copyright": "Copyright © 2026 Quindoph Legal Solutions Pvt. Ltd.",
     "publish": {

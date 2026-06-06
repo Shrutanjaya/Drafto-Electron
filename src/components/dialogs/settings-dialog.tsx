@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Settings, FolderOpen, RefreshCw, ExternalLink, Moon, Sun, Download, CheckCircle, AlertCircle, Loader2, Info } from "lucide-react";
+import { Settings, FolderOpen, RefreshCw, ExternalLink, Moon, Sun, Download, CheckCircle, AlertCircle, Loader2, Info, Sparkles, XCircle } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +23,8 @@ type FontSize = 'small' | 'medium' | 'large';
 type SlpTabView = 'splitter' | 'navigation';
 type QuoteLineSpacing = 'default' | 'single';
 type TrueCopyPosition = 'left' | 'center';
-type SettingsSection = 'appearance' | 'workspace' | 'formatting' | 'paperbook' | 'save' | 'shortcuts' | 'support';
+type AiModel = 'default' | 'haiku' | 'sonnet' | 'opus';
+type SettingsSection = 'appearance' | 'workspace' | 'formatting' | 'paperbook' | 'userdefaults' | 'customize' | 'save' | 'shortcuts' | 'support';
 
 interface SettingsData {
   defaultDocxPath: string;
@@ -62,6 +63,15 @@ interface SettingsData {
   outputFontSizePt: number;
   outputLineSpacing: number;
   outputParaAfterPt: number;
+
+  // AI Plugin (Beta) — bring-your-own Claude Code CLI
+  aiPluginEnabled: boolean;
+  aiClaudeBinaryPath: string;  // optional override; blank = auto-detect on PATH
+  aiModel: AiModel;            // 'default' = the CLI's configured model
+
+  // User Defaults — pre-filled into every new project
+  defaultAorName: string;
+  defaultAorCode: string;
 }
 
 // Fonts offered for the output text formatting
@@ -172,6 +182,23 @@ function ShortcutKeys({ keys }: { keys: string[][] }) {
   );
 }
 
+function PrereqRow({ ok, label, detail, warnOnly }: { ok: boolean; label: string; detail: string; warnOnly?: boolean }) {
+  // warnOnly: a missing item is a warning (amber) rather than a hard failure (red).
+  const Icon = ok ? CheckCircle : warnOnly ? AlertCircle : XCircle;
+  const color = ok
+    ? "text-green-600 dark:text-green-400"
+    : warnOnly
+      ? "text-amber-600 dark:text-amber-400"
+      : "text-destructive";
+  return (
+    <div className="flex items-center gap-1.5 text-[11px]">
+      <Icon className={cn("h-3.5 w-3.5 shrink-0", color)} />
+      <span className="font-medium text-foreground">{label}</span>
+      <span className="text-muted-foreground">— {detail}</span>
+    </div>
+  );
+}
+
 function SettingsNavRow({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
   return (
     <button
@@ -206,6 +233,9 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   const [downloadPercent, setDownloadPercent] = useState<number>(0);
   // True only while the user has explicitly clicked "Check for Updates"
   const userCheckInProgress = useRef(false);
+  // AI Plugin (Beta) prerequisite detection
+  const [aiPrereq, setAiPrereq] = useState<AiPrerequisites | null>(null);
+  const [aiChecking, setAiChecking] = useState(false);
   const [settings, setSettings] = useState<SettingsData>({
     defaultDocxPath: "",
     defaultPdfPath: "",
@@ -236,6 +266,11 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     outputFontSizePt: 14,
     outputLineSpacing: 1.5,
     outputParaAfterPt: 12,
+    aiPluginEnabled: false,
+    aiClaudeBinaryPath: "",
+    aiModel: 'default',
+    defaultAorName: "",
+    defaultAorCode: "",
   });
 
   // Load settings from localStorage on mount
@@ -274,6 +309,11 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           outputFontSizePt: parsed.outputFontSizePt ?? 14,
           outputLineSpacing: parsed.outputLineSpacing ?? 1.5,
           outputParaAfterPt: parsed.outputParaAfterPt ?? 12,
+          aiPluginEnabled: parsed.aiPluginEnabled ?? false,
+          aiClaudeBinaryPath: parsed.aiClaudeBinaryPath ?? "",
+          aiModel: (parsed.aiModel || 'default') as AiModel,
+          defaultAorName: parsed.defaultAorName ?? "",
+          defaultAorCode: parsed.defaultAorCode ?? "",
         });
         if (parsed.fontSize) applyFontSize(parsed.fontSize);
       } catch (err) {
@@ -415,6 +455,48 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     window.electron?.auInstall?.();
   };
 
+  // Detects the CLI and (via `claude auth status`) whether it's signed in. Both
+  // are free + instant, so this runs automatically when the tab opens.
+  const checkAiPrereqs = async () => {
+    if (!window.electron?.aiCheckPrerequisites) {
+      toast({ variant: "destructive", title: "Not available", description: "Mayur is only available in the desktop app." });
+      return;
+    }
+    setAiChecking(true);
+    try {
+      const result = await window.electron.aiCheckPrerequisites({ customClaudePath: settings.aiClaudeBinaryPath });
+      setAiPrereq(result);
+    } catch (err) {
+      toast({ variant: "destructive", title: "Check failed", description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setAiChecking(false);
+    }
+  };
+
+  // Opens a Terminal running `claude auth login` so the user can sign in without
+  // typing any commands. They click "Re-check" afterwards to confirm.
+  const handleAiLogin = async () => {
+    if (!window.electron?.aiLogin) {
+      toast({ variant: "destructive", title: "Not available", description: "Sign-in is only available in the desktop app." });
+      return;
+    }
+    const r = await window.electron.aiLogin({ claudePath: settings.aiClaudeBinaryPath });
+    if (r?.ok) {
+      toast({ title: "Terminal opened", description: "Finish signing in there (your browser will open), then click Re-check." });
+    } else {
+      toast({ variant: "destructive", title: "Couldn't open Terminal", description: r?.error || "Use the manual steps below." });
+    }
+  };
+
+  // Auto-run the check the first time the Customize tab is opened while the
+  // plugin is enabled, so the status (incl. login) reflects reality with no click.
+  useEffect(() => {
+    if (open && selectedSection === 'customize' && settings.aiPluginEnabled && aiPrereq === null && !aiChecking) {
+      checkAiPrereqs();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, selectedSection, settings.aiPluginEnabled]);
+
   const handleReachOut = () => {
     const url = "https://drafto.quindoph.com/support";
     if (window.electron?.openExternal) {
@@ -438,8 +520,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           <div className="w-36 shrink-0 border-r flex flex-col p-2 space-y-0.5 bg-muted/30">
             <SettingsNavRow label="Appearance" selected={selectedSection === 'appearance'} onClick={() => setSelectedSection('appearance')} />
             <SettingsNavRow label="Workspace" selected={selectedSection === 'workspace'} onClick={() => setSelectedSection('workspace')} />
-            <SettingsNavRow label="Document Formatting" selected={selectedSection === 'formatting'} onClick={() => setSelectedSection('formatting')} />
+            <SettingsNavRow label="Formatting" selected={selectedSection === 'formatting'} onClick={() => setSelectedSection('formatting')} />
             <SettingsNavRow label="Paperbook" selected={selectedSection === 'paperbook'} onClick={() => setSelectedSection('paperbook')} />
+            <SettingsNavRow label="User Defaults" selected={selectedSection === 'userdefaults'} onClick={() => setSelectedSection('userdefaults')} />
+            <SettingsNavRow label="Mayur (AI)" selected={selectedSection === 'customize'} onClick={() => setSelectedSection('customize')} />
             <SettingsNavRow label="Save Locations" selected={selectedSection === 'save'} onClick={() => setSelectedSection('save')} />
             <SettingsNavRow label="Shortcuts" selected={selectedSection === 'shortcuts'} onClick={() => setSelectedSection('shortcuts')} />
             <SettingsNavRow label="Support" selected={selectedSection === 'support'} onClick={() => setSelectedSection('support')} />
@@ -492,6 +576,205 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       </div>
                     ))}
                   </RadioGroup>
+                </div>
+              </div>
+            )}
+
+            {/* ── USER DEFAULTS ── */}
+            {selectedSection === 'userdefaults' && (
+              <div className="space-y-4">
+                <p className="text-xs text-muted-foreground">
+                  These values are filled into every new project automatically — including the blank project created when Drafto launches. Changing them here does not alter projects you've already created.
+                </p>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="default-aor-name" className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">AoR Name</Label>
+                  <Input
+                    id="default-aor-name"
+                    value={settings.defaultAorName}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorName: e.target.value }))}
+                    placeholder="Advocate-on-Record name"
+                    className="h-7 text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="default-aor-code" className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">AoR Code</Label>
+                  <Input
+                    id="default-aor-code"
+                    value={settings.defaultAorCode}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorCode: e.target.value }))}
+                    placeholder="AoR registration code"
+                    className="h-7 text-xs"
+                  />
+                </div>
+
+                <p className="text-[10px] text-muted-foreground italic">
+                  The AI assistant will not overwrite these fields unless you explicitly ask it to.
+                </p>
+              </div>
+            )}
+
+            {/* ── CUSTOMIZE ── */}
+            {selectedSection === 'customize' && (
+              <div className="space-y-5">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                    <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Mayur</p>
+                    <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Beta</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    <span className="font-medium">Mayur</span> is Drafto's drafting assistant. Drafto itself provides no AI — Mayur runs on your own <span className="font-medium">Claude Code</span> subscription, appearing as a chat box at the bottom-right of Drafto. Talk to it, or point it at a folder of raw PDFs and ask it to help fill in your project. Your credentials never leave your machine — Drafto runs the <code className="px-1 rounded bg-muted text-[11px]">claude</code> command you already have installed.
+                  </p>
+
+                  {/* Enable toggle */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="ai-plugin-enabled"
+                      checked={settings.aiPluginEnabled}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, aiPluginEnabled: e.target.checked }))}
+                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+                    />
+                    <Label htmlFor="ai-plugin-enabled" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                      Enable Mayur (the chat box in Drafto)
+                    </Label>
+                  </div>
+
+                  {settings.aiPluginEnabled && (
+                    <div className="space-y-3 pl-6 border-l border-border ml-1.5">
+                      {/* Prerequisites status */}
+                      <div className="rounded-md border bg-muted/30 p-2.5 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-semibold text-foreground">Prerequisites</p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-6 gap-1 text-[11px] px-2"
+                            onClick={checkAiPrereqs}
+                            disabled={aiChecking}
+                          >
+                            {aiChecking ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                            {aiChecking ? "Checking…" : "Re-check"}
+                          </Button>
+                        </div>
+
+                        {aiPrereq === null && !aiChecking && (
+                          <p className="text-[11px] text-muted-foreground">Click "Re-check" to scan your machine.</p>
+                        )}
+
+                        {aiPrereq && (
+                          <div className="space-y-1.5">
+                            <PrereqRow
+                              ok={aiPrereq.claude.found}
+                              label="Claude Code CLI"
+                              detail={aiPrereq.claude.found ? (aiPrereq.claude.version || "found") : "not found on PATH"}
+                            />
+                            <PrereqRow
+                              ok={aiPrereq.node.found}
+                              label="Node.js"
+                              detail={aiPrereq.node.found ? (aiPrereq.node.version || "found") : "not found on PATH"}
+                              warnOnly
+                            />
+                            {aiPrereq.claude.found && aiPrereq.loggedIn !== null && (
+                              <PrereqRow
+                                ok={aiPrereq.loggedIn === true}
+                                label="Signed in"
+                                detail={aiPrereq.loggedIn ? "authenticated" : "not signed in — use the Sign in button below"}
+                              />
+                            )}
+
+                            {!aiPrereq.claude.found ? (
+                              <p className="text-[11px] text-amber-700 dark:text-amber-300 pt-1 flex items-center gap-1">
+                                <AlertCircle className="h-3 w-3" /> Install Claude Code (step 1 below), then Re-check.
+                              </p>
+                            ) : aiPrereq.loggedIn === false ? (
+                              <div className="pt-1 space-y-1.5">
+                                <p className="text-[11px] text-amber-700 dark:text-amber-300 flex items-start gap-1">
+                                  <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                                  <span>Claude Code is installed but not signed in. Click below — it opens a Terminal and signs you in automatically.</span>
+                                </p>
+                                <Button type="button" size="sm" className="h-7 gap-1.5 text-[11px]" onClick={handleAiLogin}>
+                                  <Sparkles className="h-3.5 w-3.5" /> Sign in to Claude Code
+                                </Button>
+                              </div>
+                            ) : aiPrereq.loggedIn === true ? (
+                              <p className="text-[11px] text-green-600 dark:text-green-400 pt-1 flex items-center gap-1">
+                                <CheckCircle className="h-3 w-3" /> Ready — the AI assistant is connected and signed in.
+                              </p>
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* What the user must install */}
+                      <div className="space-y-1.5">
+                        <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">What you need installed</p>
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">Already use Claude Code? You can skip step 1 — just make sure it's logged in (step 2).</p>
+                        <ol className="text-[11px] text-muted-foreground space-y-1.5 list-decimal pl-4 leading-relaxed">
+                          <li>
+                            <span className="font-medium text-foreground">Claude Code CLI.</span> Recommended install (no admin rights needed):
+                            <code className="block mt-0.5 px-1.5 py-1 rounded bg-muted text-[11px] select-all">curl -fsSL https://claude.ai/install.sh | bash</code>
+                            <span className="block mt-0.5">
+                              Prefer npm? <code className="px-1 rounded bg-muted text-[11px] select-all">npm install -g @anthropic-ai/claude-code</code> — but if it fails with a "permission denied / EACCES" error, use the installer above instead (it avoids the system folder that causes that).
+                            </span>
+                          </li>
+                          <li>
+                            <span className="font-medium text-foreground">Sign in to Claude Code.</span> Easiest: use the <span className="font-medium">Sign in to Claude Code</span> button that appears above when you're not signed in — it opens a Terminal and runs the sign-in for you, then your browser opens to approve it.
+                            <span className="block mt-0.5">
+                              To do it by hand instead: open the macOS <span className="font-medium text-foreground">Terminal</span> app (⌘Space, type "Terminal", Enter), then run:
+                            </span>
+                            <code className="block mt-0.5 px-1.5 py-1 rounded bg-muted text-[11px] select-all">claude auth login</code>
+                            <span className="block mt-0.5">and follow the browser prompt. (Requires an active Claude Pro/Max plan or API credits.) Note: signing in through the Claude Desktop app does <span className="italic">not</span> count — this CLI needs its own sign-in.</span>
+                          </li>
+                          <li>An <span className="font-medium text-foreground">internet connection</span> (the CLI talks to Anthropic).</li>
+                        </ol>
+                      </div>
+
+                      {/* Optional binary path override */}
+                      <div className="space-y-1.5">
+                        <Label htmlFor="ai-claude-path" className="text-xs text-muted-foreground">
+                          <code className="text-[11px]">claude</code> binary path <span className="text-[10px]">(optional — leave blank to auto-detect)</span>
+                        </Label>
+                        <Input
+                          id="ai-claude-path"
+                          value={settings.aiClaudeBinaryPath}
+                          onChange={(e) => setSettings((prev) => ({ ...prev, aiClaudeBinaryPath: e.target.value }))}
+                          placeholder={settings.aiClaudeBinaryPath ? "" : "e.g. /opt/homebrew/bin/claude"}
+                          className="h-7 text-xs"
+                        />
+                        <p className="text-[10px] text-muted-foreground">Set this only if Drafto can't find <code className="text-[10px]">claude</code> automatically.</p>
+                      </div>
+
+                      {/* Model selector */}
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Model</Label>
+                        <Select
+                          value={settings.aiModel}
+                          onValueChange={(v: AiModel) => setSettings((prev) => ({ ...prev, aiModel: v }))}
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="default" className="text-xs">Default (your CLI's model)</SelectItem>
+                            <SelectItem value="haiku" className="text-xs">Haiku — fastest, lightest usage</SelectItem>
+                            <SelectItem value="sonnet" className="text-xs">Sonnet — balanced (recommended)</SelectItem>
+                            <SelectItem value="opus" className="text-xs">Opus — strongest, heaviest usage</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[10px] text-muted-foreground">
+                          Haiku for quick field extraction; Opus for heavy drafting. A bigger model uses your Claude allowance faster, and Opus may require a Max plan.
+                        </p>
+                      </div>
+
+                      <p className="text-[10px] text-muted-foreground italic leading-relaxed">
+                        Pro-Tip: The assistant can read files you point it to and suggest field values, but it will not overwrite your work without your confirmation. Always review its suggestions before saving.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1246,6 +1529,11 @@ export function getSettings(): SettingsData {
     outputFontSizePt: 14,
     outputLineSpacing: 1.5,
     outputParaAfterPt: 12,
+    aiPluginEnabled: false,
+    aiClaudeBinaryPath: "",
+    aiModel: 'default' as AiModel,
+    defaultAorName: "",
+    defaultAorCode: "",
   };
 
   if (typeof window === "undefined") return defaults;
@@ -1284,6 +1572,11 @@ export function getSettings(): SettingsData {
         outputFontSizePt: parsed.outputFontSizePt ?? 14,
         outputLineSpacing: parsed.outputLineSpacing ?? 1.5,
         outputParaAfterPt: parsed.outputParaAfterPt ?? 12,
+        aiPluginEnabled: parsed.aiPluginEnabled ?? false,
+        aiClaudeBinaryPath: parsed.aiClaudeBinaryPath ?? "",
+        aiModel: (parsed.aiModel || 'default') as AiModel,
+        defaultAorName: parsed.defaultAorName ?? "",
+        defaultAorCode: parsed.defaultAorCode ?? "",
       };
     } catch (err) {
       console.error("Failed to parse settings:", err);

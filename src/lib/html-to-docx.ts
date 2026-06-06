@@ -111,26 +111,36 @@ function htmlToTree(html: string): (SimpleNode | string)[] {
 function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: number }, listLevel = 0, inBlockquote = false, olRef?: string, spacing?: ParagraphSpacing, defaultNumbering?: { reference: string; level: number }, exportHighlight = false): ParseResult {
     const result: ParseResult = { paragraphs: [], numbering: [] };
 
+    // Buffer consecutive inline/string nodes so that loose inline content — e.g.
+    // AI-proposed HTML that isn't wrapped in <p> — renders as ONE paragraph with
+    // proper bold/italic runs, instead of one broken paragraph per fragment.
+    // (Well-formed TipTap/toolbar content is all <p>/<ul>/… at this level, so the
+    // buffer stays empty and behaviour is unchanged.)
+    const INLINE_TAGS = new Set(['strong', 'b', 'em', 'i', 'u', 'mark', 'span', 'a', 'sub', 'sup', 'code', 'br']);
+    let inlineBuffer: (SimpleNode | string)[] = [];
+    const flushInline = () => {
+        const plain = extractPlainText(inlineBuffer);
+        if (!plain.trim()) { inlineBuffer = []; return; }
+        const converted = convertToSmartQuotes(plain);
+        const runs = processInline(inlineBuffer, {}, converted, 0, exportHighlight).runs;
+        const props: any = {
+            children: runs.length ? runs : [new TextRun("")],
+            style: "Normal",
+            alignment: AlignmentType.JUSTIFIED,
+        };
+        if (inBlockquote) props.indent = { left: 720, right: 720 };
+        if (spacing) props.spacing = spacing;
+        if (defaultNumbering) props.numbering = defaultNumbering;
+        result.paragraphs.push(new Paragraph(props));
+        inlineBuffer = [];
+    };
+
     nodes.forEach(node => {
-        if (typeof node === 'string') {
-            if (node.trim()) {
-                 const paragraphProps: any = {
-                    children: [new TextRun(convertToSmartQuotes(node))],
-                    style: "Normal",
-                };
-                if (inBlockquote) {
-                    paragraphProps.indent = { left: 720, right: 720 };
-                }
-                if (spacing) {
-                    paragraphProps.spacing = spacing;
-                }
-                if (defaultNumbering && !paragraphProps.numbering) {
-                    paragraphProps.numbering = defaultNumbering;
-                }
-                result.paragraphs.push(new Paragraph(paragraphProps));
-            }
-            return;
-        }
+        if (typeof node === 'string') { inlineBuffer.push(node); return; }
+        if (node.tagName && INLINE_TAGS.has(node.tagName)) { inlineBuffer.push(node); return; }
+
+        // A block-level node ends the current inline run.
+        flushInline();
 
         const currentInBlockquote = inBlockquote || node.tagName === 'blockquote';
         let currentOlRef = olRef;
@@ -400,6 +410,9 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                  result.numbering.push(...defaultResult.numbering);
         }
     });
+
+    // Flush any trailing inline run.
+    flushInline();
 
     return result;
 }

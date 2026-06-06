@@ -36,6 +36,7 @@ import { draftoProjectSchema } from "@/lib/schema";
 import { PdfGenerationDialog } from "./dialogs/pdf-generation-dialog";
 import { LoadProjectDialog } from "./dialogs/load-project-dialog";
 import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
+import { newBlankProject } from "@/lib/project-defaults";
 import { getIaList } from "@/lib/ia-list-utils";
 import { restoreFileFromPath } from "@/lib/utils/pick-file";
 import { cn } from "@/lib/utils";
@@ -144,7 +145,12 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
 
   // Keep a stable ref to currentFilePath so the lock-file cleanup doesn't re-register listeners
   const currentFilePathRef = useRef<string | null>(null);
-  useEffect(() => { currentFilePathRef.current = currentFilePath; }, [currentFilePath]);
+  useEffect(() => {
+    currentFilePathRef.current = currentFilePath;
+    // Expose the saved .drafto path so the AI panel can place split annexures
+    // in a managed folder next to it.
+    (window as unknown as { __draftoProjectPath?: string | null }).__draftoProjectPath = currentFilePath;
+  }, [currentFilePath]);
 
   // Handle files opened via OS (double-click or second-instance) — register once on mount
   useEffect(() => {
@@ -518,7 +524,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   };
 
   const handleNew = () => {
-    form.reset(draftoProjectSchema.parse({}));
+    form.reset(newBlankProject());
     setCurrentFilePath(null);
     const defaultView = getSettings().slpTabView ?? 'splitter';
     setSlpViewMode(defaultView);

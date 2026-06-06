@@ -34,7 +34,7 @@ export const iaSchema = z.object({
   prayer: z.string().default(""),
 });
 
-const aamTableItemSchema = z.object({
+export const aamTableItemSchema = z.object({
   id: z.string().default(() => `item_${Math.random()}`),
   particulars: z.string().default(""),
 });
@@ -79,7 +79,7 @@ export const commonOrderPartyGroupSchema = z.object({
 });
 export type CommonOrderPartyGroup = z.infer<typeof commonOrderPartyGroupSchema>;
 
-const legalProvisionSchema = z.object({
+export const legalProvisionSchema = z.object({
   id: z.string().default(() => `lp_${Math.random()}`),
   type: z.enum(['Central Act', 'Central Rule', 'State Act', 'State Rule']).default('Central Act'),
   act: z.string().default(''),

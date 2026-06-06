@@ -64,6 +64,90 @@ interface ElectronAPI {
 
   // Utilities
   openExternal: (url: string) => Promise<void>;
+
+  // AI Plugin (Beta)
+  aiCheckPrerequisites: (opts?: { customClaudePath?: string }) => Promise<AiPrerequisites>;
+  aiRun: (opts: AiRunOptions) => Promise<AiRunResult>;
+  aiCancel: () => Promise<{ ok: boolean }>;
+  aiScanFolder: (folderPath: string) => Promise<AiFolderScan>;
+  aiSplitDocuments: (opts: {
+    projectPath?: string | null;
+    documents: { id: string; sourcePath: string; startPage: number; endPage: number; title: string }[];
+  }) => Promise<{
+    ok: boolean;
+    error?: string;
+    outputDir?: string;
+    managed?: boolean;
+    results?: { id: string; ok: boolean; filePath?: string; error?: string }[];
+  }>;
+  aiLogin: (opts?: { claudePath?: string }) => Promise<{ ok: boolean; error?: string }>;
+  onAiStream: (cb: (msg: AiStreamMsg) => void) => () => void;
+}
+
+interface AiScanFile {
+  name: string;
+  originalPath: string;
+  pageCount: number;
+  scannedPages: number[];
+  txtName?: string;
+  error?: string;
+}
+
+interface AiFolderScan {
+  ok: boolean;
+  error?: string;
+  contextDir?: string;
+  files?: AiScanFile[];
+  textTokens?: number;
+  scannedPageCount?: number;
+  imageTokens?: number;
+}
+
+interface AiStreamMsg {
+  kind: "status" | "partial" | "usage";
+  text?: string;
+  input?: number;
+  output?: number;
+}
+
+interface AiRunOptions {
+  prompt: string;
+  systemPrompt?: string;
+  sourceFolder?: string;
+  addDirs?: string[];
+  resumeSessionId?: string;
+  model?: string;
+  claudePath?: string;
+}
+
+interface AiRunResult {
+  ok: boolean;
+  text?: string;
+  error?: string;
+  needsLogin?: boolean;
+  cancelled?: boolean;
+  partialText?: string;
+  sessionId?: string | null;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number | null;
+}
+
+interface AiToolProbe {
+  found: boolean;
+  version: string | null;
+  path: string | null;
+}
+
+interface AiPrerequisites {
+  platform: string;
+  node: AiToolProbe;
+  claude: AiToolProbe;
+  ok: boolean;      // claude binary is runnable AND logged in
+  nodeOk: boolean;  // node is runnable
+  loggedIn: boolean | null;   // null = binary not found
+  authMethod?: string;
+  needsLogin?: boolean;
 }
 
 interface Window {

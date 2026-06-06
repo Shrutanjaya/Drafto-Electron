@@ -27,6 +27,20 @@ contextBridge.exposeInMainWorld("electron", {
   // Utilities
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
 
+  // AI Plugin (Beta)
+  aiCheckPrerequisites: (opts) => ipcRenderer.invoke("ai-check-prerequisites", opts),
+  aiRun: (opts) => ipcRenderer.invoke("ai-run", opts),
+  aiCancel: () => ipcRenderer.invoke("ai-cancel"),
+  aiScanFolder: (folderPath) => ipcRenderer.invoke("ai-scan-folder", folderPath),
+  aiSplitDocuments: (opts) => ipcRenderer.invoke("ai-split-documents", opts),
+  aiLogin: (opts) => ipcRenderer.invoke("ai-login", opts),
+  // Live progress while a turn runs. Returns a disposer to remove the listener.
+  onAiStream: (cb) => {
+    const h = (_e, msg) => cb(msg);
+    ipcRenderer.on("ai-stream", h);
+    return () => ipcRenderer.removeListener("ai-stream", h);
+  },
+
   // Auto-update
   auCheck:    () => ipcRenderer.invoke("au-check"),
   auGetState: () => ipcRenderer.invoke("au-get-state"),
