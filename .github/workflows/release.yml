@@ -90,6 +90,15 @@ jobs:
         run: .\bundle-deps-win.ps1
         shell: pwsh
 
+      # `canvas` is an OPTIONAL dependency of pdfjs-dist that we never use (our
+      # PDF code uses the browser <canvas>, and the Node side only extracts text).
+      # It's a native module that needs Cairo to compile, which the Windows runner
+      # lacks — electron-builder's native rebuild fails on `cairo.h`. Remove it so
+      # the rebuild skips it; pdfjs treats it as optional and works without it.
+      - name: Remove unused optional native dep (canvas)
+        run: if (Test-Path node_modules/canvas) { Remove-Item -Recurse -Force node_modules/canvas }
+        shell: pwsh
+
       - name: Build and package Windows installer
         env:
           VITE_FIREBASE_API_KEY: AIzaSyANHtnyFUEJiKQhQQykZJhtU4jzKLeZRBs
