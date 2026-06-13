@@ -11,10 +11,6 @@ permissions:
 jobs:
   build-mac:
     runs-on: macos-14
-    # TEMPORARILY DISABLED: the macOS .dmg + .zip for v1.2.0 are already built and
-    # published to the draft release. This re-tag only rebuilds Windows (author
-    # fix), so skip the ~45-min mac job. Re-enable (remove this `if`) right after.
-    if: ${{ false }}
 
     steps:
       - uses: actions/checkout@v4
