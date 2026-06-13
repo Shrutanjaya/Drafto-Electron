@@ -492,6 +492,47 @@ ipcMain.handle("ai-login", (_event, opts) => {
   }
 });
 
+// One-click install of the Claude Code CLI using Anthropic's official installer.
+// Streams the installer's output to the renderer ("ai-install-log") and resolves
+// when it finishes. The user consents in a dialog before this is invoked.
+ipcMain.handle("ai-install-claude", async () => {
+  const env = aiAugmentedEnv();
+  const send = (line) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("ai-install-log", line);
+  };
+
+  let cmd, args;
+  if (process.platform === "win32") {
+    cmd = "powershell";
+    args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "irm https://claude.ai/install.ps1 | iex"];
+  } else {
+    // macOS / Linux — login shell so PATH/curl resolve as in a normal terminal.
+    cmd = "bash";
+    args = ["-lc", "curl -fsSL https://claude.ai/install.sh | bash"];
+  }
+
+  return await new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(cmd, args, { env });
+    } catch (e) {
+      send(`Failed to start installer: ${e.message}`);
+      resolve({ ok: false, error: e.message });
+      return;
+    }
+    send("Running the official Claude Code installer…");
+    const onData = (buf) => buf.toString().split(/\r?\n/).forEach((l) => { if (l.trim() !== "") send(l); });
+    if (child.stdout) child.stdout.on("data", onData);
+    if (child.stderr) child.stderr.on("data", onData);
+    child.on("error", (e) => { send(`Error: ${e.message}`); resolve({ ok: false, error: e.message }); });
+    child.on("close", (code) => {
+      const ok = code === 0;
+      send(ok ? "✓ Installation finished." : `Installer exited with code ${code}.`);
+      resolve({ ok, code });
+    });
+  });
+});
+
 // A human-friendly label for a streamed tool call, so the user sees what the
 // assistant is doing (e.g. "Reading judgment.pdf…") instead of a blank spinner.
 function aiToolLabel(block) {

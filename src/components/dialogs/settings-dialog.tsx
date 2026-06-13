@@ -278,6 +278,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   // AI Plugin (Beta) prerequisite detection
   const [aiPrereq, setAiPrereq] = useState<AiPrerequisites | null>(null);
   const [aiChecking, setAiChecking] = useState(false);
+  // One-click Claude Code install
+  const [showInstallConsent, setShowInstallConsent] = useState(false);
+  const [installState, setInstallState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [installLog, setInstallLog] = useState<string[]>([]);
   const [settings, setSettings] = useState<SettingsData>({
     defaultDocxPath: "",
     defaultPdfPath: "",
@@ -556,6 +560,41 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
       toast({ title: "Terminal opened", description: "Finish signing in there (your browser will open), then click Re-check." });
     } else {
       toast({ variant: "destructive", title: "Couldn't open Terminal", description: r?.error || "Use the manual steps below." });
+    }
+  };
+
+  // One-click install of the Claude Code CLI (after the user confirms consent).
+  // Streams the installer's output, then re-checks prerequisites and — on success
+  // — auto-launches the sign-in flow.
+  const runInstallClaude = async () => {
+    if (!window.electron?.aiInstallClaude) {
+      toast({ variant: "destructive", title: "Not available", description: "Install is only available in the desktop app." });
+      return;
+    }
+    setInstallState('running');
+    setInstallLog([]);
+    const dispose = window.electron.onAiInstallLog?.((line) => setInstallLog((prev) => [...prev, line]));
+    try {
+      const r = await window.electron.aiInstallClaude();
+      setInstallState(r?.ok ? 'done' : 'error');
+      const result = await window.electron.aiCheckPrerequisites?.({ customClaudePath: settings.aiClaudeBinaryPath });
+      if (result) setAiPrereq(result);
+      if (r?.ok && result?.claude?.found) {
+        // Installed successfully but not yet signed in → kick off sign-in.
+        if (result.loggedIn !== true) {
+          toast({ title: "Claude Code installed", description: "Opening sign-in — approve it in your browser, then click Re-check." });
+          await handleAiLogin();
+        } else {
+          toast({ title: "Claude Code is ready", description: "Installed and already signed in." });
+        }
+      } else if (!r?.ok) {
+        toast({ variant: "destructive", title: "Install failed", description: r?.error || "See the log. You can also use the manual steps below." });
+      }
+    } catch (err) {
+      setInstallState('error');
+      toast({ variant: "destructive", title: "Install failed", description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      dispose?.();
     }
   };
 
@@ -838,9 +877,41 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                         )}
                       </div>
 
-                      {/* What the user must install */}
+                      {/* One-click install */}
+                      <div className="rounded-md border border-primary/30 bg-primary/5 p-2 space-y-1.5">
+                        <p className="text-[11px] text-foreground leading-relaxed">
+                          <span className="font-medium">Don't have Claude Code yet?</span> Install it in one click — Drafto runs Anthropic's official installer for you, then opens sign-in.
+                        </p>
+                        {installState !== 'running' && !showInstallConsent && installState !== 'done' && (
+                          <Button type="button" size="sm" className="h-7 text-[11px] gap-1.5" onClick={() => setShowInstallConsent(true)}>
+                            <Download className="h-3.5 w-3.5" /> Install Claude Code (one-click)
+                          </Button>
+                        )}
+                        {showInstallConsent && installState !== 'running' && (
+                          <div className="space-y-1.5">
+                            <p className="text-[11px] text-foreground leading-relaxed">
+                              <span className="font-semibold">Before you proceed —</span> Drafto will download and run Anthropic's official Claude Code installer (from <code className="px-1 rounded bg-muted text-[10px]">claude.ai</code>) on your computer. It installs the <code className="px-1 rounded bg-muted text-[10px]">claude</code> command in your user account (no admin rights), and needs an internet connection. Afterwards you'll sign in with your own Claude account (Pro/Max plan or API credits) in your browser — your credentials never go to Drafto. Proceed?
+                            </p>
+                            <div className="flex gap-2">
+                              <Button type="button" size="sm" className="h-7 text-[11px]" onClick={() => { setShowInstallConsent(false); runInstallClaude(); }}>Yes, install</Button>
+                              <Button type="button" size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setShowInstallConsent(false)}>Cancel</Button>
+                            </div>
+                          </div>
+                        )}
+                        {installState === 'running' && (
+                          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Installing Claude Code…</div>
+                        )}
+                        {installState === 'done' && (
+                          <div className="flex items-center gap-1.5 text-[11px] text-green-600 dark:text-green-400"><CheckCircle className="h-3.5 w-3.5" /> Install finished — sign in (above), then Re-check.</div>
+                        )}
+                        {installLog.length > 0 && (
+                          <pre className="max-h-32 overflow-auto rounded bg-muted/60 p-1.5 text-[10px] leading-snug whitespace-pre-wrap break-words">{installLog.join("\n")}</pre>
+                        )}
+                      </div>
+
+                      {/* What the user must install (manual fallback) */}
                       <div className="space-y-1.5">
-                        <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">What you need installed</p>
+                        <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Prefer to do it yourself?</p>
                         <p className="text-[11px] text-muted-foreground leading-relaxed">Already use Claude Code? You can skip step 1 — just make sure it's logged in (step 2).</p>
                         <ol className="text-[11px] text-muted-foreground space-y-1.5 list-decimal pl-4 leading-relaxed">
                           <li>

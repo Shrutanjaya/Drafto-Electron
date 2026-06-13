@@ -140,7 +140,7 @@ export function AiChatPanel() {
   const [pending, setPending] = useState<PendingSuggestion | null>(null);
   const [pendingDocMap, setPendingDocMap] = useState<PendingDocMap | null>(null);
   const [docSplitting, setDocSplitting] = useState(false);
-  const [showPresets, setShowPresets] = useState(false);
+  const [showPresets, setShowPresets] = useState(true);
   // Safety net: shown when an action request came back as prose with no proposal.
   const [showFillButton, setShowFillButton] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -234,6 +234,7 @@ export function AiChatPanel() {
     setImageModePref("text");
     setLastTurn(null);
     setSessionId(null); // new source context → start a fresh conversation
+    setShowPresets(true); // re-show the task menu for the new session
     if (!window.electron.aiScanFolder) return;
     setScanning(true);
     try {
@@ -254,6 +255,7 @@ export function AiChatPanel() {
     setCostAcknowledged(false);
     setImageModePref("text");
     setLastTurn(null);
+    setShowPresets(true); // re-show the task menu on reset
   };
 
   // Phase 1: validate + decide whether to show the cost confirmation first.
@@ -612,18 +614,25 @@ export function AiChatPanel() {
       {/* Transcript */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5">
         {messages.length === 0 && (
-          <div className="text-center text-muted-foreground mt-6 space-y-1.5 px-2">
+          <div className="text-center text-muted-foreground mt-4 space-y-1.5 px-2">
             <Sparkles className="h-6 w-6 mx-auto opacity-40" />
             <p className="text-xs font-medium">Mayur — your drafting assistant</p>
             <p className="text-[11px] leading-relaxed">
-              Tell me what to draft or fill (or use a Quick Action), and I'll propose it straight into Drafto's fields for you to review and apply. Nothing is saved without your say-so.
+              Pick a task below (or just tell me what to do) and I'll propose it straight into Drafto's fields for you to review and apply. Nothing is saved without your say-so.
+            </p>
+            <p className="text-[10px] leading-relaxed italic">
+              Mayur works best with <span className="font-medium">text-based or OCR-enabled PDFs</span>, and uses your <span className="font-medium">Claude plan's credits</span> as you go.
             </p>
             <div className="text-left text-[10px] bg-muted/40 rounded-md p-2 space-y-1 mt-1">
-              <p className="font-semibold text-foreground">For the best draft, give me:</p>
+              <p className="font-semibold text-foreground">For the best results, your prompt / folder should include:</p>
               <ul className="list-disc pl-3.5 space-y-0.5">
-                <li>A folder with the <span className="font-medium">Impugned Judgment</span> and the <span className="font-medium">High Court petition (with annexures)</span>.</li>
-                <li>Whom you represent and their <span className="font-medium">position in the High Court</span> — or, if they weren't parties there, who they are and why they're aggrieved.</li>
-                <li>If it was a <span className="font-medium">batch matter</span>, whether the SLP covers all the petitions or only some.</li>
+                <li>The <span className="font-medium">Impugned Judgment/Order</span> and the <span className="font-medium">full paperbook</span> filed in the court below (text-based or OCR'd PDFs).</li>
+                <li>Who the <span className="font-medium">SLP Petitioners</span> are and their <span className="font-medium">position in the court below</span> (e.g. "all the appellants", "Petitioner No. 1 &amp; 2").</li>
+                <li>Your <span className="font-medium">petition/case number</span> in the court below (especially for a batch matter, and whether the SLP covers all or only some petitions).</li>
+                <li>For a single-judge order: whether an <span className="font-medium">intra-court appeal lies</span> — and, if it lies but you're bypassing it, why.</li>
+                <li>Whether you want <span className="font-medium">interim relief</span>, and what (a stay or a custom relief).</li>
+                <li>Any <span className="font-medium">deponent</span> details not in the paperbook (father's/husband's name; signing place).</li>
+                <li>Any documents to annex that were <span className="font-medium">not before the court below</span> (additional documents).</li>
               </ul>
             </div>
           </div>
@@ -862,7 +871,7 @@ export function AiChatPanel() {
       {/* Quick-action presets */}
       {showPresets && (
         <div className="shrink-0 border-t p-2 max-h-48 overflow-y-auto space-y-2">
-          {(["Fill", "Draft", "Annexures"] as const).map((group) => {
+          {(["Tasks", "More"] as const).map((group) => {
             const items = PRESETS.filter((p) => p.group === group);
             if (items.length === 0) return null;
             return (
@@ -898,7 +907,7 @@ export function AiChatPanel() {
             size="icon"
             className="h-8 w-8 shrink-0"
             onClick={() => setShowPresets((v) => !v)}
-            title="Quick actions"
+            title="Show tasks"
             disabled={prereqOk === false}
           >
             <Wand2 className="h-3.5 w-3.5" />

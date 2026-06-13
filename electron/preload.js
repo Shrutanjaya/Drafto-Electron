@@ -34,6 +34,13 @@ contextBridge.exposeInMainWorld("electron", {
   aiScanFolder: (folderPath) => ipcRenderer.invoke("ai-scan-folder", folderPath),
   aiSplitDocuments: (opts) => ipcRenderer.invoke("ai-split-documents", opts),
   aiLogin: (opts) => ipcRenderer.invoke("ai-login", opts),
+  aiInstallClaude: () => ipcRenderer.invoke("ai-install-claude"),
+  // Live installer output. Returns a disposer to remove the listener.
+  onAiInstallLog: (cb) => {
+    const h = (_e, msg) => cb(msg);
+    ipcRenderer.on("ai-install-log", h);
+    return () => ipcRenderer.removeListener("ai-install-log", h);
+  },
   // Live progress while a turn runs. Returns a disposer to remove the listener.
   onAiStream: (cb) => {
     const h = (_e, msg) => cb(msg);
