@@ -83,6 +83,7 @@ interface ElectronAPI {
   aiLogin: (opts?: { claudePath?: string }) => Promise<{ ok: boolean; error?: string }>;
   aiInstallClaude: () => Promise<{ ok: boolean; code?: number; error?: string }>;
   onAiInstallLog: (cb: (msg: string) => void) => () => void;
+  relaunchApp: () => Promise<void>;
   onAiStream: (cb: (msg: AiStreamMsg) => void) => () => void;
 }
 

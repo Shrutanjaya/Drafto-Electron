@@ -367,6 +367,10 @@ function aiAugmentedEnv() {
           path.join(process.env.APPDATA || "", "npm"),
           path.join(home, "AppData", "Roaming", "npm"),
           "C:\\Program Files\\nodejs",
+          // Where the official Claude Code installer (install.ps1) places claude.exe.
+          // Including it here lets Drafto find it right after a one-click install,
+          // before the OS-level PATH change is picked up (which needs a restart).
+          path.join(home, ".local", "bin"),
         ]
       : [
           "/opt/homebrew/bin",
@@ -533,6 +537,13 @@ ipcMain.handle("ai-install-claude", async () => {
   });
 });
 
+// Relaunch Drafto (used after installing the CLI, so the app re-detects it with
+// a refreshed PATH).
+ipcMain.handle("relaunch-app", () => {
+  app.relaunch();
+  app.exit(0);
+});
+
 // A human-friendly label for a streamed tool call, so the user sees what the
 // assistant is doing (e.g. "Reading judgment.pdf…") instead of a blank spinner.
 function aiToolLabel(block) {
@@ -616,13 +627,25 @@ ipcMain.handle("ai-run", async (_event, opts) => {
   if (opts.model && AI_ALLOWED_MODELS.has(String(opts.model))) {
     args.push("--model", String(opts.model));
   }
+  // The prompt is delivered on stdin (see below). On Windows the whole command
+  // line is capped at ~32k chars, so passing the large system prompt via
+  // --append-system-prompt trips `spawn ENAMETOOLONG`; there we fold it into the
+  // first stdin prompt instead. (macOS/Linux arg limits are far larger.)
+  let stdinPrompt = String(opts.prompt || "");
   // Conversation continuity: resume the prior session so the model remembers the
   // chat. The system prompt is only set when starting a fresh session (on resume
   // it's already in the session history).
   if (opts.resumeSessionId) {
     args.push("--resume", String(opts.resumeSessionId));
   } else if (opts.systemPrompt) {
-    args.push("--append-system-prompt", String(opts.systemPrompt));
+    if (process.platform === "win32") {
+      stdinPrompt =
+        `${String(opts.systemPrompt)}\n\n` +
+        `----- END OF INSTRUCTIONS. THE USER'S REQUEST FOLLOWS. -----\n\n` +
+        stdinPrompt;
+    } else {
+      args.push("--append-system-prompt", String(opts.systemPrompt));
+    }
   }
   // addDirs (extracted-text context dir, optionally the original PDF folder for
   // scanned-page images) supersedes the legacy single sourceFolder. Re-granted
@@ -791,7 +814,7 @@ ipcMain.handle("ai-run", async (_event, opts) => {
     });
 
     try {
-      child.stdin.write(String(opts.prompt || ""));
+      child.stdin.write(stdinPrompt);
       child.stdin.end();
     } catch (e) {
       try { child.kill(); } catch {}

@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld("electron", {
   aiSplitDocuments: (opts) => ipcRenderer.invoke("ai-split-documents", opts),
   aiLogin: (opts) => ipcRenderer.invoke("ai-login", opts),
   aiInstallClaude: () => ipcRenderer.invoke("ai-install-claude"),
+  relaunchApp: () => ipcRenderer.invoke("relaunch-app"),
   // Live installer output. Returns a disposer to remove the listener.
   onAiInstallLog: (cb) => {
     const h = (_e, msg) => cb(msg);

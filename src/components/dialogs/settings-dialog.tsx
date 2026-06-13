@@ -598,6 +598,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const handleRelaunch = () => {
+    window.electron?.relaunchApp?.();
+  };
+
   // Auto-run the check the first time the Customize tab is opened while the
   // plugin is enabled, so the status (incl. login) reflects reality with no click.
   useEffect(() => {
@@ -858,21 +862,32 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                               <p className="text-[11px] text-amber-700 dark:text-amber-300 pt-1 flex items-center gap-1">
                                 <AlertCircle className="h-3 w-3" /> Install Claude Code (step 1 below), then Re-check.
                               </p>
-                            ) : aiPrereq.loggedIn === false ? (
+                            ) : aiPrereq.loggedIn !== true ? (
                               <div className="pt-1 space-y-1.5">
                                 <p className="text-[11px] text-amber-700 dark:text-amber-300 flex items-start gap-1">
                                   <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
-                                  <span>Claude Code is installed but not signed in. Click below — it opens a Terminal and signs you in automatically.</span>
+                                  <span>Claude Code is installed but not signed in. Click below — it opens a Terminal and your browser to sign in. If the browser didn't open last time, click it again.</span>
                                 </p>
-                                <Button type="button" size="sm" className="h-7 gap-1.5 text-[11px]" onClick={handleAiLogin}>
-                                  <Sparkles className="h-3.5 w-3.5" /> Sign in to Claude Code
+                                <div className="flex flex-wrap gap-2">
+                                  <Button type="button" size="sm" className="h-7 gap-1.5 text-[11px]" onClick={handleAiLogin}>
+                                    <Sparkles className="h-3.5 w-3.5" /> Sign in to Claude Code
+                                  </Button>
+                                  <Button type="button" size="sm" variant="outline" className="h-7 gap-1.5 text-[11px]" onClick={handleRelaunch}>
+                                    <RefreshCw className="h-3.5 w-3.5" /> Relaunch Drafto
+                                  </Button>
+                                </div>
+                                <p className="text-[10px] text-muted-foreground">After signing in, if Mayur still shows as not ready, click Relaunch Drafto.</p>
+                              </div>
+                            ) : (
+                              <div className="pt-1 space-y-1.5">
+                                <p className="text-[11px] text-green-600 dark:text-green-400 flex items-center gap-1">
+                                  <CheckCircle className="h-3 w-3" /> Ready — the AI assistant is connected and signed in.
+                                </p>
+                                <Button type="button" size="sm" variant="ghost" className="h-6 gap-1 text-[10px] text-muted-foreground px-1.5" onClick={handleAiLogin}>
+                                  <Sparkles className="h-3 w-3" /> Sign in again
                                 </Button>
                               </div>
-                            ) : aiPrereq.loggedIn === true ? (
-                              <p className="text-[11px] text-green-600 dark:text-green-400 pt-1 flex items-center gap-1">
-                                <CheckCircle className="h-3 w-3" /> Ready — the AI assistant is connected and signed in.
-                              </p>
-                            ) : null}
+                            )}
                           </div>
                         )}
                       </div>
@@ -902,7 +917,18 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Installing Claude Code…</div>
                         )}
                         {installState === 'done' && (
-                          <div className="flex items-center gap-1.5 text-[11px] text-green-600 dark:text-green-400"><CheckCircle className="h-3.5 w-3.5" /> Install finished — sign in (above), then Re-check.</div>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-1.5 text-[11px] text-green-600 dark:text-green-400"><CheckCircle className="h-3.5 w-3.5" /> Installed. Next: sign in, then relaunch Drafto.</div>
+                            <p className="text-[10px] text-muted-foreground leading-relaxed">If the sign-in browser didn't open, click Sign in. Once signed in, Relaunch Drafto so it picks up the newly installed CLI.</p>
+                            <div className="flex flex-wrap gap-2">
+                              <Button type="button" size="sm" className="h-7 gap-1.5 text-[11px]" onClick={handleAiLogin}>
+                                <Sparkles className="h-3.5 w-3.5" /> Sign in to Claude Code
+                              </Button>
+                              <Button type="button" size="sm" variant="outline" className="h-7 gap-1.5 text-[11px]" onClick={handleRelaunch}>
+                                <RefreshCw className="h-3.5 w-3.5" /> Relaunch Drafto
+                              </Button>
+                            </div>
+                          </div>
                         )}
                         {installLog.length > 0 && (
                           <pre className="max-h-32 overflow-auto rounded bg-muted/60 p-1.5 text-[10px] leading-snug whitespace-pre-wrap break-words">{installLog.join("\n")}</pre>
