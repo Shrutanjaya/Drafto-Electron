@@ -9,7 +9,6 @@ import {
   FormLabel,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
 import type { DraftoProject, Annexure } from "@/lib/schema";
 import { customIaSchema } from "@/lib/schema";
 import { useCalculatedValues } from "@/hooks/use-calculated-values";
@@ -29,31 +28,70 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogClose,
-} from "@/components/ui/dialog";
 import { standardIaList } from "@/lib/ia-list";
 import { DateInput } from "../custom/date-input";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui/resizable";
 import { pickFile } from "@/lib/utils/pick-file";
+import { format } from "date-fns";
+import {
+  IA_COMMON_OPENING,
+  IA_COMMON_CLOSING,
+  IA_PRAYER_LEAD,
+  IA_PRAYER_TAIL,
+  getIaLeadIn,
+  getIaPrayer,
+  type IaPreviewOpts,
+} from "@/lib/ia-preview";
 
-// ─── Auto-included pill ──────────────────────────────────────────────────────
-function AutoPill({ label, active, detail }: { label: string; active: boolean; detail?: string }) {
+// ─── Read-only "standard text" preview ───────────────────────────────────────
+// Renders the auto-inserted document paragraphs in gray, prefixed with their
+// serial number (1., 2., …) to mirror the generated document. No heading — the
+// gray colour distinguishes it from the editable fields around it.
+const STD_TEXT = "text-xs leading-relaxed text-neutral-500 dark:text-neutral-400";
+
+function StandardBlock({ startNum, paras }: { startNum?: number; paras: string[] }) {
+  const items = paras.filter(p => p && p.trim() !== "");
+  if (items.length === 0) return null;
   return (
-    <div className={cn(
-      "flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
-      active
-        ? "border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400"
-        : "border-muted bg-muted/40 text-muted-foreground"
-    )}>
-      <span className={cn("h-1.5 w-1.5 rounded-full flex-shrink-0", active ? "bg-green-500" : "bg-muted-foreground/40")} />
-      <span>{label}</span>
-      {detail && <span className="opacity-70">— {detail}</span>}
+    <div className="space-y-1.5">
+      {items.map((p, i) => (
+        <p key={i} className={STD_TEXT}>
+          {startNum != null && <span className="font-medium mr-1">{startNum + i}.</span>}
+          {p}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+// The prayer paragraph (numbered) with its lettered sub-prayers a., b.
+function StandardPrayerBlock({ id, num, opts }: { id: string; num?: number; opts?: IaPreviewOpts }) {
+  const prayer = getIaPrayer(id, opts);
+  return (
+    <div className="space-y-1">
+      <p className={STD_TEXT}>
+        {num != null && <span className="font-medium mr-1">{num}.</span>}
+        {IA_PRAYER_LEAD}
+      </p>
+      <ol className="list-[lower-alpha] pl-6 space-y-0.5">
+        {prayer && <li className={STD_TEXT}>{prayer}</li>}
+        <li className={STD_TEXT}>{IA_PRAYER_TAIL}</li>
+      </ol>
+    </div>
+  );
+}
+
+// ─── Left-panel section header ────────────────────────────────────────────────
+function NavSection({ label, hint }: { label: string; hint?: string }) {
+  return (
+    <div className="flex items-center gap-1 px-1 pt-2.5 pb-0.5 first:pt-0">
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/80">{label}</span>
+      {hint && (
+        <Tooltip>
+          <TooltipTrigger type="button"><Info className="h-3 w-3 text-muted-foreground" /></TooltipTrigger>
+          <TooltipContent><p className="max-w-xs text-xs">{hint}</p></TooltipContent>
+        </Tooltip>
+      )}
     </div>
   );
 }
@@ -207,24 +245,29 @@ export function IasTab() {
   const caseType = useWatch({ control: form.control, name: "caseType" });
   const listOfDates = useWatch({ control: form.control, name: 'listOfDates' });
   const hasAppliedForCC = useWatch({ control: form.control, name: "standardIas.exemptionCertifiedCopy.hasApplied" });
+  const ccReceiptDate = useWatch({ control: form.control, name: "standardIas.exemptionCertifiedCopy.receiptDate" });
+  const ccReason = useWatch({ control: form.control, name: "standardIas.exemptionCertifiedCopy.reasonForNotApplying" });
   const delayActive = useWatch({ control: form.control, name: "standardIas.condonationOfDelay.active" });
   const ccActive = useWatch({ control: form.control, name: "standardIas.exemptionCertifiedCopy.active" });
   const surrenderActive = useWatch({ control: form.control, name: "standardIas.exemptionFromSurrendering.active" });
   const otActive = useWatch({ control: form.control, name: "standardIas.exemptionOfficialTranslation.active" });
   const adActive = useWatch({ control: form.control, name: "standardIas.additionalDocuments" });
   const otReason = useWatch({ control: form.control, name: "standardIas.exemptionOfficialTranslation.reason" });
+  const otUserReason = useWatch({ control: form.control, name: "standardIas.exemptionOfficialTranslation.userReason" });
+  const delayGrounds = useWatch({ control: form.control, name: "standardIas.condonationOfDelay.grounds" });
+  const adGrounds = useWatch({ control: form.control, name: "standardIas.additionalDocumentsGrounds" });
 
   const isCriminal = caseType === "Criminal";
 
-  // Which configurable IA is currently shown in the right panel
-  const configurable = useMemo(() => {
-    const items: { id: string; label: string; active: boolean }[] = [
-      { id: "delay", label: "Condonation of Delay", active: !!delayActive },
-      { id: "cc", label: "Exemption (Certified Copy)", active: !!ccActive },
-      ...(isCriminal ? [{ id: "surrender", label: "Exemption (Surrender)", active: !!surrenderActive }] : []),
-    ];
-    return items;
-  }, [delayActive, ccActive, surrenderActive, isCriminal]);
+  // Delay IA is "ready" (green) only once the user has supplied at least one
+  // non-blank ground. AD/OT grounds are optional, so those stay green when active.
+  const delayHasGround = (delayGrounds || []).some((g: any) => (g?.particulars || "").trim() !== "");
+  // Count of non-blank AD grounds — they're numbered after the lead-in (para 2),
+  // shifting the closing paragraphs' serial numbers in the preview.
+  const adGroundsCount = (adGrounds || []).filter((g: any) => (g?.particulars || "").trim() !== "").length;
+
+  // Titles by id from the canonical list.
+  const titleFor = (id: string) => standardIaList.find(s => s.id === id)?.title || "";
 
   const [selectedId, setSelectedId] = useState<string>("delay");
 
@@ -239,18 +282,16 @@ export function IasTab() {
 
   const handleRemoveCustomIa = (index: number) => {
     const fieldId = customIaFields[index].id;
-    if (selectedId === fieldId) {
-      if (index > 0) setSelectedId(customIaFields[index - 1].id);
-      else if (customIaFields.length > 1) setSelectedId(customIaFields[1].id);
-      else setSelectedId("delay");
-    }
+    if (selectedId === fieldId) setSelectedId("delay");
     removeCustomIa(index);
   };
 
-  // Keep selection valid when criminal toggles
+  // Keep selection valid when a row disappears: Surrender (Civil) or Official
+  // Translation (no translated annexures).
   useEffect(() => {
     if (!isCriminal && selectedId === "surrender") setSelectedId("delay");
-  }, [isCriminal, selectedId]);
+    if (!otActive && selectedId === "ot") setSelectedId("delay");
+  }, [isCriminal, otActive, selectedId]);
 
   // Auto-sync active flags from computed values
   useEffect(() => {
@@ -285,8 +326,6 @@ export function IasTab() {
     }
   }, [listOfDates, form]);
 
-  const [adDialogOpen, setAdDialogOpen] = useState(false);
-
   const annexureNumberingMap = useMemo(() => {
     const map = new Map<string, number>();
     const allAnnexures: Annexure[] = (listOfDates || []).flatMap(lod => lod.annexures || []);
@@ -315,178 +354,105 @@ export function IasTab() {
     }
   }, [listOfDates, annexureNumberingMap, form]);
 
-  // AD count & OT detail for pills
+  // AD count + range for previews
   const adCount = useMemo(() =>
     (listOfDates || []).flatMap(lod => lod.annexures || []).filter(a => a.isAdditionalDocument).length,
   [listOfDates]);
 
+  const adRange = useMemo(() => {
+    const nums = (listOfDates || []).flatMap(lod => lod.annexures || [])
+      .filter(a => a.isAdditionalDocument)
+      .map(a => annexureNumberingMap.get(a.id))
+      .filter((n): n is number => typeof n === "number")
+      .sort((a, b) => a - b);
+    if (nums.length === 0) return "";
+    return nums.length === 1 ? `Annexure P-${nums[0]}` : `Annexures P-${nums[0]} to P-${nums[nums.length - 1]}`;
+  }, [listOfDates, annexureNumberingMap]);
+
+  const ccReceiptDateStr = ccReceiptDate ? format(new Date(ccReceiptDate as any), "dd.MM.yyyy") : "";
+  const ccOpts: IaPreviewOpts = { ccApplied: hasAppliedForCC as any, ccReceiptDate: ccReceiptDateStr, ccReason: ccReason as string };
+
   return (
     <TooltipProvider>
-      <div className="space-y-3 h-full flex flex-col">
+      <div className="h-full flex flex-col">
+        <ResizablePanelGroup direction="horizontal" className="rounded-lg border flex-1 min-h-[420px]" autoSaveId="ias-tab-panels">
+          {/* Left: classified IA nav */}
+          <ResizablePanel defaultSize={32} minSize={24}>
+            <div className="flex flex-col h-full overflow-auto p-2 gap-0.5">
 
-        {/* ── Zone 1: Auto-included strip ── */}
-        <div className="flex items-center justify-between gap-4 pb-3 border-b">
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Auto-included</span>
-            <Tooltip>
-              <TooltipTrigger type="button">
-                <Info className="h-3.5 w-3.5 text-muted-foreground" />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="max-w-xs text-xs">These IAs are automatically generated based on your List of Dates entries. No manual input is needed.</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-          <div className="flex flex-wrap justify-end gap-2">
-            <AutoPill
-              label="Exemption (OT)"
-              active={!!otActive}
-              detail={otActive && otReason ? otReason : undefined}
-            />
-            {/* AD pill — clickable when active */}
-            {adActive ? (
-              <button
+              <NavSection label="Configurable IAs" hint="You choose whether to include these and provide their details." />
+              <IaListRow label="Exemption (Certified Copy)" active={!!ccActive} selected={selectedId === "cc"} onClick={() => setSelectedId("cc")} />
+              {isCriminal && (
+                <IaListRow label="Exemption (Surrender)" active={!!surrenderActive} selected={selectedId === "surrender"} onClick={() => setSelectedId("surrender")} />
+              )}
+
+              <NavSection label="Custom IAs" hint="Bespoke applications you draft yourself, with your own grounds and prayers." />
+              {customIaFields.map((field, index) => (
+                <CustomIaListRow
+                  key={field.id}
+                  index={index}
+                  selected={selectedId === field.id}
+                  onClick={() => setSelectedId(field.id)}
+                  onRemove={() => handleRemoveCustomIa(index)}
+                />
+              ))}
+              <Button
                 type="button"
-                onClick={() => setAdDialogOpen(true)}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors cursor-pointer",
-                  "border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20"
-                )}
-                title="Click to add grounds/averments"
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => appendCustomIa(customIaSchema.parse({}))}
               >
-                <span className="h-1.5 w-1.5 rounded-full flex-shrink-0 bg-green-500" />
-                <span>Additional Documents (AD)</span>
-                {adCount > 0 && <span className="opacity-70">— {adCount} document{adCount !== 1 ? 's' : ''}</span>}
-              </button>
-            ) : (
-              <AutoPill
-                label="Additional Documents (AD)"
-                active={false}
-              />
-            )}
-          </div>
-        </div>
+                <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Add Custom IA
+              </Button>
 
-        {/* ── Zone 2: Configurable IAs split view ── */}
-        <div>
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <span className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Configurable IAs</span>
-            <Tooltip>
-              <TooltipTrigger type="button">
-                <Info className="h-3.5 w-3.5 text-muted-foreground" />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="max-w-xs text-xs">Where you're invited to input grounds, please do not input the standard IA paragraphs. Those will be automatically inserted.</p>
-              </TooltipContent>
-            </Tooltip>
-          </div>
-          <ResizablePanelGroup direction="horizontal" className="rounded-lg border min-h-[360px]" autoSaveId="ias-tab-panels">
-            {/* Left: IA list */}
-            <ResizablePanel defaultSize={35} minSize={25}>
-              <div className="flex flex-col h-full p-2 gap-1">
-                {configurable.map(item => (
-                  <IaListRow
-                    key={item.id}
-                    label={item.label}
-                    active={item.active}
-                    selected={selectedId === item.id}
-                    onClick={() => setSelectedId(item.id)}
-                  />
-                ))}
-                {!isCriminal && (
-                  <div className="mt-1 px-2 py-1.5 rounded-md bg-muted/30 text-xs text-muted-foreground italic">
-                    Exemption (Surrender) — only for criminal matters
+              <NavSection label="Mandatory IAs (Auto-Included)" hint="Generated automatically from your List of Dates entries. They appear when applicable; you only fill in any grounds." />
+              <IaListRow label="Condonation of Delay" active={delay > 0 && delayHasGround} selected={selectedId === "delay"} onClick={() => setSelectedId("delay")} />
+              {otActive && (
+                <IaListRow label="Exemption (Official Translation)" active selected={selectedId === "ot"} onClick={() => setSelectedId("ot")} />
+              )}
+              <IaListRow label="Additional Documents" active={!!adActive} selected={selectedId === "ad"} onClick={() => setSelectedId("ad")} />
+            </div>
+          </ResizablePanel>
+
+          <ResizableHandle withHandle />
+
+          {/* Right: detail panel */}
+          <ResizablePanel defaultSize={68} minSize={45}>
+            <div className="h-full overflow-auto p-3">
+
+              {/* ── Condonation of Delay (Mandatory / Auto) ── */}
+              {selectedId === "delay" && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{`Application for condonation of delay of ${delay > 0 ? delay : "__"} days in filing the SLP`}</h4>
+                  {delay <= 0 && (
+                    <p className="text-xs text-muted-foreground italic">Since there is no delay, this IA won't be included.</p>
+                  )}
+                  <StandardBlock startNum={1} paras={[IA_COMMON_OPENING, getIaLeadIn("condonationOfDelay", { delayDays: delay > 0 ? delay : "__" })]} />
+                  <IaGroundTable name="standardIas.condonationOfDelay.grounds" />
+                  <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
+                  <StandardPrayerBlock id="condonationOfDelay" num={5} opts={{ delayDays: delay > 0 ? delay : "__" }} />
+                </div>
+              )}
+
+              {/* ── Exemption (Certified Copy) — Configurable ── */}
+              {selectedId === "cc" && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{titleFor("exemptionCertifiedCopy")}</h4>
+                    <FormField
+                      control={form.control}
+                      name="standardIas.exemptionCertifiedCopy.active"
+                      render={({ field }) => (
+                        <FormItem className="flex items-center gap-1.5 space-y-0">
+                          <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="cc-active" /></FormControl>
+                          <FormLabel htmlFor="cc-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
+                        </FormItem>
+                      )}
+                    />
                   </div>
-                )}
-                {customIaFields.length > 0 && (
-                  <div className="mt-1 border-t pt-1 space-y-0.5">
-                    {customIaFields.map((field, index) => (
-                      <CustomIaListRow
-                        key={field.id}
-                        index={index}
-                        selected={selectedId === field.id}
-                        onClick={() => setSelectedId(field.id)}
-                        onRemove={() => handleRemoveCustomIa(index)}
-                      />
-                    ))}
-                  </div>
-                )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="mt-2 w-full justify-start text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() => appendCustomIa(customIaSchema.parse({}))}
-                >
-                  <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Add Custom IA
-                </Button>
-              </div>
-            </ResizablePanel>
-
-            <ResizableHandle withHandle />
-
-            {/* Right: Detail panel */}
-            <ResizablePanel defaultSize={65} minSize={40}>
-              <div className="h-full overflow-auto p-3">
-
-                {/* ── Delay ── */}
-                {selectedId === "delay" && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{standardIaList[0].title}</h4>
-                      <FormField
-                        control={form.control}
-                        name="standardIas.condonationOfDelay.active"
-                        render={({ field }) => (
-                          <FormItem className="flex items-center gap-1.5 space-y-0">
-                            <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="cod-active" /></FormControl>
-                            <FormLabel htmlFor="cod-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                    {delay > 0 ? (
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="text-muted-foreground">Delay auto-computed:</span>
-                        <FormField
-                          control={form.control}
-                          name="standardIas.condonationOfDelay.delayDays"
-                          render={({ field: df }) => (
-                            <FormItem>
-                              <FormControl>
-                                <Input type="number" className="w-20 h-7 text-xs" {...df} onChange={e => df.onChange(parseInt(e.target.value, 10) || 0)} />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                        <span className="text-muted-foreground">days</span>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground italic">Since there is no delay, this IA won't be included.</p>
-                    )}
-                    <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Grounds for Delay</h4>
-                      <IaGroundTable name="standardIas.condonationOfDelay.grounds" />
-                    </div>
-                  </div>
-                )}
-
-                {/* ── Exemption CC ── */}
-                {selectedId === "cc" && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{standardIaList[1].title}</h4>
-                      <FormField
-                        control={form.control}
-                        name="standardIas.exemptionCertifiedCopy.active"
-                        render={({ field }) => (
-                          <FormItem className="flex items-center gap-1.5 space-y-0">
-                            <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="cc-active" /></FormControl>
-                            <FormLabel htmlFor="cc-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
-                          </FormItem>
-                        )}
-                      />
-                    </div>
+                  <StandardBlock startNum={1} paras={[IA_COMMON_OPENING]} />
+                  <div className="space-y-2">
                     <FormField
                       control={form.control}
                       name="standardIas.exemptionCertifiedCopy.hasApplied"
@@ -536,89 +502,103 @@ export function IasTab() {
                       />
                     )}
                   </div>
-                )}
+                  <StandardBlock startNum={2} paras={[getIaLeadIn("exemptionCertifiedCopy", ccOpts)]} />
+                  <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
+                  <StandardPrayerBlock id="exemptionCertifiedCopy" num={5} />
+                </div>
+              )}
 
-                {/* ── Exemption from Surrendering ── */}
-                {selectedId === "surrender" && isCriminal && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{standardIaList[4].title}</h4>
-                      <FormField
-                        control={form.control}
-                        name="standardIas.exemptionFromSurrendering.active"
-                        render={({ field }) => (
-                          <FormItem className="flex items-center gap-1.5 space-y-0">
-                            <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="surr-active" /></FormControl>
-                            <FormLabel htmlFor="surr-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Grounds for Exemption from Surrendering</h4>
-                      <IaGroundTable name="standardIas.exemptionFromSurrendering.grounds" />
-                    </div>
-                  </div>
-                )}
-
-                {/* ── Custom IAs ── */}
-                {customIaFields.map((field, index) => selectedId === field.id && (
-                  <div key={field.id} className="space-y-3">
+              {/* ── Exemption from Surrendering — Configurable (Criminal only) ── */}
+              {selectedId === "surrender" && isCriminal && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{titleFor("exemptionFromSurrendering")}</h4>
                     <FormField
                       control={form.control}
-                      name={`customIas.${index}.title`}
-                      render={({ field: tf }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Input
-                              {...tf}
-                              className="text-sm font-semibold border-0 border-b rounded-none bg-transparent focus-visible:ring-0 px-0 h-auto"
-                              placeholder="Application for..."
-                            />
-                          </FormControl>
+                      name="standardIas.exemptionFromSurrendering.active"
+                      render={({ field }) => (
+                        <FormItem className="flex items-center gap-1.5 space-y-0">
+                          <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="surr-active" /></FormControl>
+                          <FormLabel htmlFor="surr-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
                         </FormItem>
                       )}
                     />
-                    <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Grounds</h4>
-                      <IaGroundTable name={`customIas.${index}.grounds`} />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Prayers</h4>
-                      <AamTable name={`customIas.${index}.prayers`} />
-                    </div>
                   </div>
-                ))}
+                  <StandardBlock startNum={1} paras={[IA_COMMON_OPENING, getIaLeadIn("exemptionFromSurrendering")]} />
+                  <IaGroundTable name="standardIas.exemptionFromSurrendering.grounds" />
+                  <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
+                  <StandardPrayerBlock id="exemptionFromSurrendering" num={5} />
+                </div>
+              )}
 
-              </div>
-            </ResizablePanel>
-          </ResizablePanelGroup>
-        </div>
+              {/* ── Official Translation — Mandatory / Auto (optional reason) ── */}
+              {selectedId === "ot" && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{`Application for exemption from filing Official Translation(s) of ${otReason || "the annexures"}`}</h4>
+                  <StandardBlock startNum={1} paras={[IA_COMMON_OPENING]} />
+                  <FormField
+                    control={form.control}
+                    name="standardIas.exemptionOfficialTranslation.userReason"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs">Reason for not obtaining Official Translation(s) <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
+                        <FormControl><Textarea {...field} className="text-xs" placeholder="e.g. in view of the urgency involved..." /></FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <StandardBlock startNum={2} paras={[getIaLeadIn("exemptionOfficialTranslation", { annexureList: otReason as string, otUserReason: otUserReason as string })]} />
+                  <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
+                  <StandardPrayerBlock id="exemptionOfficialTranslation" num={5} opts={{ annexureList: otReason as string }} />
+                </div>
+              )}
 
+              {/* ── Additional Documents — Mandatory / Auto (grounds editable) ── */}
+              {selectedId === "ad" && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{titleFor("additionalDocuments")}</h4>
+                  <p className="text-xs text-muted-foreground italic">
+                    {adActive
+                      ? `Auto-included because ${adCount} document${adCount !== 1 ? "s are" : " is"} marked as Additional Document(s) in the List of Dates.`
+                      : "This IA is included automatically only when an annexure is marked as an Additional Document (AD). None are at present, so it won't be included."}
+                  </p>
+                  <StandardBlock startNum={1} paras={[IA_COMMON_OPENING, getIaLeadIn("additionalDocuments")]} />
+                  <p className={cn(STD_TEXT, "pl-4")}>[The list of additional documents{adRange ? ` (${adRange})` : ""} is inserted here automatically.]</p>
+                  <AamTable name="standardIas.additionalDocumentsGrounds" defaultRows={3} />
+                  <StandardBlock startNum={3 + adGroundsCount} paras={IA_COMMON_CLOSING} />
+                  <StandardPrayerBlock id="additionalDocuments" num={5 + adGroundsCount} opts={{ adRange }} />
+                </div>
+              )}
 
+              {/* ── Custom IAs ── */}
+              {customIaFields.map((field, index) => selectedId === field.id && (
+                <div key={field.id} className="space-y-3">
+                  <FormField
+                    control={form.control}
+                    name={`customIas.${index}.title`}
+                    render={({ field: tf }) => (
+                      <FormItem>
+                        <FormControl>
+                          <Input
+                            {...tf}
+                            className="text-sm font-semibold border-0 border-b rounded-none bg-transparent focus-visible:ring-0 px-0 h-auto"
+                            placeholder="Application for..."
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <StandardBlock startNum={1} paras={[IA_COMMON_OPENING, getIaLeadIn("custom")]} />
+                  <IaGroundTable name={`customIas.${index}.grounds`} />
+                  <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
+                  <StandardBlock startNum={5} paras={[IA_PRAYER_LEAD]} />
+                  <AamTable name={`customIas.${index}.prayers`} />
+                </div>
+              ))}
 
+            </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
-
-      {/* Additional Documents grounds dialog */}
-      <Dialog open={adDialogOpen} onOpenChange={setAdDialogOpen}>
-        <DialogContent className="sm:max-w-[700px]">
-          <DialogHeader>
-            <DialogTitle>Additional Documents — Grounds / Averments</DialogTitle>
-          </DialogHeader>
-          <div className="py-1 space-y-1">
-            <p className="text-xs text-muted-foreground">
-              These grounds will appear in IA-AD after the list of additional documents and before the "No prejudice" paragraph.
-            </p>
-            <AamTable name="standardIas.additionalDocumentsGrounds" defaultRows={3} />
-          </div>
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" size="sm">Done</Button>
-            </DialogClose>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
     </TooltipProvider>
   );
 }

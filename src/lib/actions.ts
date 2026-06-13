@@ -1202,7 +1202,14 @@ export async function generateSlpDocx(projectData: DraftoProject) {
             ...para1AIndent,
         });
     }
-    
+
+    // Para 1B: optional free-text content. Added directly below 1A only when the
+    // user has entered non-whitespace content.
+    const para1BText = (projectData.para1BContent || '').trim();
+    const para1B = para1BText
+        ? new Paragraph({ text: `1B. ${para1BText}`, ...para1AIndent })
+        : null;
+
     let allNumberingConfigs: any[] = [];
     
     const getAlphabeticalLabel = (i: number): string => {
@@ -1508,6 +1515,7 @@ export async function generateSlpDocx(projectData: DraftoProject) {
                 numbering: { reference: "slp-intro-list", level: 0 },
             }),
             para1A,
+            ...(para1B ? [para1B] : []),
             new Paragraph({
                 children: [
                     smartTextRun({ text: "QUESTIONS OF LAW: ", bold: true }),
@@ -1671,9 +1679,12 @@ export async function generateIaDocx(
         levels: [{ level: 0, format: "decimal" as const, text: "%1.", alignment: AlignmentType.START, start, style: { paragraph: { indent: { left: 720, hanging: 360 } } } }],
     });
 
+    // A single continuous list for every top-level IA paragraph (opening,
+    // lead-in, any user-added grounds, the closing paragraphs and the prayer
+    // lead-in). Using one list lets Word number them continuously, so extra
+    // AD grounds no longer collide with the closing paragraphs.
     const numberingConfig = [
         makeIaListConfig("ia-intro-list"),
-        makeIaListConfig("ia-intro-list-3", 3),
     ];
     
     let prayerParagraphs: Paragraph[] = [];
@@ -1914,7 +1925,9 @@ export async function generateIaDocx(
                 iaTitle = `Application for exemption from filing Official Translation(s) of ${annexureList}`;
                 customPrayer = `Grant exemption to the Petitioner(s) from filing Official Translation(s) of ${annexureList}; and`;
                 prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
-                customTextParagraphs = [new Paragraph({ children: [smartTextRun(`This application seeks exemption from filing Official Translation(s) of ${annexureList}. It is prayed that in view of the urgency and the facts and circumstances of this case, exemption from filing Official Translation(s) may be granted.`)], numbering: { reference: "ia-intro-list", level: 0 } })];
+                const otUserReason = (projectData.standardIas.exemptionOfficialTranslation.userReason || '').trim();
+                const otBody = `This application seeks exemption from filing Official Translation(s) of ${annexureList}. ${otUserReason ? otUserReason + ' ' : ''}It is prayed that in view of the urgency and the facts and circumstances of this case, exemption from filing Official Translation(s) may be granted.`;
+                customTextParagraphs = [new Paragraph({ children: [smartTextRun(otBody)], numbering: { reference: "ia-intro-list", level: 0 } })];
                 break;
             case "exemptionFromSurrendering":
                 iaTitle = standardIaList.find(ia => ia.id === iaIdentifier)?.title || iaTitle;
@@ -2144,18 +2157,18 @@ export async function generateIaDocx(
                 ...finalCustomTextParagraphs,
                  new Paragraph({
                     text: convertToSmartQuotes("No prejudice would be caused to the Respondent(s) if this application were allowed. On the other hand, irreparable injury would be caused to the Petitioner(s) if the application were not allowed."),
-                    numbering: { reference: "ia-intro-list-3", level: 0 },
+                    numbering: { reference: "ia-intro-list", level: 0 },
                 }),
                 new Paragraph({
                     text: convertToSmartQuotes("This application is filed in good faith and in the interests of justice."),
-                    numbering: { reference: "ia-intro-list-3", level: 0 },
+                    numbering: { reference: "ia-intro-list", level: 0 },
                 }),
                  new Paragraph({
                     children: [
                         smartTextRun({ text: "PRAYERS", bold: true }),
                         smartTextRun({ text: ": In view of the foregoing averments, it is most respectfully prayed that this Hon'ble Court may be pleased to:" })
                     ],
-                    numbering: { reference: "ia-intro-list-3", level: 0 },
+                    numbering: { reference: "ia-intro-list", level: 0 },
                 }),
                 prayerTable,
                 new Paragraph({
@@ -2441,11 +2454,11 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
             numbering: { reference: "affidavit-numbering", level: 0 }
         }),
         new Paragraph({
-            text: `I have read and understood the contents of the accompanying Special Leave Petition including Synopsis and List of Dates from Page B to Page ___ and petition for Special Leave to Appeal at Paragraphs 1 to 8. I say that the contents thereof are true and correct to the best of my knowledge and belief.`,
+            text: `I have read and understood the contents of the accompanying Special Leave Petition including Synopsis and List of Dates from Page B to Page ___ and petition for Special Leave to Appeal at Paragraphs 1 to 8, and the contents of all accompanying applications/ IAs. I say that the contents thereof are true and correct to the best of my knowledge and belief.`,
             numbering: { reference: "affidavit-numbering", level: 0 }
         }),
         new Paragraph({
-            text: `Annexures P-1 to P-${lastNonAdPNumber} to the petition are true/translated copies of their respective originals.`,
+            text: `Annexures P-1 to P-${lastNonAdPNumber} to the petition and all annexures to the accompanying applications/IAs are true/translated copies of their respective originals.`,
             numbering: { reference: "affidavit-numbering", level: 0 }
         }),
         new Paragraph({ children: [new TextRun({ text: "DEPONENT", bold: true })], alignment: AlignmentType.RIGHT }),
@@ -3676,8 +3689,9 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
                     } else {
                         throw new Error("Uploaded file is empty.");
                     }
-                } else if (OPTIONAL_CRIMINAL_DOC_IDS.has(meta.id)) {
-                    // Optional criminal docs (Custody Certificate, FIR Details) — user chose to skip
+                } else if (OPTIONAL_CRIMINAL_DOC_IDS.has(meta.id) || meta.id.startsWith('ia_affidavit_')) {
+                    // Optional docs the user chose not to attach (Custody Certificate /
+                    // FIR Details, and IA affidavits) — skip them rather than failing.
                     continue;
                 } else {
                     throw new Error("File not found in form data.");

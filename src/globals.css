@@ -3,7 +3,44 @@
 @tailwind utilities;
 
 body {
-  font-family: Arial, Helvetica, sans-serif;
+  /* Interface font — configurable in Settings → Appearance. */
+  font-family: var(--ui-font, Arial, Helvetica, sans-serif);
+}
+
+/* Editing font — the text the user types (form fields + rich-text editor).
+   Configurable independently in Settings → Appearance. */
+input,
+textarea,
+.ProseMirror,
+[contenteditable="true"] {
+  font-family: var(--input-font, Arial, Helvetica, sans-serif);
+  /* Editing text size — configurable in Settings → Appearance. `!important` is
+     needed to beat the `text-xs`/`text-sm` Tailwind utilities baked into the
+     field components, which otherwise out-specify this rule and pin fields to
+     the interface (root) size. */
+  font-size: var(--input-font-size, 0.75rem) !important;
+}
+
+/* Keep line spacing proportional to the editing font so enlarged editor text
+   never overlaps. `text-xs` would otherwise pin line-height to ~1rem (the
+   interface size) regardless of the larger editing font. */
+textarea,
+.ProseMirror,
+[contenteditable="true"] {
+  line-height: 1.5 !important;
+}
+
+/* Preview/hint (placeholder) text: neutral gray, not the bluish muted-foreground.
+   `!important` is needed to beat Tailwind's `placeholder:text-muted-foreground`
+   utility, which has higher selector specificity. */
+input::placeholder,
+textarea::placeholder {
+  color: hsl(0 0% 60%) !important;
+  opacity: 1;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: hsl(0 0% 55%) !important;
 }
 
 @layer base {
@@ -233,15 +270,5 @@ body {
   color: #111827 !important;
 }
 
-/* Font size scaling */
-html.text-size-small {
-  font-size: 16px; /* Base size - current compact view */
-}
-
-html.text-size-medium {
-  font-size: 18.4px; /* 1.15x larger */
-}
-
-html.text-size-large {
-  font-size: 20.8px; /* 1.3x larger */
-}
+/* Interface text size is set directly as the root font-size (in px) from
+   Settings → Appearance; all rem-based UI text scales off it. Default 16px. */

@@ -63,7 +63,26 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run build && npx electron-builder --mac --publish always
+        # The DMG packaging step (hdiutil) intermittently fails on GitHub macOS
+        # runners with "hdiutil: create failed - Device not configured". The app
+        # build, signing and notarization all succeed; only the disk-image
+        # creation flakes. Retry the electron-builder run a few times so a
+        # transient hdiutil failure doesn't sink the whole release.
+        run: |
+          npm run build
+          for attempt in 1 2 3; do
+            echo "::group::electron-builder --mac (attempt $attempt)"
+            if npx electron-builder --mac --publish always; then
+              echo "::endgroup::"
+              echo "mac build succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "attempt $attempt failed"
+            sleep 30
+          done
+          echo "mac build failed after 3 attempts"
+          exit 1
 
       - name: Clean up Apple API key
         if: always()

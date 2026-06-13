@@ -19,7 +19,6 @@ import { getGenerationCounts, type UsageCounts } from "@/lib/firebase/usage-serv
 import { LICENSE_TEXT, TERMS_TEXT } from "@/lib/legal";
 import { cn } from "@/lib/utils";
 
-type FontSize = 'small' | 'medium' | 'large';
 type SlpTabView = 'splitter' | 'navigation';
 type QuoteLineSpacing = 'default' | 'single';
 type TrueCopyPosition = 'left' | 'center';
@@ -31,7 +30,10 @@ interface SettingsData {
   defaultPdfPath: string;
   defaultDraftoPath: string;
 
-  fontSize: FontSize;
+  uiFont: string;        // interface font (CSS font-family stack)
+  uiFontSize: number;    // interface text size, px (root font-size)
+  inputFont: string;     // editing font for form fields + rich-text editor
+  inputFontSize: number; // editing text size, px
   annexureLabelBackground: boolean;
   annexureLabelSize: number;
   exportHighlight: boolean;
@@ -80,6 +82,46 @@ const OUTPUT_FONTS = [
   "Times New Roman", "Equity Text A", "Tinos", "Calisto MT", "Bookman Old Style",
   "Century Schoolbook", "Century",
 ];
+
+// System fonts offered for the on-screen interface / editing text. Values are
+// full CSS font-family stacks with cross-platform fallbacks (no bundled fonts),
+// so they render the same offline on macOS and Windows.
+const SYSTEM_FONTS: { label: string; value: string }[] = [
+  { label: "Arial", value: 'Arial, Helvetica, sans-serif' },
+  { label: "Helvetica", value: 'Helvetica, Arial, sans-serif' },
+  { label: "Verdana", value: 'Verdana, Geneva, sans-serif' },
+  { label: "Tahoma", value: 'Tahoma, Geneva, sans-serif' },
+  { label: "Trebuchet MS", value: '"Trebuchet MS", Helvetica, sans-serif' },
+  { label: "Segoe UI", value: '"Segoe UI", system-ui, sans-serif' },
+  { label: "Georgia", value: 'Georgia, "Times New Roman", serif' },
+  { label: "Times New Roman", value: '"Times New Roman", Times, serif' },
+  { label: "Cambria", value: 'Cambria, Georgia, serif' },
+  { label: "Garamond", value: 'Garamond, "Times New Roman", serif' },
+  { label: "Courier New", value: '"Courier New", Courier, monospace' },
+];
+
+// Appearance defaults, used by the "Restore Defaults" button. The font default
+// (Arial) matches the app's historical look, so restoring returns to today's
+// appearance.
+const DEFAULT_UI_FONT = 'Arial, Helvetica, sans-serif';
+const DEFAULT_INPUT_FONT = 'Arial, Helvetica, sans-serif';
+const DEFAULT_UI_FONT_SIZE = 16;    // px — root font-size; matches the historical compact view
+// Editing text defaults a little smaller than the interface (the historical
+// look); overlap at larger sizes is handled by the proportional line-height in
+// globals.css, so the two sizes can be set independently.
+const DEFAULT_INPUT_FONT_SIZE = 12; // px
+
+// Numeric text-size choices (px) offered in Settings → Appearance.
+const UI_FONT_SIZES = [13, 14, 15, 16, 17, 18, 20, 22, 24, 26, 28];
+const INPUT_FONT_SIZES = [11, 12, 13, 14, 15, 16, 18, 20, 22, 24];
+
+const APPEARANCE_DEFAULTS = {
+  theme: 'light' as const,
+  uiFont: DEFAULT_UI_FONT,
+  uiFontSize: DEFAULT_UI_FONT_SIZE,
+  inputFont: DEFAULT_INPUT_FONT,
+  inputFontSize: DEFAULT_INPUT_FONT_SIZE,
+};
 
 const SETTINGS_KEY = "drafto-settings";
 
@@ -240,7 +282,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     defaultDocxPath: "",
     defaultPdfPath: "",
     defaultDraftoPath: "",
-    fontSize: 'small',
+    uiFont: DEFAULT_UI_FONT,
+    uiFontSize: DEFAULT_UI_FONT_SIZE,
+    inputFont: DEFAULT_INPUT_FONT,
+    inputFontSize: DEFAULT_INPUT_FONT_SIZE,
     annexureLabelBackground: false,
     annexureLabelSize: 14,
     exportHighlight: false,
@@ -283,7 +328,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           defaultDocxPath: parsed.defaultDocxPath || "",
           defaultPdfPath: parsed.defaultPdfPath || "",
           defaultDraftoPath: parsed.defaultDraftoPath || "",
-          fontSize: parsed.fontSize || 'small',
+          uiFont: parsed.uiFont || DEFAULT_UI_FONT,
+          uiFontSize: parsed.uiFontSize ?? DEFAULT_UI_FONT_SIZE,
+          inputFont: parsed.inputFont || DEFAULT_INPUT_FONT,
+          inputFontSize: parsed.inputFontSize ?? DEFAULT_INPUT_FONT_SIZE,
           annexureLabelBackground: parsed.annexureLabelBackground ?? false,
           annexureLabelSize: parsed.annexureLabelSize ?? 14,
           exportHighlight: parsed.exportHighlight ?? false,
@@ -315,7 +363,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           defaultAorName: parsed.defaultAorName ?? "",
           defaultAorCode: parsed.defaultAorCode ?? "",
         });
-        if (parsed.fontSize) applyFontSize(parsed.fontSize);
+        applyUiFont(parsed.uiFont || DEFAULT_UI_FONT);
+        applyUiFontSize(parsed.uiFontSize ?? DEFAULT_UI_FONT_SIZE);
+        applyInputFont(parsed.inputFont || DEFAULT_INPUT_FONT);
+        applyInputFontSize(parsed.inputFontSize ?? DEFAULT_INPUT_FONT_SIZE);
       } catch (err) {
         console.error("Failed to parse settings:", err);
       }
@@ -374,9 +425,29 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   const handleSave = () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     window.dispatchEvent(new CustomEvent('drafto-settings-changed'));
-    applyFontSize(settings.fontSize);
+    applyUiFont(settings.uiFont);
+    applyUiFontSize(settings.uiFontSize);
+    applyInputFont(settings.inputFont);
+    applyInputFontSize(settings.inputFontSize);
     toast({ title: "Settings Saved", description: "Your settings have been updated." });
     setOpen(false);
+  };
+
+  // Reset the Appearance settings (theme, text size, fonts) to their defaults and
+  // apply them live. Other settings are untouched; Save still persists.
+  const restoreAppearanceDefaults = () => {
+    setTheme(APPEARANCE_DEFAULTS.theme);
+    setSettings((prev) => ({
+      ...prev,
+      uiFont: APPEARANCE_DEFAULTS.uiFont,
+      uiFontSize: APPEARANCE_DEFAULTS.uiFontSize,
+      inputFont: APPEARANCE_DEFAULTS.inputFont,
+      inputFontSize: APPEARANCE_DEFAULTS.inputFontSize,
+    }));
+    applyUiFont(APPEARANCE_DEFAULTS.uiFont);
+    applyUiFontSize(APPEARANCE_DEFAULTS.uiFontSize);
+    applyInputFont(APPEARANCE_DEFAULTS.inputFont);
+    applyInputFontSize(APPEARANCE_DEFAULTS.inputFontSize);
   };
 
   const handleBrowse = async (type: "docx" | "pdf" | "drafto") => {
@@ -560,22 +631,80 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   </div>
                 </div>
 
-                {/* Interface Text Size */}
+                {/* Interface Font + Size */}
                 <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Interface Text Size</p>
-                  <p className="text-xs text-muted-foreground">Adjusts the size of Drafto's on-screen text. Does not affect the generated document.</p>
-                  <RadioGroup
-                    value={settings.fontSize}
-                    onValueChange={(value: FontSize) => setSettings((prev) => ({ ...prev, fontSize: value }))}
-                    className="flex gap-3"
-                  >
-                    {(['small', 'medium', 'large'] as FontSize[]).map((s) => (
-                      <div key={s} className="flex items-center gap-1">
-                        <RadioGroupItem value={s} id={`size-${s}`} />
-                        <Label htmlFor={`size-${s}`} className="text-xs font-normal cursor-pointer capitalize">{s}</Label>
-                      </div>
-                    ))}
-                  </RadioGroup>
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Interface Font</p>
+                  <p className="text-xs text-muted-foreground">Font &amp; text size used across Drafto's interface. Does not affect the generated document.</p>
+                  <div className="flex gap-2">
+                    <Select
+                      value={settings.uiFont}
+                      onValueChange={(value) => { setSettings((prev) => ({ ...prev, uiFont: value })); applyUiFont(value); }}
+                    >
+                      <SelectTrigger className="h-8 w-[200px] text-xs" style={{ fontFamily: settings.uiFont }}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SYSTEM_FONTS.map((f) => (
+                          <SelectItem key={f.value} value={f.value} className="text-xs" style={{ fontFamily: f.value }}>{f.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={String(settings.uiFontSize)}
+                      onValueChange={(value) => { const n = parseInt(value, 10); setSettings((prev) => ({ ...prev, uiFontSize: n })); applyUiFontSize(n); }}
+                    >
+                      <SelectTrigger className="h-8 w-[90px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {UI_FONT_SIZES.map((s) => (
+                          <SelectItem key={s} value={String(s)} className="text-xs">{s} px</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Editing Font + Size */}
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Editing Font</p>
+                  <p className="text-xs text-muted-foreground">Font &amp; text size for the text you type — form fields and the rich-text editor. For the best view, keep this at or below the interface size. Does not affect the generated document.</p>
+                  <div className="flex gap-2">
+                    <Select
+                      value={settings.inputFont}
+                      onValueChange={(value) => { setSettings((prev) => ({ ...prev, inputFont: value })); applyInputFont(value); }}
+                    >
+                      <SelectTrigger className="h-8 w-[200px] text-xs" style={{ fontFamily: settings.inputFont }}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SYSTEM_FONTS.map((f) => (
+                          <SelectItem key={f.value} value={f.value} className="text-xs" style={{ fontFamily: f.value }}>{f.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={String(settings.inputFontSize)}
+                      onValueChange={(value) => { const n = parseInt(value, 10); setSettings((prev) => ({ ...prev, inputFontSize: n })); applyInputFontSize(n); }}
+                    >
+                      <SelectTrigger className="h-8 w-[90px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {INPUT_FONT_SIZES.map((s) => (
+                          <SelectItem key={s} value={String(s)} className="text-xs">{s} px</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {/* Restore Appearance Defaults */}
+                <div className="pt-1">
+                  <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={restoreAppearanceDefaults}>
+                    Restore Defaults
+                  </Button>
+                  <p className="mt-1 text-[10px] text-muted-foreground">Resets Mode, Fonts and Sizes to Light, Arial, 16&nbsp;px (interface) and 12&nbsp;px (editing). Click Save to keep.</p>
                 </div>
               </div>
             )}
@@ -1486,15 +1615,27 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Helper function to apply font size to HTML element
-function applyFontSize(fontSize: FontSize) {
+// Interface text size = root font-size (px); all rem-based UI text scales off it.
+function applyUiFontSize(px: number) {
   if (typeof document === "undefined") return;
-  
-  const html = document.documentElement;
-  // Remove existing size classes
-  html.classList.remove('text-size-small', 'text-size-medium', 'text-size-large');
-  // Add new size class
-  html.classList.add(`text-size-${fontSize}`);
+  document.documentElement.style.fontSize = `${px || DEFAULT_UI_FONT_SIZE}px`;
+}
+
+// Editing text size = absolute px applied to inputs / textareas / the editor
+// via a CSS variable (see globals.css).
+function applyInputFontSize(px: number) {
+  if (typeof document === "undefined") return;
+  document.documentElement.style.setProperty('--input-font-size', `${px || DEFAULT_INPUT_FONT_SIZE}px`);
+}
+
+function applyUiFont(font: string) {
+  if (typeof document === "undefined") return;
+  document.documentElement.style.setProperty('--ui-font', font || DEFAULT_UI_FONT);
+}
+
+function applyInputFont(font: string) {
+  if (typeof document === "undefined") return;
+  document.documentElement.style.setProperty('--input-font', font || DEFAULT_INPUT_FONT);
 }
 
 // Helper function to get settings
@@ -1503,7 +1644,10 @@ export function getSettings(): SettingsData {
     defaultDocxPath: "",
     defaultPdfPath: "",
     defaultDraftoPath: "",
-    fontSize: 'small',
+    uiFont: DEFAULT_UI_FONT,
+    uiFontSize: DEFAULT_UI_FONT_SIZE,
+    inputFont: DEFAULT_INPUT_FONT,
+    inputFontSize: DEFAULT_INPUT_FONT_SIZE,
     annexureLabelBackground: false,
     annexureLabelSize: 14,
     exportHighlight: false,
@@ -1546,7 +1690,10 @@ export function getSettings(): SettingsData {
         defaultDocxPath: parsed.defaultDocxPath || "",
         defaultPdfPath: parsed.defaultPdfPath || "",
         defaultDraftoPath: parsed.defaultDraftoPath || "",
-        fontSize: parsed.fontSize || 'small',
+        uiFont: parsed.uiFont || DEFAULT_UI_FONT,
+        uiFontSize: parsed.uiFontSize ?? DEFAULT_UI_FONT_SIZE,
+        inputFont: parsed.inputFont || DEFAULT_INPUT_FONT,
+        inputFontSize: parsed.inputFontSize ?? DEFAULT_INPUT_FONT_SIZE,
         annexureLabelBackground: parsed.annexureLabelBackground ?? false,
         annexureLabelSize: parsed.annexureLabelSize ?? 14,
         exportHighlight: parsed.exportHighlight ?? false,
@@ -1589,5 +1736,8 @@ export function getSettings(): SettingsData {
 // Initialize font size on app load
 if (typeof window !== "undefined") {
   const settings = getSettings();
-  applyFontSize(settings.fontSize);
+  applyUiFont(settings.uiFont);
+  applyUiFontSize(settings.uiFontSize);
+  applyInputFont(settings.inputFont);
+  applyInputFontSize(settings.inputFontSize);
 }

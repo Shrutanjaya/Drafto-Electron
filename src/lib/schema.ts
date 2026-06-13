@@ -118,6 +118,7 @@ export const draftoProjectSchema = z.object({
   impugnedOrders: z.array(impugnedOrderSchema).default([impugnedOrderSchema.parse({})]),
   intraCourtAppealStatus: z.enum(["", "no_appeal_lies", "appeal_lies_but"]).default(""),
   intraCourtAppealReason: z.string().default(""),
+  para1BContent: z.string().default(""),
 
   advocate: z.object({
     aorName: z.string().default(""),
@@ -204,7 +205,7 @@ export const draftoProjectSchema = z.object({
     additionalDocuments: z.boolean().default(false),
     additionalDocumentsGrounds: z.array(aamTableItemSchema).default([aamTableItemSchema.parse({})]),
     exemptionCertifiedCopy: z.object({
-        active: z.boolean().default(false),
+        active: z.boolean().default(true),
         hasApplied: z.enum(["yes", "no"]).default("yes"),
         receiptFile: z.any().optional(),
         receiptDate: z.preprocess((arg) => {
@@ -214,7 +215,8 @@ export const draftoProjectSchema = z.object({
     }).default({}),
     exemptionOfficialTranslation: z.object({
       active: z.boolean().default(false),
-      reason: z.string().default(""),
+      reason: z.string().default(""),       // auto: the list of translated annexures (e.g. "Annexure P-3")
+      userReason: z.string().default(""),   // optional user-entered reason for not obtaining official translations
     }).default({}),
     exemptionFromSurrendering: z.object({
       active: z.boolean().default(false),

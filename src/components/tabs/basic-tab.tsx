@@ -458,6 +458,7 @@ export function BasicTab() {
                 )}
                 <Card>
                   <CardContent className="p-2 space-y-2">
+                    <h5 className="text-xs font-semibold text-muted-foreground dark:text-slate-300">Contents of Para 1A (Optional):</h5>
                     <div className="flex flex-col space-y-1">
                       <FormField
                         control={form.control}
@@ -505,6 +506,16 @@ export function BasicTab() {
                         )}
                       />
                     )}
+                    <h5 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 pt-1">Contents of Para 1B (Optional):</h5>
+                    <FormField
+                      control={form.control}
+                      name="para1BContent"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormControl><Textarea {...field} placeholder="Enter the contents of Para 1B..." className="text-xs" /></FormControl>
+                        </FormItem>
+                      )}
+                    />
                   </CardContent>
                 </Card>
               </>

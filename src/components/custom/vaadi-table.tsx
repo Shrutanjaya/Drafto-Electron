@@ -4,14 +4,6 @@
 import { useFieldArray, useFormContext } from "react-hook-form"
 import type { DraftoProject } from "@/lib/schema"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
   FormControl,
   FormField,
   FormItem,
@@ -28,7 +20,6 @@ import {
   DragEndEvent,
 } from '@dnd-kit/core';
 import {
-  arrayMove,
   SortableContext,
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
@@ -36,7 +27,6 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import React, { useEffect, useState } from "react"
-import { Input } from "../ui/input"
 import { Textarea } from "../ui/textarea"
 
 type VaadiTableName =
@@ -50,35 +40,92 @@ interface VaadiTableProps {
     disabled?: boolean;
 }
 
-const SortableRow = ({ id, children }: { id: string, children: React.ReactNode }) => {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-  } = useSortable({id});
+// Auto-growing single-field cell. The field name is shown as in-field preview
+// (placeholder) text rather than a separate caption above the field.
+const PartyField = ({
+  name,
+  label,
+}: {
+  name: string;
+  label: string;
+}) => {
+  const form = useFormContext<DraftoProject>();
+  return (
+    <FormField
+      control={form.control}
+      name={name as "petitioners.0.name"}
+      render={({ field }) => (
+        <FormItem className="space-y-0">
+          <FormControl>
+            <Textarea
+              {...field}
+              placeholder={label}
+              ref={(el) => { field.ref(el); if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
+              rows={1}
+              className="p-1.5 text-xs min-h-0 overflow-hidden resize-none leading-snug"
+              onInput={(e) => { const t = e.currentTarget; t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }}
+            />
+          </FormControl>
+        </FormItem>
+      )}
+    />
+  );
+};
 
+const SortableCard = ({
+  id,
+  index,
+  name,
+  onRemove,
+}: {
+  id: string;
+  index: number;
+  name: string;
+  onRemove: () => void;
+}) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+    zIndex: isDragging ? 1 : undefined,
   };
+  const roleLabel = name.endsWith('respondents') ? 'Respondent' : 'Petitioner';
 
   return (
-    <TableRow ref={setNodeRef} style={style} {...attributes} className="border-none align-top">
-      <TableCell className="p-0 pt-1">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="rounded-md border bg-card shadow-sm"
+    >
+      <div className="flex items-center gap-1 border-b bg-muted/40 px-1.5 py-1">
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className="h-7 w-7 cursor-grab"
+          className="h-6 w-6 cursor-grab text-muted-foreground"
+          {...attributes}
           {...listeners}
         >
-          <GripVertical className="h-4 w-4" />
+          <GripVertical className="h-3.5 w-3.5" />
         </Button>
-      </TableCell>
-      {children}
-    </TableRow>
+        <span className="text-xs font-semibold text-muted-foreground">{roleLabel} No. {index + 1}</span>
+        <div className="flex-grow" />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 text-destructive hover:text-destructive"
+          onClick={onRemove}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <div className="space-y-2 p-2">
+        <PartyField name={`${name}.${index}.name`} label="Name" />
+        <PartyField name={`${name}.${index}.address`} label="Address" />
+        <PartyField name={`${name}.${index}.positionInEarlierCourt`} label="Position in the Court Below" />
+      </div>
+    </div>
   );
 };
 
@@ -107,7 +154,7 @@ export function VaadiTable({ name, disabled = false }: VaadiTableProps) {
 
   const handleDragEnd = (event: DragEndEvent) => {
     const {active, over} = event;
-    
+
     if (active.id !== over?.id) {
       const oldIndex = fields.findIndex(field => field.id === active.id);
       const newIndex = fields.findIndex(field => field.id === over!.id);
@@ -116,126 +163,43 @@ export function VaadiTable({ name, disabled = false }: VaadiTableProps) {
   }
 
   return (
-    <fieldset disabled={disabled} className="space-y-1 group">
-      <div className="rounded-md group-disabled:opacity-50 group-disabled:blur-sm">
+    <fieldset disabled={disabled} className="space-y-2 group">
+      <div className="group-disabled:opacity-50 group-disabled:blur-sm">
         <ClientSideDnd>
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
           >
-            <Table>
-              <TableHeader>
-                <TableRow className="border-none">
-                  <TableHead className="w-[30px] p-0 text-xs"></TableHead>
-                  <TableHead className="w-[30px] text-center p-0 text-xs"></TableHead>
-                  <TableHead className="text-center p-0 text-xs">Name</TableHead>
-                  <TableHead className="text-center p-0 text-xs">Address</TableHead>
-                  <TableHead className="text-center p-0 text-xs">Position in Earlier Court</TableHead>
-                  <TableHead className="w-[30px] text-center p-0 text-xs"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <SortableContext
-                items={fields}
-                strategy={verticalListSortingStrategy}
-              >
-                <TableBody>
-                    {fields.map((item, index) => (
-                      <SortableRow key={item.id} id={item.id}>
-                        <TableCell className="font-medium text-xs align-middle p-0 text-center">{index + 1}</TableCell>
-                        <TableCell className="p-0 align-top">
-                          <FormField
-                            control={form.control}
-                            name={`${name}.${index}.name` as any}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormControl>
-                                  <Textarea
-                                    {...field}
-                                    ref={(el) => { field.ref(el); if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
-                                    rows={1}
-                                    className="p-1 text-xs border-0 focus-visible:ring-0 min-h-0 overflow-hidden resize-none"
-                                    onInput={(e) => { const t = e.currentTarget; t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }}
-                                  />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
-                        </TableCell>
-                        <TableCell className="p-0 align-top">
-                          <FormField
-                            control={form.control}
-                            name={`${name}.${index}.address` as any}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormControl>
-                                  <Textarea
-                                    {...field}
-                                    ref={(el) => { field.ref(el); if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
-                                    rows={1}
-                                    className="p-1 text-xs border-0 focus-visible:ring-0 min-h-0 overflow-hidden resize-none"
-                                    onInput={(e) => { const t = e.currentTarget; t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }}
-                                  />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
-                        </TableCell>
-                        <TableCell className="p-0 align-top">
-                          <FormField
-                            control={form.control}
-                            name={`${name}.${index}.positionInEarlierCourt` as any}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormControl>
-                                  <Textarea
-                                    {...field}
-                                    ref={(el) => { field.ref(el); if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
-                                    rows={1}
-                                    className="p-1 text-xs border-0 focus-visible:ring-0 min-h-0 overflow-hidden resize-none"
-                                    onInput={(e) => { const t = e.currentTarget; t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }}
-                                  />
-                                </FormControl>
-                              </FormItem>
-                            )}
-                          />
-                        </TableCell>
-                        <TableCell className="p-0">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="text-destructive hover:text-destructive h-7 w-7"
-                            onClick={() => remove(index)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </TableCell>
-                      </SortableRow>
-                    ))}
-                </TableBody>
-              </SortableContext>
-              {fields.length === 0 && (
-                <TableBody>
-                  <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center text-muted-foreground p-0">
-                      No items.
-                    </TableCell>
-                  </TableRow>
-                </TableBody>
-              )}
-            </Table>
+            <SortableContext items={fields} strategy={verticalListSortingStrategy}>
+              <div className="space-y-2">
+                {fields.map((item, index) => (
+                  <SortableCard
+                    key={item.id}
+                    id={item.id}
+                    index={index}
+                    name={name}
+                    onRemove={() => remove(index)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
           </DndContext>
         </ClientSideDnd>
+        {fields.length === 0 && (
+          <div className="flex h-20 items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
+            No parties added yet.
+          </div>
+        )}
       </div>
       <Button
         type="button"
         variant="outline"
-        size="icon"
-        className="h-7 w-7"
+        size="sm"
+        className="h-7 text-xs"
         onClick={() => append({ id: `vaadi_${Date.now()}`, name: "", address: "", positionInEarlierCourt: "" })}
       >
-        <PlusCircle className="h-4 w-4" />
+        <PlusCircle className="mr-1.5 h-4 w-4" /> Add Party
       </Button>
     </fieldset>
   )

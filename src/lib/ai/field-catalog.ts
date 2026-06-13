@@ -162,6 +162,14 @@ const BASE_CATALOG: CatalogEntry[] = [
     isList: false,
     kind: "longtext",
   },
+  {
+    path: "para1BContent",
+    tab: "Preliminary",
+    label: "Para 1B contents",
+    description: "Optional free-text contents for Para 1B of the petition, added directly below Para 1A. Leave empty if not needed.",
+    isList: false,
+    kind: "longtext",
+  },
   { path: "advocate.filingPlace", tab: "Preliminary", label: "Filing place", description: "Usually New Delhi.", isList: false, kind: "text" },
   { path: "advocate.filingDate", tab: "Preliminary", label: "Filing date (ISO yyyy-mm-dd)", description: "Date the petition is filed.", isList: false, kind: "date" },
   {
@@ -429,10 +437,10 @@ const BASE_CATALOG: CatalogEntry[] = [
     kind: "boolean",
   },
   {
-    path: "standardIas.exemptionOfficialTranslation.reason",
+    path: "standardIas.exemptionOfficialTranslation.userReason",
     tab: "Applications",
-    label: "Official translation exemption — reason",
-    description: "Reason for seeking exemption from filing the official translation.",
+    label: "Official translation exemption — reason (optional)",
+    description: "Optional user-entered reason for not obtaining the official translation; inserted into the application's second paragraph. (The list of translated annexures is filled automatically.)",
     isList: false,
     kind: "longtext",
   },

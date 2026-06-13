@@ -42,7 +42,7 @@ import { useToast } from "@/hooks/use-toast";
 import { generatePdf } from "@/lib/actions";
 import { getSettings } from "./settings-dialog";
 import { incrementGenerationCount } from "@/lib/firebase/usage-service";
-import { Upload, Loader2, Info, Lock, CheckCircle2, AlertCircle, Settings2, AlertTriangle } from "lucide-react";
+import { Upload, Loader2, Info, Lock, CheckCircle2, AlertCircle, Settings2, AlertTriangle, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FormControl, FormField, FormItem } from "@/components/ui/form";
@@ -179,6 +179,12 @@ const USER_UPLOAD_REQUIRED_IDS = [
     'appendix',
     'certified_copy_receipt',
 ];
+
+// User-upload components that are NOT mandatory: missing ones don't block
+// generation, they only raise a non-blocking warning (like Custody Certificate
+// and FIR Details). Only the SLP Affidavit remains mandatory among affidavits.
+const OPTIONAL_UPLOAD_PREFIXES = ['ia_affidavit_'];
+const isOptionalUpload = (id: string) => OPTIONAL_UPLOAD_PREFIXES.some(p => id.startsWith(p));
 
 // These two are always regenerated in Pass 2 with injected page numbers / annexure refs.
 // A user-supplied file would lack that data, so they must remain locked.
@@ -649,17 +655,33 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         }
     }
 
-    const getMissingOptionalCriminalDocs = (data: PdfMergeForm): string[] => {
-        if (mainForm.getValues('caseType') !== 'Criminal') return [];
+    // Clear an optional document's uploaded file. Optional uploads (IA affidavits,
+    // Custody Certificate, FIR Details) live only in the upload form, so clearing
+    // the field and persisting the merge state is all that's needed.
+    const handleRemoveFile = (index: number) => {
+        setValue(`mergeItems.${index}.userFile`, null, { shouldDirty: true });
+        setTimeout(() => {
+            const currentState = getValues('mergeItems');
+            mainForm.setValue('pdfMergeItems', currentState, { shouldDirty: false });
+        }, 0);
+    }
+
+    const getMissingOptionalDocs = (data: PdfMergeForm): string[] => {
+        const isCriminal = mainForm.getValues('caseType') === 'Criminal';
         return data.mergeItems
-            .filter(item => ['custodyCertificate', 'firDetails'].includes(item.id))
+            .filter(item => {
+                // IA Affidavits are optional in all SLPs.
+                if (isOptionalUpload(item.id)) return true;
+                // Custody Certificate / FIR Details are optional in Criminal SLPs.
+                return isCriminal && ['custodyCertificate', 'firDetails'].includes(item.id);
+            })
             .filter(item => !(item.userFile instanceof File))
             .map(item => item.label);
     };
 
     const onSubmit = async (data: PdfMergeForm) => {
-        // For Criminal SLPs: warn if optional docs are missing, but allow proceeding
-        const missingOptional = getMissingOptionalCriminalDocs(data);
+        // Warn if optional docs (IA affidavits, custody/FIR) are missing, but allow proceeding
+        const missingOptional = getMissingOptionalDocs(data);
         if (missingOptional.length > 0 && !pendingSubmitData.current) {
             pendingSubmitData.current = data;
             setShowCriminalDocWarning(true);
@@ -859,7 +881,9 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                     return !(appendixFile instanceof File);
                 }
 
-                const isRequired = USER_UPLOAD_REQUIRED_IDS.some(prefix => item.id.startsWith(prefix));
+                const isRequired =
+                    USER_UPLOAD_REQUIRED_IDS.some(prefix => item.id.startsWith(prefix)) &&
+                    !isOptionalUpload(item.id);
                 if (isRequired) {
                     return !(item.userFile instanceof File);
                 }
@@ -972,6 +996,9 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                                     const hasFile = currentItem.userFile instanceof File;
                                     const isSystemMode = currentItem.useSystem;
                                     const isOptionalCriminal = currentItem.id === 'custodyCertificate' || currentItem.id === 'firDetails';
+                                    // Optional uploads share the same (yellow) treatment: Custody/FIR in
+                                    // Criminal SLPs, plus IA Affidavits in every SLP.
+                                    const isOptional = isOptionalCriminal || isOptionalUpload(currentItem.id);
                                     const lockedTooltip = currentItem.id === 'ci'
                                         ? 'Cover page & index contains auto-calculated page numbers; cannot be replaced'
                                         : currentItem.id === 'slod'
@@ -998,14 +1025,27 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                                                         </Tooltip>
                                                     </TooltipProvider>
                                                 ) : hasFile ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => triggerFileUpload(index)}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20 cursor-pointer max-w-[180px]"
-                                                    >
-                                                        <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
-                                                        <span className="truncate">{currentItem.userFile!.name}</span>
-                                                    </button>
+                                                    <div className="inline-flex items-center gap-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => triggerFileUpload(index)}
+                                                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20 cursor-pointer max-w-[180px]"
+                                                        >
+                                                            <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
+                                                            <span className="truncate">{currentItem.userFile!.name}</span>
+                                                        </button>
+                                                        {isOptional && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemoveFile(index)}
+                                                                title="Remove file"
+                                                                aria-label="Remove file"
+                                                                className="inline-flex items-center justify-center h-5 w-5 rounded-full text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/20 cursor-pointer"
+                                                            >
+                                                                <X className="h-3.5 w-3.5" />
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 ) : isSystemMode ? (
                                                     <button
                                                         type="button"
@@ -1021,7 +1061,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                                                         onClick={() => triggerFileUpload(index)}
                                                         className={cn(
                                                             "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs cursor-pointer",
-                                                            isOptionalCriminal
+                                                            isOptional
                                                                 ? "border border-yellow-500/40 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/20"
                                                                 : "border border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20"
                                                         )}
@@ -1055,7 +1095,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                     />
                     <label
                         htmlFor="enable-ocr"
-                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                        className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                     >
                         OCR (takes much longer){isMac ? " - unavailable on macOS" : ""}
                     </label>
@@ -1076,13 +1116,13 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             <AlertDialog open={showCriminalDocWarning} onOpenChange={setShowCriminalDocWarning}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Missing Criminal SLP Documents</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            The following documents have not been attached. They are required for Criminal SLPs where the Petitioner is in judicial custody:
+                        <AlertDialogTitle>Missing Optional Documents</AlertDialogTitle>
+                        <AlertDialogDescription className="text-xs">
+                            The following documents have not been attached. They are optional — you can proceed without them:
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
-                        {pendingSubmitData.current && getMissingOptionalCriminalDocs(pendingSubmitData.current).map(label => (
+                    <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
+                        {pendingSubmitData.current && getMissingOptionalDocs(pendingSubmitData.current).map(label => (
                             <li key={label}>{label}</li>
                         ))}
                     </ul>
@@ -1179,7 +1219,7 @@ export function PdfGenerationDialog({ children }: { children: React.ReactNode })
                             {hasIssues ? 'Some fields appear to be blank' : 'Note'}
                         </DialogTitle>
                         {hasIssues && (
-                            <DialogDescription>
+                            <DialogDescription className="text-xs">
                                 The following fields were found to be blank. Do you wish to go back and fill them, or proceed anyway?
                             </DialogDescription>
                         )}
@@ -1188,15 +1228,15 @@ export function PdfGenerationDialog({ children }: { children: React.ReactNode })
                         <div className="space-y-4">
                             {validation.warnings.map((w, i) => (
                                 <div key={i} className="rounded-md border border-amber-200 bg-amber-50 p-3">
-                                    <p className="text-sm text-amber-800">{w}</p>
+                                    <p className="text-xs text-amber-800">{w}</p>
                                 </div>
                             ))}
                             {validation.issues.map(({ tab, items }) => (
                                 <div key={tab}>
-                                    <p className="text-sm font-semibold">{tab}</p>
+                                    <p className="text-xs font-semibold">{tab}</p>
                                     <ul className="mt-1 list-disc pl-5 space-y-0.5">
                                         {items.map(item => (
-                                            <li key={item} className="text-sm text-muted-foreground">{item}</li>
+                                            <li key={item} className="text-xs text-muted-foreground">{item}</li>
                                         ))}
                                     </ul>
                                 </div>
