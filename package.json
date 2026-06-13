@@ -133,7 +133,6 @@
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico",
-      "publisherName": "Quindoph Legal Solutions Pvt. Ltd.",
       "extraResources": [
         {
           "from": "python",
