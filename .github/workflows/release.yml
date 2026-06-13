@@ -11,10 +11,6 @@ permissions:
 jobs:
   build-mac:
     runs-on: macos-14
-    # TEMPORARILY DISABLED for v1.2.2: this is a Windows-only fix release (Mayur
-    # ENAMETOOLONG + install/sign-in flow). The macOS app is unaffected, so skip
-    # the mac build. Re-enabled on main in the next commit.
-    if: ${{ false }}
 
     steps:
       - uses: actions/checkout@v4
