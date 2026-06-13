@@ -1108,8 +1108,16 @@ ipcMain.handle("open-projects-folder", () => {
   shell.openPath(projectsDir());
 });
 
+// Coalesce rapid repeat opens of the SAME folder into one window. Generating
+// several docx at once fires one open per file; Windows opens a new Explorer
+// window each time (macOS reuses a single Finder window), so without this the
+// user gets N windows. Opening the same folder again after a short gap still works.
+let lastFolderOpen = { path: null, at: 0 };
 ipcMain.handle("open-folder-path", (_event, folderPath) => {
   if (!folderPath || typeof folderPath !== "string") return;
+  const now = Date.now();
+  if (folderPath === lastFolderOpen.path && now - lastFolderOpen.at < 10000) return;
+  lastFolderOpen = { path: folderPath, at: now };
   shell.openPath(folderPath);
 });
 

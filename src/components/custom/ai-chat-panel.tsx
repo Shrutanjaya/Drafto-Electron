@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useFormContext } from "react-hook-form";
-import { Sparkles, X, Minus, FolderOpen, Send, Loader2, AlertCircle, CheckCircle, Wand2, Maximize2, Minimize2 } from "lucide-react";
+import { Sparkles, X, Minus, FolderOpen, Send, Loader2, AlertCircle, CheckCircle, Wand2, Maximize2, Minimize2, RotateCcw } from "lucide-react";
 import { PRESETS } from "@/lib/ai/presets";
 import { estimateLabel, formatElapsed, type Effort } from "@/lib/ai/estimate";
 import { getSettings } from "@/components/dialogs/settings-dialog";
@@ -48,17 +48,6 @@ function fmtTokens(n: number): string {
 // Below this many text tokens, a folder task runs without a cost prompt.
 const TOKEN_WARN_THRESHOLD = 20000;
 
-// Heuristic: did the user's message ask Mayur to put content INTO Drafto? Used
-// only for the safety-net "Put this into Drafto" button (the system prompt is
-// the real driver). Catches action verbs and affirmations of an offer to fill.
-const ACTION_RE = /\b(draft|fill|writ|enter|populat|prepare|complete|attach|generat|put\s+in)\b/i;
-const AFFIRM_RE = /^\s*(yes|yep|yup|ok|okay|sure|go ahead|do it|please do|fill|enter)\b/i;
-function isActionish(text: string): boolean {
-  return ACTION_RE.test(text) || AFFIRM_RE.test(text);
-}
-
-const FILL_FROM_CHAT_PROMPT =
-  "Now put the content from your previous message into the appropriate Drafto fields as a JSON proposal. Use exactly what you already wrote above — do not re-read the source documents. Make sure the JSON is strictly valid: escape every double-quote as \\\" and every line break as \\n inside string values, and wrap it in a ```json code block.";
 
 // "1234" → "1.2k", "850" → "850"
 function fmtNum(n: number): string {
@@ -141,14 +130,16 @@ export function AiChatPanel() {
   const [pendingDocMap, setPendingDocMap] = useState<PendingDocMap | null>(null);
   const [docSplitting, setDocSplitting] = useState(false);
   const [showPresets, setShowPresets] = useState(true);
-  // Safety net: shown when an action request came back as prose with no proposal.
-  const [showFillButton, setShowFillButton] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  // List of Dates task: pending annexure-handling choice (shown as two buttons).
+  const [lodPending, setLodPending] = useState<{ prompt: string; effort: Effort; model?: string } | null>(null);
+  // Panel display: docked (bottom-right), popped-out (centred dialog), or full
+  // (fills the window). Popout/full render over a dim backdrop.
+  const [view, setView] = useState<'docked' | 'popout' | 'full'>('docked');
   // Claude Code session id, carried turn-to-turn so the conversation has memory.
   const [sessionId, setSessionId] = useState<string | null>(null);
   // When a folder has scanned pages, we ask the user before reading them as
   // images. The pending send is parked here until they choose.
-  const [pendingConfirm, setPendingConfirm] = useState<{ text: string; effort: Effort } | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<{ text: string; effort: Effort; model?: string } | null>(null);
 
   const form = useFormContext();
   const { toast } = useToast();
@@ -259,7 +250,7 @@ export function AiChatPanel() {
   };
 
   // Phase 1: validate + decide whether to show the cost confirmation first.
-  const submitText = (raw: string, effort: Effort = "medium") => {
+  const submitText = (raw: string, effort: Effort = "medium", modelOverride?: string) => {
     const text = raw.trim();
     if (!text || thinking || scanning) return;
     // Warn before any substantial task: a folder with scanned pages (paid image
@@ -268,21 +259,52 @@ export function AiChatPanel() {
     const scanned = folderScan?.scannedPageCount ?? 0;
     // Ask once per conversation; follow-ups reuse the remembered choice.
     if (folder && folderScan?.ok && !costAcknowledged && (scanned > 0 || textTok >= TOKEN_WARN_THRESHOLD)) {
-      setPendingConfirm({ text, effort });
+      setPendingConfirm({ text, effort, model: modelOverride });
       return;
     }
-    runTurn(text, imageModePref, effort);
+    runTurn(text, imageModePref, effort, modelOverride);
   };
   const handleSend = () => submitText(input, "medium");
-  const runPreset = (prompt: string, effort: Effort) => {
+  const runPreset = (prompt: string, effort: Effort, modelOverride?: string) => {
     setShowPresets(false);
-    submitText(prompt, effort);
+    submitText(prompt, effort, modelOverride);
   };
-  // Safety net: ask Mayur to convert its last chat reply into a field proposal,
-  // reusing what it wrote (no folder re-read).
-  const fillFromChat = () => {
-    setShowFillButton(false);
-    submitText(FILL_FROM_CHAT_PROMPT, "medium");
+
+  // Annexure-handling suffixes for the List of Dates task (chosen via buttons).
+  const LOD_DESCRIBE_SUFFIX =
+    "\n\nANNEXURE HANDLING — the user chose: describe only. Record each annexure's details in its List-of-Dates row annexure entry (description/title, date, copy type, custom text, AD checkbox); never put an annexure description in the Particulars column. Do NOT produce a documents map and do NOT split or attach any PDFs.";
+  const LOD_SPLIT_SUFFIX =
+    "\n\nANNEXURE HANDLING — the user chose: split & attach (this uses many more tokens). Fill only the Date and Particulars in each List-of-Dates row — do NOT also fill the rows' annexure entries, because the documents map provides the annexures (filling both would duplicate them). Produce the documents map so Drafto splits the source PDFs into separate annexure files and attaches them to the matching rows, each with its description/date/copy type/AD flag. Never put an annexure description in the Particulars column.";
+  const LOD_NONE_SUFFIX =
+    "\n\nANNEXURE HANDLING — the user chose: neither attach nor mark annexures. Fill ONLY the Date and Particulars in each List-of-Dates row. Do NOT fill any annexure entries, do NOT produce a documents map, and do NOT split or attach any PDFs. Ignore annexures entirely.";
+
+  // The List of Dates task first asks the user (via two buttons) how to handle
+  // annexures; every other task runs immediately.
+  const handlePreset = (p: { id: string; prompt: string; effort: Effort; model?: string }) => {
+    if (p.id === "lod") {
+      setLodPending({ prompt: p.prompt, effort: p.effort, model: p.model });
+      setShowPresets(false);
+      return;
+    }
+    runPreset(p.prompt, p.effort, p.model);
+  };
+
+  // Reset the conversation: clear context and start a fresh Mayur session. Keeps
+  // the selected source folder so the user can re-run tasks on the same documents.
+  const resetChat = () => {
+    if (thinking) return;
+    setMessages([]);
+    setSessionId(null);
+    setPending(null);
+    setPendingDocMap(null);
+    setPendingConfirm(null);
+    setLodPending(null);
+    setLastTurn(null);
+    setUsage(null);
+    setSteps([]);
+    setCostAcknowledged(false);
+    setImageModePref("text");
+    setShowPresets(true);
   };
 
   // Validate + present field-fill suggestions. Returns how many were accepted.
@@ -320,13 +342,14 @@ export function AiChatPanel() {
   };
 
   // Phase 2: actually run the turn. mode controls scanned-page handling.
-  const runTurn = async (text: string, mode: "text" | "images", effort: Effort = "medium") => {
+  // modelOverride = a task's recommended model; used only when the user hasn't
+  // explicitly picked a model (dropdown on "Default").
+  const runTurn = async (text: string, mode: "text" | "images", effort: Effort = "medium", modelOverride?: string) => {
     addMessage("user", text);
     setLastTurn({ text, effort });
     setInput("");
     setPending(null);
     setPendingDocMap(null);
-    setShowFillButton(false);
     setSteps([{ id: "start", label: "Starting…", done: false }]);
     setUsage(null);
     setEstimate(estimateLabel(estimateContext, effort, model));
@@ -365,7 +388,8 @@ export function AiChatPanel() {
         systemPrompt: buildSystemPrompt(sourceNote ? { sourceNote } : {}),
         addDirs: addDirs.length ? addDirs : undefined,
         resumeSessionId: sessionId || undefined,
-        model: model && model !== "default" ? model : undefined,
+        // Explicit dropdown choice wins; otherwise use the task's recommended model.
+        model: model && model !== "default" ? model : (modelOverride || undefined),
         claudePath: claudePath || undefined,
       });
 
@@ -411,15 +435,12 @@ export function AiChatPanel() {
       // Show the assistant's prose (prefer its own summary message if present).
       const prose = proposal?.message || (looksLikeFailedJson ? "" : humanText);
       if (prose) addMessage("assistant", prose);
-      else if (looksLikeFailedJson) addMessage("system", "I drafted this, but couldn't format it cleanly into Drafto's fields. Click \"Put this into Drafto\" and I'll re-enter it as valid data.");
+      else if (looksLikeFailedJson) addMessage("system", "I drafted this, but couldn't format it cleanly into Drafto's fields. Please send that request again.");
       else if (!proposal) addMessage("assistant", replyText || "(no response)");
 
-      let produced = 0;
-      if (proposal) produced += presentFieldOps(proposal);
+      if (proposal) presentFieldOps(proposal);
       // A "documents" map → split-and-attach review (annexures etc.).
-      if (proposal?.documents) produced += presentDocMap(proposal.documents);
-      // Safety net: an action request that came back as prose / un-parseable JSON.
-      if (produced === 0 && (looksLikeFailedJson || (!!prose && isActionish(text)))) setShowFillButton(true);
+      if (proposal?.documents) presentDocMap(proposal.documents);
     } catch (err) {
       addMessage("system", err instanceof Error ? err.message : String(err));
     } finally {
@@ -500,18 +521,20 @@ export function AiChatPanel() {
   const confirmImages = () => {
     const t = pendingConfirm?.text;
     const e = pendingConfirm?.effort ?? "medium";
+    const mdl = pendingConfirm?.model;
     setPendingConfirm(null);
     setCostAcknowledged(true);
     setImageModePref("images");
-    if (t) runTurn(t, "images", e);
+    if (t) runTurn(t, "images", e, mdl);
   };
   const confirmTextOnly = () => {
     const t = pendingConfirm?.text;
     const e = pendingConfirm?.effort ?? "medium";
+    const mdl = pendingConfirm?.model;
     setPendingConfirm(null);
     setCostAcknowledged(true);
     setImageModePref("text");
-    if (t) runTurn(t, "text", e);
+    if (t) runTurn(t, "text", e, mdl);
   };
   const cancelConfirm = () => setPendingConfirm(null);
 
@@ -558,12 +581,18 @@ export function AiChatPanel() {
     );
   }
 
-  // ── Expanded panel ──
+  // ── Open panel ──
   return (
+    <>
+      {view !== 'docked' && (
+        <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setView('docked')} aria-hidden="true" />
+      )}
     <div
       className={cn(
-        "fixed bottom-4 right-4 z-50 flex flex-col max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] rounded-xl border bg-background shadow-2xl overflow-hidden",
-        expanded ? "w-[680px] h-[820px]" : "w-[380px] h-[520px]"
+        "mayur-panel fixed z-50 flex flex-col rounded-xl border bg-background shadow-2xl overflow-hidden",
+        view === 'docked' && "bottom-4 right-4 w-[380px] h-[520px] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)]",
+        view === 'popout' && "inset-0 m-auto w-[min(92vw,920px)] h-[88vh]",
+        view === 'full' && "inset-2"
       )}
     >
       {/* Header */}
@@ -584,9 +613,23 @@ export function AiChatPanel() {
           <option value="opus">Opus</option>
         </select>
         <div className="flex items-center gap-0.5">
-          <button type="button" onClick={() => setExpanded((v) => !v)} className="p-1 rounded hover:bg-muted text-muted-foreground" aria-label={expanded ? "Shrink" : "Expand"} title={expanded ? "Shrink" : "Expand"}>
-            {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+          <button type="button" onClick={resetChat} disabled={thinking} className="p-1 rounded hover:bg-muted text-muted-foreground disabled:opacity-40" aria-label="New chat" title="New chat — clear context and start fresh">
+            <RotateCcw className="h-3.5 w-3.5" />
           </button>
+          {view === 'docked' ? (
+            <button type="button" onClick={() => setView('popout')} className="p-1 rounded hover:bg-muted text-muted-foreground" aria-label="Pop out" title="Pop out to a larger window">
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
+          ) : (
+            <>
+              <button type="button" onClick={() => setView(view === 'full' ? 'popout' : 'full')} className="p-1 rounded hover:bg-muted text-muted-foreground" aria-label={view === 'full' ? "Exit full screen" : "Full screen"} title={view === 'full' ? "Exit full screen" : "Full screen"}>
+                <Maximize2 className="h-3.5 w-3.5" />
+              </button>
+              <button type="button" onClick={() => setView('docked')} className="p-1 rounded hover:bg-muted text-muted-foreground" aria-label="Dock" title="Dock to corner">
+                <Minimize2 className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
           <button type="button" onClick={() => setOpen(false)} className="p-1 rounded hover:bg-muted text-muted-foreground" aria-label="Minimize">
             <Minus className="h-3.5 w-3.5" />
           </button>
@@ -651,15 +694,6 @@ export function AiChatPanel() {
           </div>
         ))}
 
-        {showFillButton && !thinking && !pending && !pendingDocMap && !pendingConfirm && (
-          <div className="rounded-lg border border-primary/40 bg-primary/5 p-2 flex items-center justify-between gap-2">
-            <span className="text-[10px] text-muted-foreground">Want this entered into Drafto?</span>
-            <Button type="button" size="sm" className="h-7 text-[11px]" onClick={fillFromChat}>
-              Put this into Drafto
-            </Button>
-          </div>
-        )}
-
         {canRetryWithImages && !pending && !pendingDocMap && !pendingConfirm && (
           <div className="rounded-lg border border-primary/40 bg-primary/5 p-2 flex items-center justify-between gap-2">
             <span className="text-[10px] text-muted-foreground">
@@ -668,6 +702,24 @@ export function AiChatPanel() {
             <Button type="button" size="sm" variant="outline" className="h-7 text-[11px]" onClick={retryWithImages}>
               Retry, reading scanned pages as images
             </Button>
+          </div>
+        )}
+
+        {lodPending && !thinking && (
+          <div className="rounded-lg border border-primary/40 bg-primary/5 p-2 space-y-1.5">
+            <p className="text-[11px] text-foreground">List of Dates — how should I handle the annexures?</p>
+            <div className="flex flex-col gap-1.5">
+              <Button type="button" size="sm" variant="outline" className="h-7 text-[11px] justify-start" onClick={() => { const x = lodPending; setLodPending(null); runPreset(x.prompt + LOD_DESCRIBE_SUFFIX, x.effort, x.model); }}>
+                Only describe annexures (faster)
+              </Button>
+              <Button type="button" size="sm" variant="outline" className="h-7 text-[11px] justify-start" onClick={() => { const x = lodPending; setLodPending(null); runPreset(x.prompt + LOD_SPLIT_SUFFIX, x.effort, x.model); }}>
+                Split &amp; attach annexure PDFs (uses many more tokens)
+              </Button>
+              <Button type="button" size="sm" variant="outline" className="h-7 text-[11px] justify-start" onClick={() => { const x = lodPending; setLodPending(null); runPreset(x.prompt + LOD_NONE_SUFFIX, x.effort, x.model); }}>
+                Neither — just dates &amp; particulars
+              </Button>
+              <button type="button" className="text-[10px] text-muted-foreground hover:text-foreground self-start" onClick={() => setLodPending(null)}>Cancel</button>
+            </div>
           </div>
         )}
 
@@ -813,9 +865,9 @@ export function AiChatPanel() {
                 <div key={it.id} className="flex gap-2 items-start">
                   {pendingDocMap.thumbs[it.id] ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={pendingDocMap.thumbs[it.id]} alt="" className={cn("border rounded bg-white shrink-0", expanded ? "w-24" : "w-12")} />
+                    <img src={pendingDocMap.thumbs[it.id]} alt="" className={cn("border rounded bg-white shrink-0", view !== 'docked' ? "w-24" : "w-12")} />
                   ) : (
-                    <div className={cn("border rounded bg-muted shrink-0 flex items-center justify-center", expanded ? "w-24 h-32" : "w-12 h-16")}>
+                    <div className={cn("border rounded bg-muted shrink-0 flex items-center justify-center", view !== 'docked' ? "w-24 h-32" : "w-12 h-16")}>
                       <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
                     </div>
                   )}
@@ -882,7 +934,7 @@ export function AiChatPanel() {
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => runPreset(p.prompt, p.effort)}
+                      onClick={() => handlePreset(p)}
                       disabled={prereqOk === false || thinking || scanning || !!pendingConfirm}
                       title={p.needsFolder && !folder ? "Pick a folder of source documents first for best results" : p.prompt}
                       className="text-[10px] px-2 py-1 rounded-full border border-border bg-background hover:bg-muted disabled:opacity-50"
@@ -955,5 +1007,6 @@ export function AiChatPanel() {
         )}
       </div>
     </div>
+    </>
   );
 }

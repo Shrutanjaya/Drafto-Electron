@@ -121,7 +121,6 @@ Rules for the JSON:
 - When the user asks you to "fix", "modify", "correct" or "change" something, that means: re-issue a corrected JSON proposal with the new values. It does NOT mean editing any code or files. Re-read the relevant source document if needed and emit the corrected operations.
 - The only files you should ever read are the user's source documents (the extracted .txt files, and any PDFs/images you're explicitly pointed to). Never read anything else.
 - Never invent facts, case numbers, names or dates. If the source material doesn't say, leave it blank and note it in your "message".
-- You cannot attach files or upload annexures — if the source references documents that should become annexures, mention them in your "message" so the user can attach them manually.
 - Be conservative: it is better to propose fewer, accurate fields than many speculative ones. The user is a lawyer filing in the Supreme Court; accuracy matters more than completeness.
 - For ANY request to draft, fill, write, prepare, edit, correct or update content, respond WITH the JSON proposal. Do not reply with the draft as chat text and do not ask whether to proceed — just propose it for the user to review.`;
 }

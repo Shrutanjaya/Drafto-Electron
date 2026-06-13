@@ -30,6 +30,19 @@ textarea,
   line-height: 1.5 !important;
 }
 
+/* Mayur (the AI assistant panel) is interface, not document editing — it follows
+   the Interface font everywhere, including its input box, which would otherwise
+   inherit the Editing font from the global input rule above. */
+.mayur-panel,
+.mayur-panel textarea,
+.mayur-panel input {
+  font-family: var(--ui-font, Arial, Helvetica, sans-serif) !important;
+}
+.mayur-panel textarea,
+.mayur-panel input {
+  font-size: 0.75rem !important;
+}
+
 /* Preview/hint (placeholder) text: neutral gray, not the bluish muted-foreground.
    `!important` is needed to beat Tailwind's `placeholder:text-muted-foreground`
    utility, which has higher selector specificity. */

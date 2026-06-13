@@ -17,12 +17,17 @@ export interface Preset {
   prompt: string;
   effort: Effort;
   needsFolder?: boolean;
+  // Recommended model for this task, used when the user hasn't explicitly picked
+  // one (dropdown on "Default"). Extraction tasks → haiku (fast); nuanced
+  // drafting → sonnet. The user's explicit dropdown choice always wins.
+  model?: "haiku" | "sonnet" | "opus";
 }
 
 export const PRESETS: Preset[] = [
   // ── The six core tasks ──
   {
     id: "memo",
+    model: "haiku",
     label: "Memo of Parties",
     group: "Tasks",
     effort: "medium",
@@ -37,6 +42,7 @@ export const PRESETS: Preset[] = [
   },
   {
     id: "impugned",
+    model: "haiku",
     label: "Impugned Order(s)",
     group: "Tasks",
     effort: "medium",
@@ -54,6 +60,7 @@ export const PRESETS: Preset[] = [
   },
   {
     id: "deponent",
+    model: "haiku",
     label: "Deponent",
     group: "Tasks",
     effort: "small",
@@ -66,22 +73,23 @@ export const PRESETS: Preset[] = [
   },
   {
     id: "lod",
+    model: "haiku",
     label: "List of Dates",
     group: "Tasks",
     effort: "large",
     needsFolder: true,
     prompt:
       "Draft Petition → List of Dates from the lower-court paperbook and the Impugned Order.\n" +
-      "FIRST, ask the user one question before drafting: do they also want you to split the source PDFs into separate annexure files and attach them to the matching rows, OR only fill the date/particulars rows and annexure descriptions? WARN them clearly that splitting & attaching consumes many more Claude tokens. Then proceed per their choice.\n" +
       "- If the SLP Petitioners filed the lower-court case (they were not respondents): construct the List of Dates primarily from the paperbook's own \"List of Dates\" and \"Facts of the Case\", refined with the facts in the Impugned Order.\n" +
       "- Otherwise: construct it by reading the paperbook and ESPECIALLY any documents/affidavits/replies the SLP Petitioners filed in the court below, together with the Impugned Order.\n" +
       "- MOST IMPORTANT: the List of Dates is NOT a mechanical narration of events — it is the most persuasive part of the brief. Written well, a reader should finish it convinced the SLP Petitioners have suffered injustice, with few or no legal arguments. Narrate the story to that effect. NEVER use strong language against any court or judge — attack the Judgment/Order, never the court that passed it.\n" +
-      "- Fill each row's Date and Particulars.\n" +
-      "- For EVERY date, check whether the source folder contains a document corresponding to that event; if so, mark it as an annexure with its details (copy type, date, description, custom text, AD checkbox). Include documents even for dates not mentioned in the lower-court facts/List of Dates, unless irrelevant. EVERY document annexed in the lower-court paperbook MUST be annexed with the SLP (regardless of relevance) — so each one gets a date+particulars row. Take annexure descriptions from where they were described in the paperbook's petition; if absent, construct them by reading the document.\n" +
+      "- Fill each row's Date and Particulars. The Particulars describe the EVENT only.\n" +
+      "- For EVERY date that has a corresponding document in the source folder, record that document as an annexure IN THAT ROW'S ANNEXURE ENTRY — its description/title, date, copy type, custom text and AD checkbox. NEVER put an annexure's description in the Particulars/event text. Include documents even for dates not mentioned in the lower-court facts/List of Dates, unless irrelevant. EVERY document annexed in the lower-court paperbook MUST be annexed with the SLP (regardless of relevance) — each one gets a date+particulars row with its annexure entry. Take descriptions from where they were described in the paperbook's petition; if absent, construct them by reading the document.\n" +
       "- AD checkbox: tick ONLY for documents that were NOT before the lower court (separately supplied by the client).",
   },
   {
     id: "grounds-qol",
+    model: "sonnet",
     label: "Grounds & Questions of Law",
     group: "Tasks",
     effort: "large",
@@ -95,6 +103,7 @@ export const PRESETS: Preset[] = [
   },
   {
     id: "interim",
+    model: "sonnet",
     label: "Interim Relief",
     group: "Tasks",
     effort: "medium",
@@ -110,6 +119,7 @@ export const PRESETS: Preset[] = [
   // ── More (extras) ──
   {
     id: "synopsis",
+    model: "sonnet",
     label: "Synopsis",
     group: "More",
     effort: "large",
@@ -118,6 +128,7 @@ export const PRESETS: Preset[] = [
   },
   {
     id: "listing",
+    model: "haiku",
     label: "Listing Proforma",
     group: "More",
     effort: "small",
@@ -127,6 +138,7 @@ export const PRESETS: Preset[] = [
   },
   {
     id: "annexures",
+    model: "haiku",
     label: "Split & attach Annexures",
     group: "More",
     effort: "medium",

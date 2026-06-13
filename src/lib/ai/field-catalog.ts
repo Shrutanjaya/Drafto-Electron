@@ -236,6 +236,20 @@ const BASE_CATALOG: CatalogEntry[] = [
     itemFields: [
       { key: "date", label: "Date (free text, e.g. 12.03.2021)", kind: "text" },
       { key: "event", label: "Particulars of the event", kind: "longtext" },
+      {
+        key: "annexures",
+        label: "Annexure(s) for this event",
+        kind: "longtext",
+        description:
+          "Annexure(s) tied to this event. Put each annexure's DESCRIPTION here, NOT in the event/particulars text. This describes the annexure only — it does not attach a file (use the documents map for splitting/attaching).",
+        itemFields: [
+          { key: "title", label: "Annexure description/title", kind: "longtext" },
+          { key: "date", label: "Annexure date (free text, e.g. 12.03.2021)", kind: "text" },
+          { key: "copyType", label: "Copy type", kind: "enum", enumValues: ["true copy", "typed copy", "true and typed copy", "translated copy", "true and translated copy"] },
+          { key: "customText", label: "Extra custom text (optional)", kind: "longtext" },
+          { key: "isAdditionalDocument", label: "Additional Document (not before the court below)", kind: "boolean" },
+        ],
+      },
     ],
   },
   {
