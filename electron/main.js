@@ -402,7 +402,33 @@ function aiProbeCommand(command, env) {
   }
 }
 
-// Locate the `claude` binary: explicit override → PATH lookup → probe.
+// Known absolute install locations of the `claude` launcher. Probed directly so
+// we can return a runnable ABSOLUTE path even when `where`/`which` and PATH are
+// stale — e.g. immediately after the one-click install on Windows, where the
+// installer's PATH edit only takes effect in shells started after a restart.
+function aiKnownClaudePaths() {
+  const home = os.homedir();
+  if (process.platform === "win32") {
+    return [
+      // Native installer (install.ps1 → `claude install`) launcher location.
+      path.join(home, ".local", "bin", "claude.exe"),
+      path.join(home, ".local", "bin", "claude.cmd"),
+      // npm global installs.
+      path.join(process.env.APPDATA || "", "npm", "claude.cmd"),
+      path.join(home, "AppData", "Roaming", "npm", "claude.cmd"),
+    ];
+  }
+  return [
+    path.join(home, ".local", "bin", "claude"),
+    path.join(home, ".npm-global", "bin", "claude"),
+    "/opt/homebrew/bin/claude",
+    "/usr/local/bin/claude",
+  ];
+}
+
+// Locate the `claude` binary: explicit override → PATH lookup → known dirs → probe.
+// Prefers an absolute path so callers (notably the sign-in terminal) never have
+// to rely on the binary being on PATH.
 function aiResolveClaude(customPath, env) {
   const candidates = [];
   if (customPath && customPath.trim()) candidates.push(customPath.trim());
@@ -418,6 +444,11 @@ function aiResolveClaude(customPath, env) {
       .trim();
     if (found) candidates.push(found);
   } catch {}
+
+  // Known absolute install locations (covers stale PATH right after install).
+  for (const p of aiKnownClaudePaths()) {
+    try { if (fs.existsSync(p)) candidates.push(p); } catch {}
+  }
 
   candidates.push("claude"); // last resort: rely on env PATH
 
@@ -481,7 +512,18 @@ ipcMain.handle("ai-login", (_event, opts) => {
       const appleScript = `tell application "Terminal" to do script "${shellCmd}"`;
       spawn("osascript", ["-e", appleScript, "-e", 'tell application "Terminal" to activate'], { env, detached: true });
     } else if (process.platform === "win32") {
-      spawn("cmd", ["/c", "start", "cmd", "/k", `"${claude.path}" auth login --claudeai`], { env, windowsHide: false, detached: true });
+      // Resolve to an absolute path so the new terminal never relies on PATH —
+      // right after install the CLI is NOT yet on a fresh shell's PATH (the
+      // installer's PATH edit only applies to shells started after a restart),
+      // which previously produced "'claude' is not recognized" and never reached
+      // sign-in. windowsVerbatimArguments lets us control the quoting precisely:
+      // an empty title ("") keeps `start` from treating the quoted exe path as
+      // the window title, and quoting the exe path handles spaces in usernames.
+      spawn(
+        "cmd.exe",
+        ["/c", "start", '""', "cmd.exe", "/k", `"${claude.path}" auth login --claudeai`],
+        { env, windowsHide: false, detached: true, windowsVerbatimArguments: true }
+      );
     } else {
       // Linux: try the common terminal emulators in order.
       const cmd = `'${claude.path}' auth login --claudeai`;

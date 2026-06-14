@@ -2049,7 +2049,16 @@ export async function generateIaDocx(
                 indent: { size: 720, type: WidthType.DXA },
             });
 
+            const para2Extra = (customIa.para2 || '').trim();
+            const para2Text = para2Extra
+                ? `The present application is being filed by the Petitioner(s) ${para2Extra}`
+                : `The present application is being filed by the Petitioner(s)`;
+
             customTextParagraphs = [
+                new Paragraph({
+                    text: convertToSmartQuotes(para2Text),
+                    numbering: { reference: "ia-intro-list", level: 0 },
+                }),
                 new Paragraph({
                     text: `The present application is filed on the following grounds:`,
                     numbering: { reference: "ia-intro-list", level: 0 },

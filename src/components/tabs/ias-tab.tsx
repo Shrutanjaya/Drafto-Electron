@@ -34,12 +34,14 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui/resi
 import { pickFile } from "@/lib/utils/pick-file";
 import { format } from "date-fns";
 import {
-  IA_COMMON_OPENING,
+  getIaCommonOpening,
   IA_COMMON_CLOSING,
   IA_PRAYER_LEAD,
   IA_PRAYER_TAIL,
   getIaLeadIn,
   getIaPrayer,
+  buildImpugnedOrderText,
+  CUSTOM_IA_PARA2_LEAD,
   type IaPreviewOpts,
 } from "@/lib/ia-preview";
 
@@ -244,6 +246,7 @@ export function IasTab() {
 
   const caseType = useWatch({ control: form.control, name: "caseType" });
   const listOfDates = useWatch({ control: form.control, name: 'listOfDates' });
+  const impugnedOrders = useWatch({ control: form.control, name: 'impugnedOrders' });
   const hasAppliedForCC = useWatch({ control: form.control, name: "standardIas.exemptionCertifiedCopy.hasApplied" });
   const ccReceiptDate = useWatch({ control: form.control, name: "standardIas.exemptionCertifiedCopy.receiptDate" });
   const ccReason = useWatch({ control: form.control, name: "standardIas.exemptionCertifiedCopy.reasonForNotApplying" });
@@ -262,9 +265,11 @@ export function IasTab() {
   // Delay IA is "ready" (green) only once the user has supplied at least one
   // non-blank ground. AD/OT grounds are optional, so those stay green when active.
   const delayHasGround = (delayGrounds || []).some((g: any) => (g?.particulars || "").trim() !== "");
-  // Count of non-blank AD grounds — they're numbered after the lead-in (para 2),
-  // shifting the closing paragraphs' serial numbers in the preview.
-  const adGroundsCount = (adGrounds || []).filter((g: any) => (g?.particulars || "").trim() !== "").length;
+  // Number of AD grounds rows — each is numbered (para 3, 4, 5…) after the
+  // lead-in, shifting the closing paragraphs' serial numbers in the preview.
+  // Counts every row (not just non-blank) so the gray paras below stay in sync
+  // with the row labels in the grounds table as the user adds/removes rows.
+  const adGroundsCount = (adGrounds || []).length;
 
   // Titles by id from the canonical list.
   const titleFor = (id: string) => standardIaList.find(s => s.id === id)?.title || "";
@@ -369,8 +374,28 @@ export function IasTab() {
     return nums.length === 1 ? `Annexure P-${nums[0]}` : `Annexures P-${nums[0]} to P-${nums[nums.length - 1]}`;
   }, [listOfDates, annexureNumberingMap]);
 
+  // Extracted impugned-order text, mirrored from the docx, so Para 1 and the
+  // prayer clauses show the real order details rather than "the Impugned Order(s)".
+  const ioText = useMemo(() => buildImpugnedOrderText(impugnedOrders as any), [impugnedOrders]);
+
+  // The Additional Documents annexure list, built exactly as the docx renders it,
+  // so the preview shows the live list (gray) instead of a placeholder sentence.
+  const adAnnexureEntries = useMemo(() => {
+    const allAnnexures: Annexure[] = (listOfDates || []).flatMap(lod => lod.annexures || []);
+    return allAnnexures
+      .filter(a => a.isAdditionalDocument)
+      .map(a => {
+        const pNumber = annexureNumberingMap.get(a.id);
+        let t = `Annexure P-${pNumber ?? "_"} (pp.___ to ___) is a ${a.copyType || "[description]"} of`;
+        if (a.title) t += ` ${a.title}`;
+        if (a.date) t += ` dated ${a.date}`;
+        if ((a as any).customText) t += ` ${(a as any).customText}`;
+        return t.trimEnd().match(/[.!?]$/) ? t.trimEnd() : t.trimEnd() + ".";
+      });
+  }, [listOfDates, annexureNumberingMap]);
+
   const ccReceiptDateStr = ccReceiptDate ? format(new Date(ccReceiptDate as any), "dd.MM.yyyy") : "";
-  const ccOpts: IaPreviewOpts = { ccApplied: hasAppliedForCC as any, ccReceiptDate: ccReceiptDateStr, ccReason: ccReason as string };
+  const ccOpts: IaPreviewOpts = { ccApplied: hasAppliedForCC as any, ccReceiptDate: ccReceiptDateStr, ccReason: ccReason as string, io: ioText };
 
   return (
     <TooltipProvider>
@@ -428,10 +453,10 @@ export function IasTab() {
                   {delay <= 0 && (
                     <p className="text-xs text-muted-foreground italic">Since there is no delay, this IA won't be included.</p>
                   )}
-                  <StandardBlock startNum={1} paras={[IA_COMMON_OPENING, getIaLeadIn("condonationOfDelay", { delayDays: delay > 0 ? delay : "__" })]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText), getIaLeadIn("condonationOfDelay", { delayDays: delay > 0 ? delay : "__" })]} />
                   <IaGroundTable name="standardIas.condonationOfDelay.grounds" />
                   <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
-                  <StandardPrayerBlock id="condonationOfDelay" num={5} opts={{ delayDays: delay > 0 ? delay : "__" }} />
+                  <StandardPrayerBlock id="condonationOfDelay" num={5} opts={{ delayDays: delay > 0 ? delay : "__", io: ioText }} />
                 </div>
               )}
 
@@ -451,7 +476,6 @@ export function IasTab() {
                       )}
                     />
                   </div>
-                  <StandardBlock startNum={1} paras={[IA_COMMON_OPENING]} />
                   <div className="space-y-2">
                     <FormField
                       control={form.control}
@@ -495,16 +519,16 @@ export function IasTab() {
                         name="standardIas.exemptionCertifiedCopy.reasonForNotApplying"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-xs">Reason for not applying</FormLabel>
-                            <FormControl><Textarea {...field} className="text-xs" /></FormControl>
+                            <FormControl><Textarea {...field} className="text-xs" placeholder="Please enter reason for not applying. This will be inserted in Para 2 of the Application (see live preview below)." /></FormControl>
                           </FormItem>
                         )}
                       />
                     )}
                   </div>
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText)]} />
                   <StandardBlock startNum={2} paras={[getIaLeadIn("exemptionCertifiedCopy", ccOpts)]} />
                   <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
-                  <StandardPrayerBlock id="exemptionCertifiedCopy" num={5} />
+                  <StandardPrayerBlock id="exemptionCertifiedCopy" num={5} opts={{ io: ioText }} />
                 </div>
               )}
 
@@ -524,10 +548,10 @@ export function IasTab() {
                       )}
                     />
                   </div>
-                  <StandardBlock startNum={1} paras={[IA_COMMON_OPENING, getIaLeadIn("exemptionFromSurrendering")]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText), getIaLeadIn("exemptionFromSurrendering", { io: ioText })]} />
                   <IaGroundTable name="standardIas.exemptionFromSurrendering.grounds" />
                   <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
-                  <StandardPrayerBlock id="exemptionFromSurrendering" num={5} />
+                  <StandardPrayerBlock id="exemptionFromSurrendering" num={5} opts={{ io: ioText }} />
                 </div>
               )}
 
@@ -535,7 +559,7 @@ export function IasTab() {
               {selectedId === "ot" && (
                 <div className="space-y-3">
                   <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{`Application for exemption from filing Official Translation(s) of ${otReason || "the annexures"}`}</h4>
-                  <StandardBlock startNum={1} paras={[IA_COMMON_OPENING]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText)]} />
                   <FormField
                     control={form.control}
                     name="standardIas.exemptionOfficialTranslation.userReason"
@@ -561,9 +585,20 @@ export function IasTab() {
                       ? `Auto-included because ${adCount} document${adCount !== 1 ? "s are" : " is"} marked as Additional Document(s) in the List of Dates.`
                       : "This IA is included automatically only when an annexure is marked as an Additional Document (AD). None are at present, so it won't be included."}
                   </p>
-                  <StandardBlock startNum={1} paras={[IA_COMMON_OPENING, getIaLeadIn("additionalDocuments")]} />
-                  <p className={cn(STD_TEXT, "pl-4")}>[The list of additional documents{adRange ? ` (${adRange})` : ""} is inserted here automatically.]</p>
-                  <AamTable name="standardIas.additionalDocumentsGrounds" defaultRows={3} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText), getIaLeadIn("additionalDocuments")]} />
+                  {/* Live list of additional documents (lettered, gray) — exactly what the docx inserts here. */}
+                  <div className="pl-4 space-y-1">
+                    {adAnnexureEntries.length > 0 ? (
+                      adAnnexureEntries.map((t, i) => (
+                        <p key={i} className={STD_TEXT}>
+                          <span className="font-medium mr-1">{String.fromCharCode(65 + i)}.</span>{t}
+                        </p>
+                      ))
+                    ) : (
+                      <p className={cn(STD_TEXT, "italic")}>The list of additional documents will appear here once annexures are marked as Additional Document(s) in the List of Dates.</p>
+                    )}
+                  </div>
+                  <AamTable name="standardIas.additionalDocumentsGrounds" defaultRows={3} labelMode="numeric" numericStart={3} />
                   <StandardBlock startNum={3 + adGroundsCount} paras={IA_COMMON_CLOSING} />
                   <StandardPrayerBlock id="additionalDocuments" num={5 + adGroundsCount} opts={{ adRange }} />
                 </div>
@@ -587,10 +622,28 @@ export function IasTab() {
                       </FormItem>
                     )}
                   />
-                  <StandardBlock startNum={1} paras={[IA_COMMON_OPENING, getIaLeadIn("custom")]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText)]} />
+                  {/* Para 2: fixed lead sentence + user-fillable text (reproduced verbatim in the docx). */}
+                  <div className="space-y-1">
+                    <p className={STD_TEXT}>
+                      <span className="font-medium mr-1">2.</span>{CUSTOM_IA_PARA2_LEAD}
+                    </p>
+                    <FormField
+                      control={form.control}
+                      name={`customIas.${index}.para2`}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormControl>
+                            <Textarea {...field} className="text-xs" placeholder="…continue the sentence (e.g. for seeking permission to …)" />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <StandardBlock startNum={3} paras={[getIaLeadIn("custom")]} />
                   <IaGroundTable name={`customIas.${index}.grounds`} />
-                  <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
-                  <StandardBlock startNum={5} paras={[IA_PRAYER_LEAD]} />
+                  <StandardBlock startNum={4} paras={IA_COMMON_CLOSING} />
+                  <StandardBlock startNum={6} paras={[IA_PRAYER_LEAD]} />
                   <AamTable name={`customIas.${index}.prayers`} />
                 </div>
               ))}

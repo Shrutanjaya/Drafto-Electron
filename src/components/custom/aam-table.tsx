@@ -44,6 +44,11 @@ interface AamTableProps {
     name: AamTableName;
     defaultRows?: number;
     disabled?: boolean;
+    // Row label style. "alpha" (default) shows A, B, C… "numeric" shows running
+    // paragraph numbers starting at `numericStart` — used by the Additional
+    // Documents IA, whose grounds become numbered paras (3, 4, 5…) in the docx.
+    labelMode?: "alpha" | "numeric";
+    numericStart?: number;
 }
 
 const SortableRow = ({ id, children }: { id: string, children: React.ReactNode }) => {
@@ -88,7 +93,7 @@ const ClientSideDnd = ({ children }: { children: React.ReactNode }) => {
 };
 
 
-export function AamTable({ name, defaultRows = 10, disabled = false }: AamTableProps) {
+export function AamTable({ name, defaultRows = 10, disabled = false, labelMode = "alpha", numericStart = 1 }: AamTableProps) {
   const form = useFormContext<DraftoProject>()
   const { fields, append, remove, move, insert } = useFieldArray({
     control: form.control,
@@ -137,7 +142,7 @@ export function AamTable({ name, defaultRows = 10, disabled = false }: AamTableP
                 <TableBody>
                     {fields.map((item, index) => (
                       <SortableRow key={item.id} id={item.id}>
-                        <TableCell className="font-medium text-xs align-middle p-0 text-center">{String.fromCharCode(65 + index)}</TableCell>
+                        <TableCell className="font-medium text-xs align-middle p-0 text-center">{labelMode === "numeric" ? `${numericStart + index}.` : String.fromCharCode(65 + index)}</TableCell>
                         <TableCell className="p-0">
                           <FormField
                             control={form.control}

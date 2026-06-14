@@ -89,6 +89,9 @@ export const legalProvisionSchema = z.object({
 export const customIaSchema = z.object({
     id: z.string().default(() => `custom_ia_${Math.random()}`),
     title: z.string().default("Application for"),
+    // Para 2 free text, appended after "The present application is being filed
+    // by the Petitioner(s)" in both the preview and the generated docx.
+    para2: z.string().default(""),
     grounds: z.array(iaGroundItemSchema).default([iaGroundItemSchema.parse({})]),
     prayers: z.array(aamTableItemSchema).default([
         aamTableItemSchema.parse({}),
