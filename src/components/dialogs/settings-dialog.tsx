@@ -798,7 +798,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Beta</span>
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    <span className="font-medium">Mayur</span> is Drafto's drafting assistant. Drafto itself provides no AI — Mayur runs on your own <span className="font-medium">Claude Code</span> subscription, appearing as a chat box at the bottom-right of Drafto. Talk to it, or point it at a folder of raw PDFs and ask it to help fill in your project. Your credentials never leave your machine — Drafto runs the <code className="px-1 rounded bg-muted text-[11px]">claude</code> command you already have installed.
+                    <span className="font-medium">Mayur</span> is Drafto's drafting assistant. Drafto itself provides no AI — Mayur runs on your own <span className="font-medium">Claude Code</span> subscription, appearing as a chat box at the bottom-right of Drafto. Talk to it, or point it at a folder of raw PDFs and ask it to help fill in your project. Your credentials never leave your machine — Drafto runs the <code className="px-1 rounded bg-muted text-[11px]">claude</code> command you already have installed. Neither Quindoph nor the developer is liable for any data you share to Claude CLI through Mayur. Drafto neither captures nor stores the said data which is processed by Claude alone.
                   </p>
 
                   <p className="text-xs font-bold text-foreground leading-relaxed">
@@ -1243,7 +1243,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     </div>
                     <div className="flex items-center gap-1.5">
                       <RadioGroupItem value="single" id="quote-spacing-single" />
-                      <Label htmlFor="quote-spacing-single" className="text-xs font-normal cursor-pointer">Single spacing (18&nbsp;pt after each quote)</Label>
+                      <Label htmlFor="quote-spacing-single" className="text-xs font-normal cursor-pointer">Single spacing</Label>
                     </div>
                   </RadioGroup>
                 </div>
@@ -1316,6 +1316,100 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       <span>10</span><span>Default: 14</span><span>24</span>
                     </div>
                   </div>
+                </div>
+
+                {/* Volume Splitting */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Volume Splitting</p>
+                  <p className="text-xs text-muted-foreground">Paperbooks exceeding the first threshold are automatically split into volumes. Each additional threshold adds another volume.</p>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">First threshold (pages)</Label>
+                      <Input
+                        type="number"
+                        min={100}
+                        step={50}
+                        value={settings.volumeSplitThreshold}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, volumeSplitThreshold: Math.max(100, parseInt(e.target.value) || 400) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Subsequent step (pages)</Label>
+                      <Input
+                        type="number"
+                        min={50}
+                        step={50}
+                        value={settings.volumeStepSize}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, volumeStepSize: Math.max(50, parseInt(e.target.value) || 200) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvancedVolume((v) => !v)}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    {showAdvancedVolume ? "Hide advanced options" : "Show advanced options"}
+                  </button>
+
+                  {showAdvancedVolume && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Keep components ≤ ___ pages intact across volume boundaries</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        step={5}
+                        value={settings.maxComponentSplitPages}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, maxComponentSplitPages: Math.max(1, parseInt(e.target.value) || 50) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Retain in current volume if ≤ ___ pages would spill over</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        step={5}
+                        value={settings.minVolumeTailPages}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, minVolumeTailPages: Math.max(1, parseInt(e.target.value) || 20) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Push to next volume if ≤ ___ pages would remain in current</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        step={5}
+                        value={settings.minVolumeHeadPages}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, minVolumeHeadPages: Math.max(1, parseInt(e.target.value) || 20) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <Label className="text-xs text-muted-foreground">Output format</Label>
+                      <RadioGroup
+                        value={settings.separateVolumePdfs ? 'separate' : 'consolidated'}
+                        onValueChange={(v) => setSettings((prev) => ({ ...prev, separateVolumePdfs: v === 'separate' }))}
+                        className="flex gap-4 pt-1"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <RadioGroupItem value="separate" id="vol-separate" />
+                          <Label htmlFor="vol-separate" className="text-xs font-normal cursor-pointer">Separate PDFs per volume</Label>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <RadioGroupItem value="consolidated" id="vol-consolidated" />
+                          <Label htmlFor="vol-consolidated" className="text-xs font-normal cursor-pointer">Single consolidated PDF</Label>
+                        </div>
+                      </RadioGroup>
+                    </div>
+                  </div>
+                  )}
                 </div>
 
                 {/* AoR Signature & True Copy (Beta) */}
@@ -1469,100 +1563,6 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     )}
                     <p className="text-[10px] text-muted-foreground">The True Copy signature is rendered at half this width.</p>
                   </div>
-                </div>
-
-                {/* Volume Splitting */}
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Volume Splitting</p>
-                  <p className="text-xs text-muted-foreground">Paperbooks exceeding the first threshold are automatically split into volumes. Each additional threshold adds another volume.</p>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">First threshold (pages)</Label>
-                      <Input
-                        type="number"
-                        min={100}
-                        step={50}
-                        value={settings.volumeSplitThreshold}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, volumeSplitThreshold: Math.max(100, parseInt(e.target.value) || 400) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Subsequent step (pages)</Label>
-                      <Input
-                        type="number"
-                        min={50}
-                        step={50}
-                        value={settings.volumeStepSize}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, volumeStepSize: Math.max(50, parseInt(e.target.value) || 200) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowAdvancedVolume((v) => !v)}
-                    className="text-xs text-primary hover:underline"
-                  >
-                    {showAdvancedVolume ? "Hide advanced options" : "Show advanced options"}
-                  </button>
-
-                  {showAdvancedVolume && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Keep components ≤ ___ pages intact across volume boundaries</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        step={5}
-                        value={settings.maxComponentSplitPages}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, maxComponentSplitPages: Math.max(1, parseInt(e.target.value) || 50) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Retain in current volume if ≤ ___ pages would spill over</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        step={5}
-                        value={settings.minVolumeTailPages}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, minVolumeTailPages: Math.max(1, parseInt(e.target.value) || 20) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Push to next volume if ≤ ___ pages would remain in current</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        step={5}
-                        value={settings.minVolumeHeadPages}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, minVolumeHeadPages: Math.max(1, parseInt(e.target.value) || 20) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="col-span-2 space-y-1">
-                      <Label className="text-xs text-muted-foreground">Output format</Label>
-                      <RadioGroup
-                        value={settings.separateVolumePdfs ? 'separate' : 'consolidated'}
-                        onValueChange={(v) => setSettings((prev) => ({ ...prev, separateVolumePdfs: v === 'separate' }))}
-                        className="flex gap-4 pt-1"
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <RadioGroupItem value="separate" id="vol-separate" />
-                          <Label htmlFor="vol-separate" className="text-xs font-normal cursor-pointer">Separate PDFs per volume</Label>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <RadioGroupItem value="consolidated" id="vol-consolidated" />
-                          <Label htmlFor="vol-consolidated" className="text-xs font-normal cursor-pointer">Single consolidated PDF</Label>
-                        </div>
-                      </RadioGroup>
-                    </div>
-                  </div>
-                  )}
                 </div>
 
               </div>
