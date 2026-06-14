@@ -7,6 +7,8 @@ interface DraftoFileInfo {
   path: string;
   modifiedDate: string;
   size: number;
+  parties?: string;
+  caseNumber?: string;
 }
 
 interface ElectronAPI {
@@ -19,6 +21,7 @@ interface ElectronAPI {
   loadDraftoFile: (fileName: string) => Promise<string>;
   getRecentFiles: () => Promise<DraftoFileInfo[]>;
   removeRecentFile: (filePath: string) => Promise<void>;
+  deleteDraftoFile: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
   saveProject: (data: { petitionerName: string; content: string }) => Promise<string | null>;
   openProjectsFolder: () => Promise<void>;
   openFolderPath: (folderPath: string) => Promise<void>;

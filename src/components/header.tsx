@@ -712,9 +712,9 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
 
   return (
     <header className="flex h-12 items-center justify-between border-b bg-card px-2">
-      <div className="flex items-center gap-2">
-        <img src="./drafto-logo.png" alt="Drafto Logo" className="h-7 w-auto" />
-        <h1 className="font-headline text-lg font-bold">DraftoSLP</h1>
+      <div className="flex items-center gap-1">
+        <img src="./drafto-logo.png" alt="Drafto Logo" className="h-7 w-auto translate-x-0.5" />
+        <h1 className="text-base font-bold" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>DraftoSLP</h1>
       </div>
       <div className="flex items-center gap-1">
         <Button variant="ghost" size="icon" title="Undo" onClick={undo} disabled={!canUndo}><Undo /></Button>

@@ -42,7 +42,7 @@ import { useToast } from "@/hooks/use-toast";
 import { generatePdf } from "@/lib/actions";
 import { getSettings } from "./settings-dialog";
 import { incrementGenerationCount } from "@/lib/firebase/usage-service";
-import { Upload, Loader2, Info, Lock, CheckCircle2, AlertCircle, Settings2, AlertTriangle, X } from "lucide-react";
+import { Upload, Loader2, Info, Lock, CheckCircle2, AlertCircle, Settings2, AlertTriangle, X, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { FormControl, FormField, FormItem } from "@/components/ui/form";
@@ -210,6 +210,8 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
     const [showCriminalDocWarning, setShowCriminalDocWarning] = useState(false);
     const pendingSubmitData = useRef<PdfMergeForm | null>(null);
     const [progress, setProgress] = useState(0);
+    const [progressLabel, setProgressLabel] = useState<string>("");
+    const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({ annexures: true });
     const cancelledRef = useRef(false);
     const abortControllerRef = useRef<AbortController | null>(null);
     const [isProcessingOcr, setIsProcessingOcr] = useState(false);
@@ -690,6 +692,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         pendingSubmitData.current = null;
 
         setIsGenerating(true);
+        setProgressLabel("Starting…");
         const formData = new FormData();
         const fileMetas: {id: string, label: string, useSystem: boolean, fileName?: string}[] = [];
         const projectData = mainForm.getValues();
@@ -718,7 +721,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         const { signal } = abortControllerRef.current;
         
         try {
-            const result = await generatePdf(formData, signal);
+            const result = await generatePdf(formData, signal, (label) => setProgressLabel(label));
 
             // Abort if user cancelled while generation was running
             if (cancelledRef.current) return;
@@ -907,6 +910,51 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
     const missingUploads = getMissingUploads();
     const isGoButtonDisabled = isGenerating || missingUploads.length > 0;
 
+    // ── Grouping + per-section readiness (kept in sync with the header by reusing
+    // the same missing-upload computations) ──
+    const sectionForId = (id: string): { key: string; label: string } => {
+        if (id.startsWith('annexure_')) return { key: 'annexures', label: 'Annexures' };
+        if (id === 'custodyCertificate' || id === 'firDetails' || id.startsWith('ia_')) return { key: 'ias', label: 'Applications (IAs)' };
+        return { key: 'court', label: 'Petition & Court Documents' };
+    };
+    const optionalMissing = getMissingOptionalDocs({ mergeItems: watchedItems });
+    const mandatoryMissingSet = new Set(missingUploads);
+    const optionalMissingSet = new Set(optionalMissing);
+    const itemStatus = (it: MergeItem): 'ready' | 'mandatory' | 'optional' =>
+        mandatoryMissingSet.has(it.label) ? 'mandatory' : optionalMissingSet.has(it.label) ? 'optional' : 'ready';
+    // Build ordered sections (preserving merge order — items are already in
+    // paperbook order, so this only inserts headers, never reorders).
+    const sections: { key: string; label: string; status: 'ready' | 'mandatory' | 'optional'; rows: { item: MergeItem; index: number }[] }[] = [];
+    watchedItems.forEach((item, index) => {
+        if (!item) return;
+        const { key, label } = sectionForId(item.id);
+        let sec = sections.find((s) => s.key === key);
+        if (!sec) { sec = { key, label, status: 'ready', rows: [] }; sections.push(sec); }
+        sec.rows.push({ item, index });
+    });
+    for (const sec of sections) {
+        const statuses = sec.rows.map((r) => itemStatus(r.item));
+        sec.status = statuses.includes('mandatory') ? 'mandatory' : statuses.includes('optional') ? 'optional' : 'ready';
+    }
+    // Overall readiness for the header (mandatory count excludes the receipt-date note).
+    const mandatoryCount = missingUploads.length;
+    const optionalCount = optionalMissing.length;
+    const overallStatus: 'ready' | 'mandatory' | 'optional' =
+        mandatoryCount > 0 ? 'mandatory' : optionalCount > 0 ? 'optional' : 'ready';
+
+    // Status chip (shared by header + section headers).
+    const STATUS_META = {
+        ready: { label: 'Ready', cls: 'border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400' },
+        mandatory: { label: 'Not Ready', cls: 'border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400' },
+        optional: { label: 'Optional pending', cls: 'border-yellow-500/40 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' },
+    } as const;
+    const StatusChip = ({ status }: { status: 'ready' | 'mandatory' | 'optional' }) => (
+        <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border", STATUS_META[status].cls)}>
+            <span className={cn("h-1.5 w-1.5 rounded-full", status === 'ready' ? 'bg-green-500' : status === 'mandatory' ? 'bg-red-500' : 'bg-yellow-500')} />
+            {STATUS_META[status].label}
+        </span>
+    );
+
     const getFileStatus = (item: MergeItem) => {
         if (item.userFile instanceof File) return item.userFile.name;
 
@@ -973,9 +1021,27 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             <DialogHeader>
                 <DialogTitle>Generate Full PDF Paper Book</DialogTitle>
                 <DialogDescription>
-                    Gray items are system-generated (click any to override with your own file), red items need your upload, and green items are ready. The final PDF will be merged in this order.
+                    Gray items are system-generated (click any to override with your own file), red items need your upload, yellow are optional. The final PDF is merged in the order below.
                 </DialogDescription>
             </DialogHeader>
+
+            {/* Readiness summary — synced with the per-section status chips */}
+            <div className={cn(
+                "flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-xs",
+                overallStatus === 'mandatory' ? 'border-red-500/30 bg-red-500/5'
+                    : overallStatus === 'optional' ? 'border-yellow-500/30 bg-yellow-500/5'
+                    : 'border-green-500/30 bg-green-500/5'
+            )}>
+                <span className="font-medium">
+                    {overallStatus === 'mandatory'
+                        ? `Not ready — ${mandatoryCount} upload${mandatoryCount === 1 ? '' : 's'} needed before you can generate.`
+                        : overallStatus === 'optional'
+                            ? `Ready to generate — ${optionalCount} optional upload${optionalCount === 1 ? '' : 's'} still pending.`
+                            : 'All set — ready to generate.'}
+                </span>
+                <StatusChip status={overallStatus} />
+            </div>
+
             <FormProvider {...uploadForm}>
                 <form onSubmit={handleSubmit(onSubmit)} id="pdf-upload-form">
                     <ScrollArea className="h-[60vh] pr-4">
@@ -988,9 +1054,28 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {watchedItems.map((item, index) => {
-                                    const currentItem = watchedItems[index];
-                                    if (!currentItem) return null;
+                                {sections.map((sec) => {
+                                  const collapsed = !!collapsedSections[sec.key];
+                                  return (
+                                    <React.Fragment key={sec.key}>
+                                      <TableRow className="bg-muted/40 hover:bg-muted/40">
+                                        <TableCell colSpan={3} className="py-1.5">
+                                          <button
+                                            type="button"
+                                            onClick={() => setCollapsedSections((p) => ({ ...p, [sec.key]: !p[sec.key] }))}
+                                            className="flex w-full items-center justify-between gap-2 text-left"
+                                          >
+                                            <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                                              <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", !collapsed && "rotate-90")} />
+                                              {sec.label}
+                                              <span className="font-normal normal-case text-muted-foreground/60">({sec.rows.length})</span>
+                                            </span>
+                                            <StatusChip status={sec.status} />
+                                          </button>
+                                        </TableCell>
+                                      </TableRow>
+                                      {!collapsed && sec.rows.map(({ item, index }) => {
+                                    const currentItem = item;
 
                                     const isLocked = isLockedId(currentItem.id);
                                     const hasFile = currentItem.userFile instanceof File;
@@ -1073,6 +1158,9 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                                             </TableCell>
                                         </TableRow>
                                     )
+                                      })}
+                                    </React.Fragment>
+                                  );
                                 })}
                                  {watchedItems.length === 0 && <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground">No components to display.</TableCell></TableRow>}
                             </TableBody>
@@ -1086,19 +1174,32 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                         onChange={handleFileChange}
                     />
                 </form>
-                <div className="mt-4 flex items-center space-x-2 border-t pt-4">
-                    <Checkbox
-                        id="enable-ocr"
-                        checked={enableOcr}
-                        onCheckedChange={(checked) => setEnableOcr(checked as boolean)}
-                        disabled={isGenerating || isMac}
-                    />
-                    <label
-                        htmlFor="enable-ocr"
-                        className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                    >
-                        OCR (takes much longer){isMac ? " - unavailable on macOS" : ""}
-                    </label>
+                <div className="mt-4 border-t pt-3 space-y-1.5">
+                    <div className="flex items-start space-x-2">
+                        <Checkbox
+                            id="enable-ocr"
+                            checked={enableOcr}
+                            onCheckedChange={(checked) => setEnableOcr(checked as boolean)}
+                            disabled={isGenerating || isMac}
+                            className="mt-0.5"
+                        />
+                        <label htmlFor="enable-ocr" className="text-xs leading-snug peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                            <span className="font-medium">Run OCR on the merged PDF</span>
+                            <span className="block text-[11px] text-muted-foreground">
+                                {isMac
+                                    ? "Unavailable on macOS — generate on Windows to make scanned pages text-searchable."
+                                    : "Makes scanned/image pages text-searchable. Use only if your uploads include scanned documents — it takes much longer."}
+                            </span>
+                        </label>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                        Large paper books are split into separate volumes automatically (configurable in Settings → Paperbook).
+                    </p>
+                    {(isGenerating || isProcessingOcr) && (progressLabel || isProcessingOcr) && (
+                        <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                            <Loader2 className="h-3 w-3 animate-spin" /> {isProcessingOcr ? "Running OCR…" : progressLabel}
+                        </p>
+                    )}
                 </div>
             </FormProvider>
             <DialogFooter>

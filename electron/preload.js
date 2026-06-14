@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("electron", {
   listDraftoFiles:  ()           => ipcRenderer.invoke("list-drafto-files"),
   loadDraftoFile:   (fileName)   => ipcRenderer.invoke("load-drafto-file", fileName),
   getRecentFiles:   ()           => ipcRenderer.invoke("get-recent-files"),
+  deleteDraftoFile: (fp)         => ipcRenderer.invoke("delete-drafto-file", fp),
   removeRecentFile: (filePath)   => ipcRenderer.invoke("remove-recent-file", filePath),
   saveProject:      (data)       => ipcRenderer.invoke("save-project", data),
   openProjectsFolder: ()         => ipcRenderer.invoke("open-projects-folder"),

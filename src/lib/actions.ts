@@ -2636,7 +2636,7 @@ async function convertDocxToPdf(docxBuffer: Uint8Array): Promise<{ pdf: PDFDocum
     console.log(`[PDF Conversion] Successfully converted (${pageCount} pages)`);
     return { pdf: pdfDoc, pageCount };
 }
-export async function generatePdf(formData: FormData, signal?: AbortSignal) {
+export async function generatePdf(formData: FormData, signal?: AbortSignal, onProgress?: (label: string) => void) {
     const fileMetasString = formData.get('fileMetas') as string;
     const projectDataString = formData.get('projectData') as string;
     const settingsString = formData.get('settings') as string | null;
@@ -3246,7 +3246,8 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
 
     // ===== PASS 1: Generate all documents and count pages =====
     console.log('[PDF GEN] Pass 1: Generating all documents and counting pages...');
-    
+    onProgress?.("Analysing the documents…");
+
     // Store page counts for each document
     interface DocPageInfo {
         id: string;
@@ -3257,6 +3258,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
     
     for (const meta of fileMetas) {
         if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+        onProgress?.(`Preparing ${meta.label || 'documents'}…`);
         try {
             let docxBuffer: Uint8Array | null = null;
             
@@ -3665,6 +3667,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal) {
 
     // ===== PASS 2: Main document processing with page ranges =====
     console.log('[PDF GEN] Pass 2: Processing documents with calculated page ranges...');
+    onProgress?.(isVolumeSplitting ? "Assembling the paper book (splitting into volumes)…" : "Assembling the paper book…");
 
     // Track content page indices for volume splitting
     // contentPagesSoFar counts pages added to mergedPdf in this pass (excl. CI in volume mode)

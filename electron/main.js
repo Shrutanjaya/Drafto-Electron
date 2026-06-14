@@ -1062,17 +1062,44 @@ ipcMain.handle("remove-recent-file", (_event, filePath) => {
   if (filePath && typeof filePath === "string") removeRecentFile(filePath);
 });
 
+// Best-effort: read a .drafto and pull a short subtitle (parties + case number)
+// so the Load dialog can distinguish projects with similar names.
+function draftoSubtitle(filePath) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    const d = (raw && raw.petitioners) ? raw : (raw && (raw.data || raw.project)) || raw || {};
+    const pet = Array.isArray(d.petitioners) && d.petitioners[0] && d.petitioners[0].name ? d.petitioners[0].name : "";
+    const res = Array.isArray(d.respondents) && d.respondents[0] && d.respondents[0].name ? d.respondents[0].name : "";
+    const caseNo = Array.isArray(d.impugnedOrders) && d.impugnedOrders[0] && d.impugnedOrders[0].caseNumber ? d.impugnedOrders[0].caseNumber : "";
+    const parties = (pet || res) ? `${pet || "—"} v. ${res || "—"}` : "";
+    return { parties: parties || undefined, caseNumber: caseNo || undefined };
+  } catch { return {}; }
+}
+
 ipcMain.handle("get-recent-files", () => {
   return loadRecentFilePaths()
     .filter(p => fs.existsSync(p))
     .map(p => {
       try {
         const stats = fs.statSync(p);
-        return { name: path.basename(p, ".drafto"), fileName: path.basename(p), path: p, modifiedDate: stats.mtime.toISOString(), size: stats.size };
+        const sub = draftoSubtitle(p);
+        return { name: path.basename(p, ".drafto"), fileName: path.basename(p), path: p, modifiedDate: stats.mtime.toISOString(), size: stats.size, parties: sub.parties, caseNumber: sub.caseNumber };
       } catch { return null; }
     })
     .filter(Boolean)
     .slice(0, 20);
+});
+
+ipcMain.handle("delete-drafto-file", (_event, filePath) => {
+  try {
+    if (typeof filePath === "string" && filePath.endsWith(".drafto") && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      return { ok: true };
+    }
+    return { ok: false, error: "File not found" };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 });
 
 ipcMain.handle("save-project", (_event, { petitionerName, content }) => {
