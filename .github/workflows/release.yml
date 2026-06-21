@@ -131,3 +131,15 @@ jobs:
           VITE_FIREBASE_APP_ID: "1:109929006113:web:1c180e213b9b9cf33bcf60"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run build && npx electron-builder --win --publish always
+
+  # electron-builder uploads assets to a *draft* release. Once BOTH platform
+  # builds have succeeded (so the release has every installer), un-draft it so it
+  # publishes automatically with no manual step.
+  publish:
+    needs: [build-mac, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish (un-draft) the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --draft=false --latest --repo "${{ github.repository }}"
