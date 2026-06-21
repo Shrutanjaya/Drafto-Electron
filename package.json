@@ -1,6 +1,6 @@
 {
   "name": "drafto-slp",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "private": true,
   "author": "Quindoph Legal Solutions Pvt. Ltd.",
   "description": "DraftoSLP – Supreme Court petition drafting tool",
@@ -125,6 +125,7 @@
       "electron/**/*",
       "build/**/*",
       "!build/libreoffice-staging/**/*",
+      "!build/libreoffice-win-staging/**/*",
       "package.json"
     ],
     "win": {
@@ -141,6 +142,13 @@
         {
           "from": "python_scripts",
           "to": "python_scripts",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "build/libreoffice-win-staging/LibreOffice",
+          "to": "LibreOffice",
           "filter": [
             "**/*"
           ]

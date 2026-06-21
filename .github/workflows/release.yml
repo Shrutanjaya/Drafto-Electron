@@ -105,6 +105,9 @@ jobs:
       - name: Install Tesseract OCR
         run: choco install tesseract --no-progress -y
 
+      - name: Install LibreOffice (bundled as PDF-conversion fallback)
+        run: choco install libreoffice-fresh --no-progress -y
+
       - name: Bundle Python dependencies
         run: .\bundle-deps-win.ps1
         shell: pwsh

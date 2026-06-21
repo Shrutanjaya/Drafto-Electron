@@ -116,27 +116,37 @@ async function ensurePythonDeps() {
   }
 }
 
-// ── LibreOffice (macOS) ──────────────────────────────────────────────────────
+// ── LibreOffice (macOS primary, Windows fallback) ─────────────────────────────
 let sofficeCommand = null;
 
 function findSoffice() {
-  // In packaged builds, LibreOffice is embedded inside Drafto.app at
-  //   Drafto.app/Contents/Resources/LibreOffice.app
-  // process.resourcesPath points at Contents/Resources, so soffice lives at:
-  const bundled = path.join(
-    process.resourcesPath || "",
-    "LibreOffice.app", "Contents", "MacOS", "soffice"
-  );
+  let candidates = [];
 
-  // Development fall-backs: the developer's locally-installed LibreOffice.
-  const candidates = [
-    bundled,
-    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
-    "/usr/local/bin/soffice",
-    "/opt/homebrew/bin/soffice",
-    "/opt/local/bin/soffice",       // MacPorts
-    "/usr/bin/soffice",
-  ];
+  if (process.platform === "win32") {
+    // Packaged builds embed LibreOffice under resources/LibreOffice (see
+    // beforePack.js + win.extraResources). soffice.exe lives in program/.
+    const bundled = path.join(process.resourcesPath || "", "LibreOffice", "program", "soffice.exe");
+    candidates = [
+      bundled,
+      "C:\\Program Files\\LibreOffice\\program\\soffice.exe",
+      "C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe",
+    ];
+  } else {
+    // macOS: LibreOffice.app embedded inside Drafto.app/Contents/Resources.
+    const bundled = path.join(
+      process.resourcesPath || "",
+      "LibreOffice.app", "Contents", "MacOS", "soffice"
+    );
+    candidates = [
+      bundled,
+      "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+      "/usr/local/bin/soffice",
+      "/opt/homebrew/bin/soffice",
+      "/opt/local/bin/soffice",       // MacPorts
+      "/usr/bin/soffice",
+    ];
+  }
+
   for (const p of candidates) {
     if (p && fs.existsSync(p)) {
       sofficeCommand = p;
@@ -146,14 +156,15 @@ function findSoffice() {
   }
   // Last-resort: shell PATH lookup (dev environments).
   try {
-    const result = require("child_process").execSync("which soffice 2>/dev/null", { encoding: "utf8" }).trim();
+    const lookup = process.platform === "win32" ? "where soffice" : "which soffice 2>/dev/null";
+    const result = require("child_process").execSync(lookup, { encoding: "utf8" }).trim().split(/\r?\n/)[0];
     if (result && fs.existsSync(result)) {
       sofficeCommand = result;
       console.log(`[soffice] Using LibreOffice from PATH: ${result}`);
     }
   } catch {}
   if (!sofficeCommand) {
-    console.warn("[soffice] No LibreOffice found. PDF conversion will fail.");
+    console.warn("[soffice] No LibreOffice found. PDF conversion will rely on Word only.");
   }
 }
 
@@ -312,6 +323,7 @@ if (!gotSingleInstanceLock) {
       findSoffice();
     } else {
       findPython();
+      findSoffice(); // Windows: LibreOffice is the fallback when Word can't be driven
       // Ensure OCR packages are installed after the window is ready
       app.on("browser-window-created", (_e, win) => {
         win.webContents.once("did-finish-load", () => ensurePythonDeps());

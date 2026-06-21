@@ -32,8 +32,53 @@ const path = require("path");
 
 const LIBREOFFICE_SOURCE = "/Applications/LibreOffice.app";
 
+// Candidate install locations for LibreOffice on a Windows build machine
+// (choco's `libreoffice-fresh`/`libreoffice-still` install to Program Files).
+const LIBREOFFICE_WIN_SOURCES = [
+  "C:\\Program Files\\LibreOffice",
+  "C:\\Program Files (x86)\\LibreOffice",
+];
+
 exports.default = async function beforePack(context) {
-  // Windows / Linux builds: nothing to do.
+  // ── Windows: stage LibreOffice into build/libreoffice-win-staging ──────────
+  // Embedded later via win.extraResources → resources/LibreOffice. Used as the
+  // fallback when Microsoft Word can't be automated (the "Open.SaveAs" failure).
+  if (context.electronPlatformName === "win32") {
+    const source = LIBREOFFICE_WIN_SOURCES.find((p) => fs.existsSync(p));
+    if (!source) {
+      throw new Error(
+        "[beforePack] LibreOffice not found in Program Files.\n" +
+        "             Install it before building Windows, e.g.:\n" +
+        "               choco install libreoffice-fresh --no-progress -y"
+      );
+    }
+    const stagingDir = path.join(context.packager.projectDir, "build", "libreoffice-win-staging");
+    const stagedApp  = path.join(stagingDir, "LibreOffice");
+    if (fs.existsSync(stagingDir)) {
+      console.log(`[beforePack] Removing previous Windows staging copy: ${stagingDir}`);
+      fs.rmSync(stagingDir, { recursive: true, force: true });
+    }
+    fs.mkdirSync(stagedApp, { recursive: true });
+    console.log(`[beforePack] Staging LibreOffice from ${source} via robocopy…`);
+    // robocopy exit codes < 8 indicate success; execSync treats non-zero as an
+    // error, so swallow those and only fail on >= 8.
+    try {
+      execSync(`robocopy "${source}" "${stagedApp}" /E /NFL /NDL /NJH /NJS /NP /R:1 /W:1`, { stdio: "inherit" });
+    } catch (e) {
+      const code = typeof e.status === "number" ? e.status : 16;
+      if (code >= 8) {
+        throw new Error(`[beforePack] robocopy failed staging LibreOffice (exit ${code}).`);
+      }
+    }
+    try {
+      const sizeOutput = execSync(`powershell -NoProfile -Command "'{0:N0} MB' -f ((Get-ChildItem -Recurse '${stagedApp}' | Measure-Object -Property Length -Sum).Sum / 1MB)"`, { encoding: "utf8" }).trim();
+      console.log(`[beforePack] LibreOffice staged: ${sizeOutput}`);
+    } catch {}
+    console.log(`[beforePack] LibreOffice ready for embedding into resources/LibreOffice`);
+    return;
+  }
+
+  // Linux builds: nothing to do.
   if (context.electronPlatformName !== "darwin") return;
 
   const projectRoot   = context.packager.projectDir;

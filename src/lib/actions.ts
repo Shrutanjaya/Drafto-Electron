@@ -8,7 +8,7 @@ import { standardIaList } from "@/lib/ia-list";
 import { createListingProforma } from "@/lib/proforma-helpers";
 import { parseHtml } from "@/lib/html-to-docx";
 import { checklistQueries } from "@/lib/checklist-queries";
-import { PDFDocument, rgb, StandardFonts, PDFName, PDFDict, PDFArray, PDFRef, PDFString, PDFNumber, degrees } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts, PDFName, PDFDict, PDFArray, PDFRef, PDFString, PDFNumber, PDFRawStream, decodePDFRawStream, degrees } from 'pdf-lib';
 import { convertDocxToPdf as ipcConvertDocxToPdf } from "@/lib/ipc/pdf";
 
 
@@ -96,6 +96,26 @@ const getOutputFormatting = () => {
             sizePt: s.outputFontSizePt ?? d.sizePt,
             lineSpacing: s.outputLineSpacing ?? d.lineSpacing,
             afterPt: s.outputParaAfterPt ?? d.afterPt,
+        };
+    } catch {
+        return d;
+    }
+};
+
+// User-configurable formatting for the Advocate's Checklist (read at export time
+// in the renderer). The font *family* follows the output font; size, line spacing
+// and paragraph spacing are independent so users can tighten a long checklist.
+const getChecklistFormatting = () => {
+    const d = { sizePt: 14, lineSpacing: 1.5, paraSpacingPt: 6 };
+    if (typeof window === 'undefined') return d;
+    try {
+        const raw = window.localStorage.getItem('drafto-settings');
+        if (!raw) return d;
+        const s = JSON.parse(raw);
+        return {
+            sizePt: s.checklistFontSizePt ?? d.sizePt,
+            lineSpacing: s.checklistLineSpacing ?? d.lineSpacing,
+            paraSpacingPt: s.checklistParaSpacingPt ?? d.paraSpacingPt,
         };
     } catch {
         return d;
@@ -2534,36 +2554,134 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
     return { success: true, documents: generatedDocs };
 }
 
-export async function generateAdvocateChecklistDocx(projectData: DraftoProject) {
-    const { checklist } = projectData;
-    
-    const rows = checklistQueries.map((item) => {
-        const answer = checklist[item.name as keyof typeof checklist];
-        const questionLabel = item.label.replace(/^\(\w+\)\s*/, '');
-        let numberLabel = "";
+// Derive the main serial number (1, 2, 3…) from a checklist item's `name`
+// (e.g. "q8_poa" → 8). Mirrors the on-screen Advocate's Checklist tab so the
+// printed paperbook shows the same numbering.
+const getChecklistMainNumber = (name: string): number | null => {
+    const match = name.match(/^q(\d+)_/);
+    return match ? parseInt(match[1], 10) : null;
+};
 
-        const match = item.label.match(/^\((.*?)\)/);
-        if (match) {
-            numberLabel = match[0];
+// ── Trailing blank-page trimming (system-generated sections only) ──────────────
+// Word/LibreOffice append a mandatory empty paragraph after a section-ending
+// table; combined with paragraph spacing this can spill onto a fresh, content-
+// less page that then gets paginated, corrupting downstream page ranges. We trim
+// such pages, but ONLY from system-generated PDFs and ONLY when a page carries no
+// visible marks at all. Everything is fail-safe: any uncertainty keeps the page,
+// so legitimate content (including blank pages inside user-uploaded scans, which
+// are never passed here) is never removed.
+
+// True only if the content stream paints something a reader would see: text,
+// images (XObjects / inline images), filled/stroked paths, or shadings. Pure
+// state operators (q/Q/cm/gs), text objects with no shown glyphs (BT…ET), and
+// path construction without painting (re, m, l, c, W n) are NOT visible marks.
+const contentHasVisibleMarks = (s: string): boolean => {
+    // Multi-char show/paint operators, as standalone tokens.
+    if (/(?:^|[\s)\]>])(?:Tj|TJ|Do|sh|BI)(?=[\s/\[<(]|$)/.test(s)) return true;
+    // Text-show shorthands ' and "
+    if (/(?:^|[\s)\]>])(?:'|")(?=[\s/\[<(]|$)/.test(s)) return true;
+    // Path painting operators: f F f* B B* b b* S s (whitespace-delimited tokens)
+    if (/(?:^|\s)(?:f\*|b\*|B\*|f|F|B|b|S|s)(?=\s|$)/.test(s)) return true;
+    return false;
+};
+
+const isPdfPageBlank = (page: any): boolean => {
+    try {
+        const ctx = page.doc.context;
+        let contents = page.node.Contents ? page.node.Contents() : page.node.get(PDFName.of('Contents'));
+        if (!contents) return true; // no content object at all → blank
+        contents = ctx.lookup(contents);
+
+        const streams: any[] = [];
+        if (contents instanceof PDFArray) {
+            for (let i = 0; i < contents.size(); i++) streams.push(ctx.lookup(contents.get(i)));
+        } else {
+            streams.push(contents);
         }
 
+        for (const st of streams) {
+            if (!(st instanceof PDFRawStream)) return false; // unknown encoding → keep (not blank)
+            const decoded = decodePDFRawStream(st).decode();
+            const text = new TextDecoder('latin1').decode(decoded);
+            if (contentHasVisibleMarks(text)) return false;
+        }
+        return true;
+    } catch {
+        return false; // any error → keep the page
+    }
+};
+
+// Remove content-less trailing pages from a system-generated section. Never drops
+// the final remaining page, and stops at the first non-blank page from the end.
+const trimTrailingBlankPages = (pdf: PDFDocument): number => {
+    let removed = 0;
+    while (pdf.getPageCount() > 1) {
+        const lastIndex = pdf.getPageCount() - 1;
+        if (!isPdfPageBlank(pdf.getPage(lastIndex))) break;
+        pdf.removePage(lastIndex);
+        removed++;
+    }
+    return removed;
+};
+
+export async function generateAdvocateChecklistDocx(projectData: DraftoProject) {
+    const { checklist } = projectData;
+
+    // Checklist-specific formatting (font size / line spacing / paragraph spacing)
+    const cf = getChecklistFormatting();
+    const of = getOutputFormatting();
+    const checklistStyles = {
+        paragraphStyles: [
+            {
+                id: "Normal",
+                name: "Normal",
+                basedOn: "Normal",
+                next: "Normal",
+                quickFormat: true,
+                run: { font: of.font, size: Math.round(cf.sizePt * 2) },
+                paragraph: {
+                    spacing: { line: Math.round(cf.lineSpacing * 240), after: 0, before: 0 },
+                    alignment: AlignmentType.JUSTIFIED,
+                },
+            },
+        ],
+    };
+    // Per-cell paragraph spacing, derived from the user's checklist setting.
+    const checklistCellSpacing = {
+        before: Math.round(cf.paraSpacingPt * 20), // pt → twips
+        after: Math.round(cf.paraSpacingPt * 20),
+    };
+
+    const rows = checklistQueries.map((item, index) => {
+        const answer = checklist[item.name as keyof typeof checklist];
+        // The visible sub-label like "(i)" / "(a)" (if any) and the question body.
+        const questionLabel = item.label.replace(/^\(\w+\)\s*/, '');
+        const subMatch = item.label.match(/^\((.*?)\)/);
+        const subLabel = subMatch ? subMatch[0] : "";
+
+        // Show the main number (1, 2, 3…) only on the first row of each group,
+        // matching the on-screen checklist tab.
+        const mainNumber = getChecklistMainNumber(item.name);
+        const prevNumber = index > 0 ? getChecklistMainNumber(checklistQueries[index - 1].name) : null;
+        const showMain = mainNumber !== null && mainNumber !== prevNumber;
+        const numberLabel = [showMain ? `${mainNumber}.` : "", subLabel].filter(Boolean).join(" ");
 
         return new TableRow({
             children: [
                 new TableCell({
-                    children: [new Paragraph({ text: numberLabel, alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })],
+                    children: [new Paragraph({ text: numberLabel, alignment: AlignmentType.CENTER, spacing: checklistCellSpacing })],
                     width: { size: 10, type: WidthType.PERCENTAGE },
                     verticalAlign: VerticalAlign.CENTER,
                     margins: defaultCellMargins,
                 }),
                 new TableCell({
-                    children: [new Paragraph({ text: questionLabel, spacing: tableParagraphSpacing })],
+                    children: [new Paragraph({ text: questionLabel, spacing: checklistCellSpacing })],
                     width: { size: 60, type: WidthType.PERCENTAGE },
                     verticalAlign: VerticalAlign.CENTER,
                     margins: defaultCellMargins,
                 }),
                 new TableCell({
-                    children: [new Paragraph({ text: answer, alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })],
+                    children: [new Paragraph({ text: answer, alignment: AlignmentType.CENTER, spacing: checklistCellSpacing })],
                     width: { size: 30, type: WidthType.PERCENTAGE },
                     verticalAlign: VerticalAlign.CENTER,
                     margins: defaultCellMargins,
@@ -2573,7 +2691,7 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject) 
     });
 
     const doc = new Document({
-        styles: getDefaultStyles(),
+        styles: checklistStyles,
         sections: [{
             properties: { page: { margin: defaultMargins } },
             children: [
@@ -2592,29 +2710,29 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject) 
                     rows: [
                         new TableRow({
                             children: [
-                                new TableCell({ 
-                                    children: [new Paragraph({ 
+                                new TableCell({
+                                    children: [new Paragraph({
                                         children: [smartTextRun({ text: "S. No.", bold: true })],
                                         alignment: AlignmentType.CENTER,
-                                        spacing: tableParagraphSpacing
+                                        spacing: checklistCellSpacing
                                     })],
                                     verticalAlign: VerticalAlign.CENTER,
                                     margins: defaultCellMargins
                                 }),
-                                new TableCell({ 
-                                    children: [new Paragraph({ 
+                                new TableCell({
+                                    children: [new Paragraph({
                                         children: [smartTextRun({ text: "Question", bold: true })],
                                         alignment: AlignmentType.CENTER,
-                                        spacing: tableParagraphSpacing
+                                        spacing: checklistCellSpacing
                                     })],
                                     verticalAlign: VerticalAlign.CENTER,
                                     margins: defaultCellMargins
                                 }),
-                                new TableCell({ 
-                                    children: [new Paragraph({ 
+                                new TableCell({
+                                    children: [new Paragraph({
                                         children: [smartTextRun({ text: "Answer", bold: true })],
                                         alignment: AlignmentType.CENTER,
-                                        spacing: tableParagraphSpacing
+                                        spacing: checklistCellSpacing
                                     })],
                                     verticalAlign: VerticalAlign.CENTER,
                                     margins: defaultCellMargins
@@ -2624,6 +2742,13 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject) 
                         ...rows,
                     ],
                 }),
+                // "Filed by" block (with AoR signature, if configured), matching the
+                // checklist's own formatting.
+                ...createFiledByTable(
+                    projectData.advocate.filingDate,
+                    projectData.advocate.aorName || "[AoR Name]",
+                    { fontSizePt: cf.sizePt, lineSpacing: cf.lineSpacing, paraSpacingPt: cf.paraSpacingPt }
+                ),
             ],
         }],
     });
@@ -2641,6 +2766,11 @@ async function convertDocxToPdf(docxBuffer: Uint8Array): Promise<{ pdf: PDFDocum
     }
     const pdfBytes = Uint8Array.from(atob(result.pdfBase64), c => c.charCodeAt(0));
     const pdfDoc = await PDFDocument.load(pdfBytes);
+    // Drop content-less trailing pages (e.g. an empty paragraph after a section's
+    // final table that spills onto a fresh page). Doing it here keeps the page
+    // counts used for the Index page-ranges consistent with the merged paperbook.
+    const trimmed = trimTrailingBlankPages(pdfDoc);
+    if (trimmed > 0) console.log(`[PDF Conversion] Trimmed ${trimmed} trailing blank page(s)`);
     const pageCount = pdfDoc.getPageCount();
     console.log(`[PDF Conversion] Successfully converted (${pageCount} pages)`);
     return { pdf: pdfDoc, pageCount };
@@ -2763,8 +2893,8 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         const fontSize = Math.min(24, Math.max(10, (settings as any).annexureLabelSize ?? 14));
         const textWidth = font.widthOfTextAtSize(headerText, fontSize);
 
-        // Position header proportionally: 0.2 inch base margin, scaled with font size
-        const topMargin = 14.4; // 0.2 inch = 14.4 points
+        // Position header proportionally: base margin (user-configurable), scaled with font size
+        const topMargin = (settings as any).annexureLabelMarginPt ?? 14.4; // default 0.2 inch = 14.4 points
         
         // Adjust coordinates based on rotation
         let headerX, headerY, rotationAngle;
@@ -2867,7 +2997,8 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         }
         const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
 
-        const margin = 36;     // 0.5 inch
+        const marginX = (s.trueCopyMarginXPt ?? 36);          // horizontal margin (default 0.5 inch)
+        const marginBottom = (s.trueCopyMarginBottomPt ?? 36); // bottom margin (default 0.5 inch)
         const fontSize = 9;
         const gap = 3;
         const text = 'True Copy';
@@ -2901,11 +3032,11 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
 
             // Offsets along the visual right axis (left edge of each element).
             // Left mode: hug the margin. Centre mode: centre each element on the page.
-            const textRightOff = isCentre ? (visualWidth - textWidth) / 2 : margin;
-            const imgRightOff  = isCentre ? (visualWidth - imgW) / 2      : margin;
+            const textRightOff = isCentre ? (visualWidth - textWidth) / 2 : marginX;
+            const imgRightOff  = isCentre ? (visualWidth - imgW) / 2      : marginX;
             // Offsets along the visual up axis (distance above the bottom edge).
-            const textUpOff = margin;                       // text baseline
-            const imgUpOff  = margin + fontSize + gap;       // image sits above the text
+            const textUpOff = marginBottom;                       // text baseline
+            const imgUpOff  = marginBottom + fontSize + gap;       // image sits above the text
 
             // Convert (alongRight, alongUp) in the visual frame to mediabox (x,y).
             const toXY = (aRight: number, aUp: number) => ({
@@ -2997,12 +3128,12 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         
         // Load Times New Roman Bold font
         const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
-        const fontSize = 20;
-        
-        // Position: 0.75 inches from top and right
-        const topMargin = 54; // 0.75 inches = 54 points
-        const rightMargin = 54; // 0.75 inches = 54 points
-        
+        const fontSize = (settings as any).pageNumberSizePt ?? 20;
+
+        // Position: user-configurable distance from top and right (default 0.75 inch)
+        const topMargin = (settings as any).pageNumberMarginTopPt ?? 54;
+        const rightMargin = (settings as any).pageNumberMarginRightPt ?? 54;
+
         for (let i = 0; i < pageCount; i++) {
             const page = pdf.getPage(i);
             const { width, height } = page.getSize();
@@ -3070,12 +3201,12 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         
         // Load Times New Roman Bold font
         const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
-        const fontSize = 20;
-        
-        // Position: 0.75 inches from top and right
-        const topMargin = 54; // 0.75 inches = 54 points
-        const rightMargin = 54; // 0.75 inches = 54 points
-        
+        const fontSize = (settings as any).pageNumberSizePt ?? 20;
+
+        // Position: user-configurable distance from top and right (default 0.75 inch)
+        const topMargin = (settings as any).pageNumberMarginTopPt ?? 54;
+        const rightMargin = (settings as any).pageNumberMarginRightPt ?? 54;
+
         for (let i = 0; i < pageCount; i++) {
             const page = pdf.getPage(i);
             const { width, height } = page.getSize();
@@ -3129,12 +3260,12 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         
         // Load Times New Roman Bold font
         const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
-        const fontSize = 20;
-        
-        // Position: 0.75 inches from top and right
-        const topMargin = 54; // 0.75 inches = 54 points
-        const rightMargin = 54; // 0.75 inches = 54 points
-        
+        const fontSize = (settings as any).pageNumberSizePt ?? 20;
+
+        // Position: user-configurable distance from top and right (default 0.75 inch)
+        const topMargin = (settings as any).pageNumberMarginTopPt ?? 54;
+        const rightMargin = (settings as any).pageNumberMarginRightPt ?? 54;
+
         for (let i = 0; i < pageCount; i++) {
             const page = pdf.getPage(i);
             const { width, height } = page.getSize();

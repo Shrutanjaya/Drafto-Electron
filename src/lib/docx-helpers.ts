@@ -363,7 +363,11 @@ const getFiledBySignature = (): { data: Uint8Array; widthPx: number; heightPx: n
     }
 };
 
-export const createFiledByTable = (filingDate: Date, aorName: string) => {
+export const createFiledByTable = (
+    filingDate: Date,
+    aorName: string,
+    opts?: { fontSizePt?: number; lineSpacing?: number; paraSpacingPt?: number }
+) => {
     const formattedDate = filingDate ? format(new Date(filingDate), "dd.MM.yyyy") : "";
     const noBorders = {
         top: { style: BorderStyle.NONE, size: 0, color: "auto" },
@@ -373,7 +377,15 @@ export const createFiledByTable = (filingDate: Date, aorName: string) => {
         insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "auto" },
         insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
     };
-    const paraSpacing = { after: 0, line: 240 };
+    // Spacing follows caller-supplied formatting when present (e.g. the Advocate's
+    // Checklist), otherwise the historical default (single line, no after-spacing).
+    const paraSpacing = {
+        after: opts?.paraSpacingPt != null ? Math.round(opts.paraSpacingPt * 20) : 0,
+        line: opts?.lineSpacing != null ? Math.round(opts.lineSpacing * 240) : 240,
+    };
+    // Half-point run size, when a caller specifies a font size.
+    const runSize = opts?.fontSizePt != null ? Math.round(opts.fontSizePt * 2) : undefined;
+    const fbRun = (text: string) => smartTextRun(runSize != null ? { text, size: runSize } : text);
 
     // The signature is a *floating* image anchored to the "Filed by" line and drawn
     // behind the document text, so it overlays the page without displacing any
@@ -409,8 +421,8 @@ export const createFiledByTable = (filingDate: Date, aorName: string) => {
                     children: [
                         new TableCell({
                             children: [
-                                new Paragraph({ text: `Date: ${formattedDate}`, spacing: paraSpacing }),
-                                new Paragraph({ text: "Place: New Delhi", spacing: paraSpacing })
+                                new Paragraph({ children: [fbRun(`Date: ${formattedDate}`)], spacing: paraSpacing }),
+                                new Paragraph({ children: [fbRun("Place: New Delhi")], spacing: paraSpacing })
                             ],
                             borders: noBorders,
                         }),
@@ -420,14 +432,14 @@ export const createFiledByTable = (filingDate: Date, aorName: string) => {
                                     alignment: AlignmentType.RIGHT,
                                     children: [
                                         ...signatureRuns,
-                                        smartTextRun(`Filed by: ${aorName}`),
+                                        fbRun(`Filed by: ${aorName}`),
                                     ],
                                     spacing: paraSpacing,
                                 }),
                                 new Paragraph({
                                     alignment: AlignmentType.RIGHT,
                                     children: [
-                                        smartTextRun("Advocate for the Petitioner")
+                                        fbRun("Advocate for the Petitioner")
                                     ],
                                     spacing: paraSpacing,
                                 })

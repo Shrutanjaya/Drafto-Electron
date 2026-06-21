@@ -36,6 +36,22 @@ interface SettingsData {
   inputFontSize: number; // editing text size, px
   annexureLabelBackground: boolean;
   annexureLabelSize: number;
+  annexureLabelMarginPt: number;   // top margin (pt) of the "Annexure P-X" label
+
+  // Page numbers stamped on the paperbook
+  pageNumberSizePt: number;        // font size (pt) of the numeric/alphabetical page number
+  pageNumberMarginTopPt: number;   // distance (pt) from the top edge
+  pageNumberMarginRightPt: number; // distance (pt) from the right edge
+
+  // True Copy + signature combo stamped at the bottom of every annexure
+  trueCopyMarginXPt: number;       // horizontal margin (pt) from the page edge
+  trueCopyMarginBottomPt: number;  // vertical margin (pt) from the bottom edge
+
+  // Advocate's Checklist formatting (PDF paperbook)
+  checklistFontSizePt: number;
+  checklistLineSpacing: number;
+  checklistParaSpacingPt: number;  // before/after spacing on each cell paragraph
+
   exportHighlight: boolean;
   autosaveInterval: number;
   toastDuration: number;
@@ -293,6 +309,15 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     inputFontSize: DEFAULT_INPUT_FONT_SIZE,
     annexureLabelBackground: false,
     annexureLabelSize: 14,
+    annexureLabelMarginPt: 14.4,
+    pageNumberSizePt: 20,
+    pageNumberMarginTopPt: 54,
+    pageNumberMarginRightPt: 54,
+    trueCopyMarginXPt: 36,
+    trueCopyMarginBottomPt: 36,
+    checklistFontSizePt: 14,
+    checklistLineSpacing: 1.5,
+    checklistParaSpacingPt: 6,
     exportHighlight: false,
     autosaveInterval: 60,
     toastDuration: 1,
@@ -339,6 +364,15 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           inputFontSize: parsed.inputFontSize ?? DEFAULT_INPUT_FONT_SIZE,
           annexureLabelBackground: parsed.annexureLabelBackground ?? false,
           annexureLabelSize: parsed.annexureLabelSize ?? 14,
+          annexureLabelMarginPt: parsed.annexureLabelMarginPt ?? 14.4,
+          pageNumberSizePt: parsed.pageNumberSizePt ?? 20,
+          pageNumberMarginTopPt: parsed.pageNumberMarginTopPt ?? 54,
+          pageNumberMarginRightPt: parsed.pageNumberMarginRightPt ?? 54,
+          trueCopyMarginXPt: parsed.trueCopyMarginXPt ?? 36,
+          trueCopyMarginBottomPt: parsed.trueCopyMarginBottomPt ?? 36,
+          checklistFontSizePt: parsed.checklistFontSizePt ?? 14,
+          checklistLineSpacing: parsed.checklistLineSpacing ?? 1.5,
+          checklistParaSpacingPt: parsed.checklistParaSpacingPt ?? 6,
           exportHighlight: parsed.exportHighlight ?? false,
           autosaveInterval: parsed.autosaveInterval ?? 60,
           toastDuration: parsed.toastDuration ?? 1,
@@ -1316,6 +1350,117 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       <span>10</span><span>Default: 14</span><span>24</span>
                     </div>
                   </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Label margin from top edge (pt)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={144}
+                      step={1}
+                      value={settings.annexureLabelMarginPt}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, annexureLabelMarginPt: Math.min(144, Math.max(0, parseFloat(e.target.value) || 0)) }))}
+                      className="h-7 text-xs w-28"
+                    />
+                    <p className="text-[10px] text-muted-foreground">Default: 14.4 pt (0.2 inch). 72 pt = 1 inch.</p>
+                  </div>
+                </div>
+
+                {/* Page Numbers */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Page Numbers</p>
+                  <p className="text-xs text-muted-foreground">Size and position of the page numbers stamped on the top-right of each paginated page.</p>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Text size (pt)</Label>
+                      <Input
+                        type="number"
+                        min={8}
+                        max={36}
+                        step={1}
+                        value={settings.pageNumberSizePt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, pageNumberSizePt: Math.min(36, Math.max(8, parseFloat(e.target.value) || 20)) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Top margin (pt)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={216}
+                        step={1}
+                        value={settings.pageNumberMarginTopPt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, pageNumberMarginTopPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Right margin (pt)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={216}
+                        step={1}
+                        value={settings.pageNumberMarginRightPt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, pageNumberMarginRightPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">Defaults: 20 pt size, 54 pt (0.75 inch) top and right margins.</p>
+                </div>
+
+                {/* Advocate's Checklist */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Advocate's Checklist</p>
+                  <p className="text-xs text-muted-foreground">Tighten these to keep the checklist from spilling over several pages in the PDF paperbook.</p>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Font size (pt)</Label>
+                      <Input
+                        type="number"
+                        min={6}
+                        max={18}
+                        step={0.5}
+                        value={settings.checklistFontSizePt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, checklistFontSizePt: Math.min(18, Math.max(6, parseFloat(e.target.value) || 14)) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Line spacing</Label>
+                      <Select
+                        value={String(settings.checklistLineSpacing)}
+                        onValueChange={(v) => setSettings((prev) => ({ ...prev, checklistLineSpacing: parseFloat(v) }))}
+                      >
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
+                          <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
+                          <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
+                          <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Para spacing (pt)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={18}
+                        step={1}
+                        value={settings.checklistParaSpacingPt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, checklistParaSpacingPt: Math.min(18, Math.max(0, parseFloat(e.target.value) || 0)) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">Defaults: 14 pt font, 1.5 line spacing, 6 pt paragraph spacing.</p>
                 </div>
 
                 {/* Volume Splitting */}
@@ -1531,6 +1676,34 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                           Add white background behind the True Copy stamp
                         </Label>
                       </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Horizontal margin (pt)</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={216}
+                            step={1}
+                            value={settings.trueCopyMarginXPt}
+                            onChange={(e) => setSettings((prev) => ({ ...prev, trueCopyMarginXPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))}
+                            className="h-7 text-xs"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Bottom margin (pt)</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={216}
+                            step={1}
+                            value={settings.trueCopyMarginBottomPt}
+                            onChange={(e) => setSettings((prev) => ({ ...prev, trueCopyMarginBottomPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))}
+                            className="h-7 text-xs"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">Defaults: 36 pt (0.5 inch) on both. In bottom-centre mode the horizontal margin is ignored.</p>
                     </div>
                   )}
 
@@ -1765,6 +1938,15 @@ export function getSettings(): SettingsData {
     inputFontSize: DEFAULT_INPUT_FONT_SIZE,
     annexureLabelBackground: false,
     annexureLabelSize: 14,
+    annexureLabelMarginPt: 14.4,
+    pageNumberSizePt: 20,
+    pageNumberMarginTopPt: 54,
+    pageNumberMarginRightPt: 54,
+    trueCopyMarginXPt: 36,
+    trueCopyMarginBottomPt: 36,
+    checklistFontSizePt: 14,
+    checklistLineSpacing: 1.5,
+    checklistParaSpacingPt: 6,
     exportHighlight: false,
     autosaveInterval: 60,
     toastDuration: 1,
@@ -1811,6 +1993,15 @@ export function getSettings(): SettingsData {
         inputFontSize: parsed.inputFontSize ?? DEFAULT_INPUT_FONT_SIZE,
         annexureLabelBackground: parsed.annexureLabelBackground ?? false,
         annexureLabelSize: parsed.annexureLabelSize ?? 14,
+        annexureLabelMarginPt: parsed.annexureLabelMarginPt ?? 14.4,
+        pageNumberSizePt: parsed.pageNumberSizePt ?? 20,
+        pageNumberMarginTopPt: parsed.pageNumberMarginTopPt ?? 54,
+        pageNumberMarginRightPt: parsed.pageNumberMarginRightPt ?? 54,
+        trueCopyMarginXPt: parsed.trueCopyMarginXPt ?? 36,
+        trueCopyMarginBottomPt: parsed.trueCopyMarginBottomPt ?? 36,
+        checklistFontSizePt: parsed.checklistFontSizePt ?? 14,
+        checklistLineSpacing: parsed.checklistLineSpacing ?? 1.5,
+        checklistParaSpacingPt: parsed.checklistParaSpacingPt ?? 6,
         exportHighlight: parsed.exportHighlight ?? false,
         autosaveInterval: parsed.autosaveInterval ?? 60,
         toastDuration: parsed.toastDuration ?? 1,
