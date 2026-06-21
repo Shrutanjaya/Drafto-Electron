@@ -106,7 +106,7 @@ const getOutputFormatting = () => {
 // in the renderer). The font *family* follows the output font; size, line spacing
 // and paragraph spacing are independent so users can tighten a long checklist.
 const getChecklistFormatting = () => {
-    const d = { sizePt: 14, lineSpacing: 1.5, paraSpacingPt: 6 };
+    const d = { sizePt: 14, lineSpacing: 1.5, paraSpacingPt: 6, marginTopInches: 1, marginLeftInches: 1 };
     if (typeof window === 'undefined') return d;
     try {
         const raw = window.localStorage.getItem('drafto-settings');
@@ -116,6 +116,8 @@ const getChecklistFormatting = () => {
             sizePt: s.checklistFontSizePt ?? d.sizePt,
             lineSpacing: s.checklistLineSpacing ?? d.lineSpacing,
             paraSpacingPt: s.checklistParaSpacingPt ?? d.paraSpacingPt,
+            marginTopInches: s.checklistMarginTopInches ?? d.marginTopInches,
+            marginLeftInches: s.checklistMarginLeftInches ?? d.marginLeftInches,
         };
     } catch {
         return d;
@@ -2676,13 +2678,13 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject) 
                 }),
                 new TableCell({
                     children: [new Paragraph({ text: questionLabel, spacing: checklistCellSpacing })],
-                    width: { size: 60, type: WidthType.PERCENTAGE },
+                    width: { size: 75, type: WidthType.PERCENTAGE },
                     verticalAlign: VerticalAlign.CENTER,
                     margins: defaultCellMargins,
                 }),
                 new TableCell({
                     children: [new Paragraph({ text: answer, alignment: AlignmentType.CENTER, spacing: checklistCellSpacing })],
-                    width: { size: 30, type: WidthType.PERCENTAGE },
+                    width: { size: 15, type: WidthType.PERCENTAGE },
                     verticalAlign: VerticalAlign.CENTER,
                     margins: defaultCellMargins,
                 }),
@@ -2690,10 +2692,18 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject) 
         });
     });
 
+    // Checklist top/left margins are user-configurable (default 1", vs the 1.5"
+    // used elsewhere); right/bottom follow the shared defaults.
+    const checklistMargins = {
+        ...defaultMargins,
+        top: Math.round(cf.marginTopInches * 1440),
+        left: Math.round(cf.marginLeftInches * 1440),
+    };
+
     const doc = new Document({
         styles: checklistStyles,
         sections: [{
-            properties: { page: { margin: defaultMargins } },
+            properties: { page: { margin: checklistMargins } },
             children: [
                 new Paragraph({
                     children: [
@@ -2706,7 +2716,7 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject) 
                 }),
                 new Table({
                     width: { size: 100, type: WidthType.PERCENTAGE },
-                    columnWidths: [1000, 6000, 3000],
+                    columnWidths: [1000, 7500, 1500],
                     rows: [
                         new TableRow({
                             children: [
@@ -2742,6 +2752,10 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject) 
                         ...rows,
                     ],
                 }),
+                // Two blank lines to leave room for the signature image above the
+                // "Filed by" name (the signature is a floating overlay).
+                new Paragraph({ text: "" }),
+                new Paragraph({ text: "" }),
                 // "Filed by" block (with AoR signature, if configured), matching the
                 // checklist's own formatting.
                 ...createFiledByTable(

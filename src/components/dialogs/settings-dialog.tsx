@@ -51,6 +51,8 @@ interface SettingsData {
   checklistFontSizePt: number;
   checklistLineSpacing: number;
   checklistParaSpacingPt: number;  // before/after spacing on each cell paragraph
+  checklistMarginTopInches: number;   // page top margin (inches)
+  checklistMarginLeftInches: number;  // page left margin (inches)
 
   exportHighlight: boolean;
   autosaveInterval: number;
@@ -318,6 +320,8 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     checklistFontSizePt: 14,
     checklistLineSpacing: 1.5,
     checklistParaSpacingPt: 6,
+    checklistMarginTopInches: 1,
+    checklistMarginLeftInches: 1,
     exportHighlight: false,
     autosaveInterval: 60,
     toastDuration: 1,
@@ -373,6 +377,8 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           checklistFontSizePt: parsed.checklistFontSizePt ?? 14,
           checklistLineSpacing: parsed.checklistLineSpacing ?? 1.5,
           checklistParaSpacingPt: parsed.checklistParaSpacingPt ?? 6,
+          checklistMarginTopInches: parsed.checklistMarginTopInches ?? 1,
+          checklistMarginLeftInches: parsed.checklistMarginLeftInches ?? 1,
           exportHighlight: parsed.exportHighlight ?? false,
           autosaveInterval: parsed.autosaveInterval ?? 60,
           toastDuration: parsed.toastDuration ?? 1,
@@ -1461,6 +1467,34 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     </div>
                   </div>
                   <p className="text-[10px] text-muted-foreground">Defaults: 14 pt font, 1.5 line spacing, 6 pt paragraph spacing.</p>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Top margin (inches)</Label>
+                      <Input
+                        type="number"
+                        min={0.5}
+                        max={2}
+                        step={0.1}
+                        value={settings.checklistMarginTopInches}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, checklistMarginTopInches: Math.min(2, Math.max(0.5, parseFloat(e.target.value) || 1)) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Left margin (inches)</Label>
+                      <Input
+                        type="number"
+                        min={0.5}
+                        max={2}
+                        step={0.1}
+                        value={settings.checklistMarginLeftInches}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, checklistMarginLeftInches: Math.min(2, Math.max(0.5, parseFloat(e.target.value) || 1)) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">Defaults: 1 inch top and left. Set to 1.5 to match the other documents.</p>
                 </div>
 
                 {/* Volume Splitting */}
@@ -1947,6 +1981,8 @@ export function getSettings(): SettingsData {
     checklistFontSizePt: 14,
     checklistLineSpacing: 1.5,
     checklistParaSpacingPt: 6,
+    checklistMarginTopInches: 1,
+    checklistMarginLeftInches: 1,
     exportHighlight: false,
     autosaveInterval: 60,
     toastDuration: 1,
@@ -2002,6 +2038,8 @@ export function getSettings(): SettingsData {
         checklistFontSizePt: parsed.checklistFontSizePt ?? 14,
         checklistLineSpacing: parsed.checklistLineSpacing ?? 1.5,
         checklistParaSpacingPt: parsed.checklistParaSpacingPt ?? 6,
+        checklistMarginTopInches: parsed.checklistMarginTopInches ?? 1,
+        checklistMarginLeftInches: parsed.checklistMarginLeftInches ?? 1,
         exportHighlight: parsed.exportHighlight ?? false,
         autosaveInterval: parsed.autosaveInterval ?? 60,
         toastDuration: parsed.toastDuration ?? 1,
