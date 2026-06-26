@@ -56,7 +56,9 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
     name: `listOfDates.${lodIndex}.annexures`,
   });
   const isDark = useIsDark();
-  
+  const isWp = form.watch("courtType") === "WritPetitionDHC";
+  const isIoWrit = form.watch("wp.isIoWrit");
+
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const typedFileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [cloneSelectValue, setCloneSelectValue] = useState("");
@@ -170,6 +172,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                               )}
                           />
                           
+                          {!isWp && (
                           <FormField
                               control={form.control}
                               name={`listOfDates.${lodIndex}.annexures.${index}.isAdditionalDocument`}
@@ -191,6 +194,47 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                               </FormItem>
                               )}
                           />
+                          )}
+
+                          {isWp && isIoWrit && (
+                          <FormField
+                              control={form.control}
+                              name={`listOfDates.${lodIndex}.annexures.${index}.isImpugnedOrder`}
+                              render={({ field }) => (
+                              <FormItem className="flex flex-row items-center gap-1 space-y-0 pt-1">
+                                  <FormControl>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                                        </TooltipTrigger>
+                                        <TooltipContent><p>Mark as an Impugned Order (sorts to P-1; relief (a) quashes it).</p></TooltipContent>
+                                    </Tooltip>
+                                  </FormControl>
+                                  <span className="text-[10px] text-muted-foreground">IO</span>
+                              </FormItem>
+                              )}
+                          />
+                          )}
+
+                          {isWp && (
+                          <FormField
+                              control={form.control}
+                              name={`listOfDates.${lodIndex}.annexures.${index}.isColly`}
+                              render={({ field }) => (
+                              <FormItem className="flex flex-row items-center gap-1 space-y-0 pt-1">
+                                  <FormControl>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                                        </TooltipTrigger>
+                                        <TooltipContent><p>Colly (collectively): clubs several documents under one P-number, each bookmarked separately.</p></TooltipContent>
+                                    </Tooltip>
+                                  </FormControl>
+                                  <span className="text-[10px] text-muted-foreground">Colly</span>
+                              </FormItem>
+                              )}
+                          />
+                          )}
 
                           <p className="font-medium text-xs whitespace-nowrap self-center">Annexure P-{pNumber !== undefined && pNumber}</p>
                           <p className="font-medium text-xs whitespace-nowrap self-center">is a</p>
