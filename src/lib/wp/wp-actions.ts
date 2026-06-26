@@ -30,7 +30,7 @@ import {
   NO_BORDERS,
   partyPosition,
 } from "./wp-helpers";
-import { enumLabel, cascadeFor, type EnumStyle } from "./wp-numbering";
+import { cascadeFor, type EnumStyle } from "./wp-numbering";
 import { wpAnnexureOrder, annexLabel } from "./wp-annexures";
 import { getWpNumbering } from "./wp-settings";
 
@@ -81,50 +81,61 @@ function annexIndexRuns(pNumber: number, annex: Annexure): (TextRun | string)[] 
   return runs;
 }
 
-// A lettered sub-paragraph ("a) <text>") with a hanging indent. The level-1
-// enumeration style is configurable per section (Facts / Grounds / Prayers).
-function letterPara(index: number, runs: (TextRun | string)[], style: EnumStyle = "lower-alpha"): Paragraph {
-  return new Paragraph({
-    indent: { left: 720, hanging: 360 },
-    children: [
-      smartTextRun(`${enumLabel(index, style)}) `),
-      ...runs.map(r => (typeof r === "string" ? smartTextRun(r) : r)),
-    ],
-  });
-}
 
 // True if the rich-text HTML has any visible text.
 function htmlHasText(html?: string): boolean {
   return !!(html || "").replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim();
 }
 
-// Lettered list of rich-text items rendered as a borderless 2-column table
-// (letter | parsed HTML content), mirroring the SLP grounds layout. Each item is
-// run through parseHtml so formatting/nested lists survive and raw tags never
-// leak into the document. Plain strings (e.g. the synthetic IO relief) pass
-// through parseHtml unchanged.
-function letteredHtmlTable(items: string[], style: EnumStyle, numbering: any[]): Table {
-  const rows = items.map((html, i) => {
-    const parsed = parseHtml(html || "");
-    if (parsed.numbering.length) numbering.push(...parsed.numbering);
-    return new TableRow({
-      children: [
-        new TableCell({
-          children: [new Paragraph({ style: "Normal", children: [smartTextRun(`${enumLabel(i, style)})`)] })],
-          borders: NO_BORDERS,
-          width: { size: 8, type: WidthType.PERCENTAGE },
-          margins: cellMargins,
-        }),
-        new TableCell({
-          children: parsed.paragraphs.length ? parsed.paragraphs : [new Paragraph("")],
-          borders: NO_BORDERS,
-          width: { size: 92, type: WidthType.PERCENTAGE },
-          margins: cellMargins,
-        }),
-      ],
-    });
+// ── Native Word numbering ────────────────────────────────────────────────────
+// Numbering is emitted as real Word auto-lists (not literal text), so numbers
+// renumber on manual edits. Trade-off: native lists can't do glyph-doubling
+// (aa, bb, cc) — beyond the first cycle they roll over per Word's own scheme.
+
+// Top-level decimal list ("1.", "2.", …).
+function decimalDef(reference: string) {
+  return { reference, levels: [{ level: 0, format: "decimal", text: "%1.", alignment: AlignmentType.START, style: { paragraph: { indent: { left: 480, hanging: 480 } } } }] };
+}
+
+// Sub-list whose first level uses the configured section style; deeper levels
+// follow the cascade.
+function styleDef(reference: string, style: EnumStyle) {
+  const cascade = cascadeFor(style);
+  return { reference, levels: cascade.map((fmt, i) => ({ level: i, format: fmt, text: `%${i + 1})`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 + i * 360, hanging: 360 } } } })) };
+}
+
+// Allocates fresh numbering references (so each list restarts at 1/a) and
+// collects their definitions for the Document.
+function numberer() {
+  const defs: any[] = [];
+  let seq = 0;
+  return {
+    defs,
+    decimal() { const r = `wpn-d-${seq++}`; defs.push(decimalDef(r)); return r; },
+    styled(style: EnumStyle) { const r = `wpn-s-${seq++}`; defs.push(styleDef(r, style)); return r; },
+  };
+}
+
+// A plain-text auto-numbered list item.
+function listItem(reference: string, text: string, opts?: { bold?: boolean; before?: number }): Paragraph {
+  return new Paragraph({
+    numbering: { reference, level: 0 },
+    spacing: { before: opts?.before ?? 0 },
+    children: [smartTextRun(opts?.bold ? { text, bold: true } : text)],
   });
-  return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: [800, 9200], borders: NO_BORDERS, rows });
+}
+
+// Rich-text auto-numbered list items: each HTML item's paragraphs are bound to
+// `reference` via parseHtml's defaultNumbering hook (so formatting survives and
+// raw tags never leak). Nested numbering defs are collected into `collect`.
+function htmlListItems(reference: string, items: string[], collect: any[]): Paragraph[] {
+  const out: Paragraph[] = [];
+  for (const html of items) {
+    const parsed = parseHtml(html || "", undefined, { reference, level: 0 });
+    if (parsed.numbering.length) collect.push(...parsed.numbering);
+    out.push(...parsed.paragraphs);
+  }
+  return out;
 }
 
 // Rewrite the level formats of the Facts <ol> numbering (produced by parseHtml)
@@ -305,61 +316,54 @@ export async function generateWpPetition(project: DraftoProject) {
   const { top, all } = reliefStrings(project);
 
   const num = getWpNumbering();
+  const nb = numberer();
+  const numbering = nb.defs;
+
+  const mainRef = nb.decimal();              // top-level 1.–8.
+  const reliefsTopRef = nb.styled(num.prayers);
+  const groundsRef = nb.styled(num.grounds);
+  const prayersRef = nb.styled(num.prayers);
+
   const facts = parseHtml(project.wp.facts || "");
   applyFactsCascade(facts.numbering, num.facts);
-  const numbering: any[] = [...facts.numbering];
+  numbering.push(...facts.numbering);
+
+  const groundStrings = (project.grounds || []).map(g => g.particulars).filter(htmlHasText);
 
   const children: (Paragraph | Table)[] = [
     ...createWpHeader(project.caseType),
     ...createWpPartiesHeader(petHeader, resHeader),
     centeredBold(`Writ Petition under Article ${article} of the Constitution of India`, { before: 240 }),
     new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun("PRAYING FOR THE FOLLOWING RELIEFS:")] }),
-    letteredHtmlTable(top, num.prayers, numbering),
+    ...htmlListItems(reliefsTopRef, top, numbering),
     // Salutation
     new Paragraph({ spacing: { before: 240 }, children: [smartTextRun("To")] }),
     new Paragraph({ children: [smartTextRun("The Hon’ble Chief Justice of the Delhi High Court")] }),
     new Paragraph({ children: [smartTextRun("And His Companion Justices of the Hon’ble High Court of Delhi")] }),
     new Paragraph({ children: [smartTextRun("The Petitioner most respectfully submits that:")] }),
-    // 1. Intro (Phase 5 enriches this into a prose restatement of the reliefs)
-    numberedPara(1, "This Writ Petition is filed praying for the reliefs set out hereinabove."),
+    // 1. Intro
+    listItem(mainRef, "This Writ Petition is filed praying for the reliefs set out hereinabove.", { before: 120 }),
     // 2. Facts
-    numberedHeading(2, "FACTS"),
+    listItem(mainRef, "FACTS", { bold: true, before: 120 }),
     ...(facts.paragraphs.length ? facts.paragraphs : [new Paragraph({ children: [smartTextRun("[Facts — generated from the List of Dates.]")] })]),
     // 3. Grounds
-    numberedHeading(3, "GROUNDS"),
-    letteredHtmlTable((project.grounds || []).map(g => g.particulars).filter(htmlHasText), num.grounds, numbering),
+    listItem(mainRef, "GROUNDS", { bold: true, before: 120 }),
+    ...htmlListItems(groundsRef, groundStrings, numbering),
     // 4–7 boilerplate
-    numberedPara(4, "This Hon’ble Court has the necessary jurisdiction to entertain this Writ Petition as the Respondents are situated within, and the cause of action has arisen within, the territorial jurisdiction of this Hon’ble Court."),
-    numberedPara(5, "The Petitioner has no other equally efficacious alternate remedy available to approach this Hon’ble Court."),
-    numberedPara(6, "The Petitioner has not filed any other Writ Petition or proceeding before the Hon’ble Supreme Court or before this Hon’ble Court or any other Court seeking the same or similar relief."),
-    numberedPara(7, "The Petitioner craves leave of this Hon’ble Court to produce additional documents and/or affidavits and to add, alter or amend this Writ Petition at a later stage of the proceedings, if required."),
+    listItem(mainRef, "This Hon’ble Court has the necessary jurisdiction to entertain this Writ Petition as the Respondents are situated within, and the cause of action has arisen within, the territorial jurisdiction of this Hon’ble Court.", { before: 120 }),
+    listItem(mainRef, "The Petitioner has no other equally efficacious alternate remedy available to approach this Hon’ble Court.", { before: 120 }),
+    listItem(mainRef, "The Petitioner has not filed any other Writ Petition or proceeding before the Hon’ble Supreme Court or before this Hon’ble Court or any other Court seeking the same or similar relief.", { before: 120 }),
+    listItem(mainRef, "The Petitioner craves leave of this Hon’ble Court to produce additional documents and/or affidavits and to add, alter or amend this Writ Petition at a later stage of the proceedings, if required.", { before: 120 }),
     // 8. Prayers
-    numberedPara(8, "Prayers: In view of the foregoing submissions, it is respectfully prayed that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and:"),
-    letteredHtmlTable(all, num.prayers, numbering),
+    listItem(mainRef, "Prayers: In view of the foregoing submissions, it is respectfully prayed that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and:", { before: 120 }),
+    ...htmlListItems(prayersRef, all, numbering),
     ...createWpFiledBy(project),
     // Affidavit (the index lists the petition "with affidavit")
     new Paragraph({ children: [new PageBreak()] }),
-    ...buildAffidavitChildren(project, "petition", petHeader, resHeader),
+    ...buildAffidavitChildren(project, "petition", petHeader, resHeader, numbering),
   ];
 
-  const doc = wpDoc(children, numbering);
-  return pack(doc, "WP-Petition.docx");
-}
-
-function numberedPara(n: number, text: string): Paragraph {
-  return new Paragraph({
-    indent: { left: 480, hanging: 480 },
-    spacing: { before: 120 },
-    children: [smartTextRun(`${n}. `), smartTextRun(convertToSmartQuotes(text))],
-  });
-}
-
-function numberedHeading(n: number, heading: string): Paragraph {
-  return new Paragraph({
-    indent: { left: 480, hanging: 480 },
-    spacing: { before: 120 },
-    children: [smartTextRun({ text: `${n}. ${heading}`, bold: true })],
-  });
+  return pack(wpDoc(children, numbering), "WP-Petition.docx");
 }
 
 // ── Affidavit (shared by the petition and CMs) ──────────────────────────────
@@ -379,7 +383,10 @@ function buildAffidavitChildren(
   kind: "petition" | "cm",
   petHeader: string,
   resHeader: string,
+  numbering: any[],
 ): (Paragraph | Table)[] {
+  const affRef = `wpn-aff-${Math.random().toString(36).slice(2, 8)}`;
+  numbering.push(decimalDef(affRef));
   const paras: string[] = kind === "petition"
     ? [
         "I am the Petitioner in the captioned Writ Petition. I am fully conversant with the facts of the case and hence competent to swear to this Affidavit.",
@@ -400,7 +407,7 @@ function buildAffidavitChildren(
     ...createWpPartiesHeader(petHeader, resHeader),
     centeredBold("AFFIDAVIT", { before: 240 }),
     new Paragraph({ children: [smartTextRun(deponentPreamble(project))] }),
-    ...paras.map((t, i) => numberedPara(i + 1, t)),
+    ...paras.map(t => listItem(affRef, t, { before: 60 })),
     centeredBold("VERIFICATION"),
     new Paragraph({ children: [smartTextRun(
       `I, ${project.deponent.name || "[Deponent]"}, the deponent above named, hereby verify at ${place} on this ____ day of __________, ${new Date().getFullYear()}, that the contents of the above ${kind === "petition" ? "Petition" : "Application"} are true and correct to the best of my knowledge and belief and nothing material has been concealed therefrom.`,
@@ -424,17 +431,20 @@ export async function generateWpVakalatnama(project: DraftoProject) {
     "To appoint and instruct any other legal Practitioner authorising him to exercise the powers and authority hereby conferred upon the Advocate whenever they may think fit to do so.",
   ];
 
+  const nb = numberer();
+  const authRef = nb.styled("lower-alpha");
+
   const doc = wpDoc([
     ...createWpHeader(project.caseType),
     ...createWpPartiesHeader(petHeader, resHeader),
     centeredBold("VAKALATNAMA", { before: 240 }),
     new Paragraph({ children: [smartTextRun(`I, ${petHeader}, the Petitioner in the captioned matter, do hereby appoint ${advLine || "[Advocate]"} to be my Advocate in the above-noted case and authorise him:`)] }),
-    ...authority.map((t, i) => letterPara(i, [convertToSmartQuotes(t)])),
+    ...authority.map(t => listItem(authRef, t, { before: 60 })),
     new Paragraph({ spacing: { before: 120 }, children: [smartTextRun("AND I undertake that I or my duly authorised agent will appear in Court on all hearings and will inform the Advocate for appearance when the case is on the date of hearing.")] }),
     new Paragraph({ spacing: { before: 240 }, children: [smartTextRun("Dated: ____________")] }),
     new Paragraph({ children: [smartTextRun("Signed, Accepted and Identified by:")] }),
     new Paragraph({ spacing: { before: 360 }, children: [smartTextRun({ text: "ADVOCATE", bold: true }), smartTextRun("                                        "), smartTextRun({ text: "CLIENT", bold: true })] }),
-  ]);
+  ], nb.defs);
   return pack(doc, "WP-Vakalatnama.docx");
 }
 
@@ -501,33 +511,36 @@ export async function generateWpCms(project: DraftoProject) {
 
   const year = new Date().getFullYear();
   const num = getWpNumbering();
-  const cmNumbering: any[] = [];
+  const nb = numberer();
+  const numbering = nb.defs;
   const children: (Paragraph | Table)[] = [];
 
   cms.forEach((cm, idx) => {
     if (idx > 0) children.push(new Paragraph({ children: [new PageBreak()] }));
-    let n = 0;
+    // Fresh references per CM so each application restarts its numbering.
+    const mainRef = nb.decimal();
     children.push(
-      ...createWpHeader(project.caseType, { subTitle: `C.M. No. ____ of ${year}\nin` }),
+      ...createWpHeader(project.caseType, { subTitle: `C.M. No. ____ of ${year}, in` }),
       ...createWpPartiesHeader(petHeader, resHeader),
       new Paragraph({ spacing: { before: 240 }, alignment: AlignmentType.CENTER, children: [smartTextRun({ text: cm.title, bold: true })] }),
       new Paragraph({ children: [smartTextRun("The Petitioner most respectfully submits that:")] }),
-      ...cm.body.map(t => numberedPara(++n, t)),
+      ...cm.body.map(t => listItem(mainRef, t, { before: 60 })),
     );
     const groundStrings = (cm.grounds || []).map(g => g.particulars).filter(htmlHasText);
     if (groundStrings.length) {
-      children.push(numberedHeading(++n, "GROUNDS"));
-      children.push(letteredHtmlTable(groundStrings, num.grounds, cmNumbering));
+      children.push(listItem(mainRef, "GROUNDS", { bold: true, before: 120 }));
+      children.push(...htmlListItems(nb.styled(num.grounds), groundStrings, numbering));
     }
-    children.push(numberedPara(++n, "PRAYER: In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon’ble Court may be pleased to:"));
-    cm.prayers.forEach((p, i) => children.push(letterPara(i, [convertToSmartQuotes(p)], num.prayers)));
+    children.push(listItem(mainRef, "PRAYER: In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon’ble Court may be pleased to:", { before: 120 }));
+    const prayerRef = nb.styled(num.prayers);
+    cm.prayers.forEach(p => children.push(listItem(prayerRef, p)));
     children.push(...createWpFiledBy(project));
     // CM affidavit
     children.push(new Paragraph({ children: [new PageBreak()] }));
-    children.push(...buildAffidavitChildren(project, "cm", petHeader, resHeader));
+    children.push(...buildAffidavitChildren(project, "cm", petHeader, resHeader, numbering));
   });
 
-  return pack(wpDoc(children, cmNumbering), "WP-CMs.docx");
+  return pack(wpDoc(children, numbering), "WP-CMs.docx");
 }
 
 // ── Index ───────────────────────────────────────────────────────────────────
