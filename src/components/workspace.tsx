@@ -2,16 +2,20 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useWatch } from "react-hook-form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BasicTab } from "./tabs/basic-tab";
 import { SlpTab } from "./tabs/slp-tab";
 import { IasTab } from "./tabs/ias-tab";
 import { ListingProformaTab } from "./tabs/listing-proforma-tab";
 import { AdvocateChecklistTab } from "./tabs/advocate-checklist-tab";
+import { WpWorkspace } from "./wp/wp-workspace";
 import { FIND_REVEAL_EVENT, getPendingReveal } from "@/lib/find-reveal";
+import type { DraftoProject } from "@/lib/schema";
 
 export function Workspace() {
   const [tab, setTab] = useState("slp");
+  const courtType = useWatch({ name: "courtType" }) as DraftoProject["courtType"] | undefined;
 
   // Find & Replace navigation can target any tab — switch to the match's tab.
   useEffect(() => {
@@ -22,6 +26,11 @@ export function Workspace() {
     window.addEventListener(FIND_REVEAL_EVENT, onReveal);
     return () => window.removeEventListener(FIND_REVEAL_EVENT, onReveal);
   }, []);
+
+  // Delhi HC writ-petition mode loads an entirely different interface.
+  if (courtType === "WritPetitionDHC") {
+    return <WpWorkspace />;
+  }
 
   return (
     <Tabs value={tab} onValueChange={setTab} className="p-1">

@@ -16,6 +16,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { getGenerationCounts, type UsageCounts } from "@/lib/firebase/usage-service";
+import { WP_NUMBER_STYLES, DEFAULT_WP_NUMBERING, type WpNumbering } from "@/lib/wp/wp-settings";
+import type { EnumStyle } from "@/lib/wp/wp-numbering";
 import { LICENSE_TEXT, TERMS_TEXT } from "@/lib/legal";
 import { cn } from "@/lib/utils";
 
@@ -92,6 +94,9 @@ interface SettingsData {
   // User Defaults — pre-filled into every new project
   defaultAorName: string;
   defaultAorCode: string;
+
+  // Writ Petition — per-section sub-paragraph numbering styles
+  wpNumbering: WpNumbering;
 }
 
 // Fonts offered for the output text formatting
@@ -350,6 +355,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     aiModel: 'default',
     defaultAorName: "",
     defaultAorCode: "",
+    wpNumbering: DEFAULT_WP_NUMBERING,
   });
 
   // Load settings from localStorage on mount
@@ -407,6 +413,11 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           aiModel: (parsed.aiModel || 'default') as AiModel,
           defaultAorName: parsed.defaultAorName ?? "",
           defaultAorCode: parsed.defaultAorCode ?? "",
+          wpNumbering: {
+            facts: parsed.wpNumbering?.facts ?? DEFAULT_WP_NUMBERING.facts,
+            grounds: parsed.wpNumbering?.grounds ?? DEFAULT_WP_NUMBERING.grounds,
+            prayers: parsed.wpNumbering?.prayers ?? DEFAULT_WP_NUMBERING.prayers,
+          },
         });
         applyUiFont(parsed.uiFont || DEFAULT_UI_FONT);
         applyUiFontSize(parsed.uiFontSize ?? DEFAULT_UI_FONT_SIZE);
@@ -1268,6 +1279,34 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   </div>
                 </div>
 
+                {/* Writ Petition — sub-paragraph numbering */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Writ Petition — Sub-paragraph numbering</p>
+                  <p className="text-xs text-muted-foreground">First-level lettering for each section of a Delhi High Court writ petition. Deeper levels follow a fixed cascade automatically.</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {([
+                      ["facts", "Facts"],
+                      ["grounds", "Grounds"],
+                      ["prayers", "Prayers"],
+                    ] as [keyof WpNumbering, string][]).map(([key, label]) => (
+                      <div key={key} className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">{label}</Label>
+                        <Select
+                          value={settings.wpNumbering?.[key] ?? DEFAULT_WP_NUMBERING[key]}
+                          onValueChange={(v) => setSettings((prev) => ({ ...prev, wpNumbering: { ...(prev.wpNumbering ?? DEFAULT_WP_NUMBERING), [key]: v as EnumStyle } }))}
+                        >
+                          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {WP_NUMBER_STYLES.map((s) => (
+                              <SelectItem key={s.value} value={s.value} className="text-xs">{s.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Quotes */}
                 <div className="space-y-2">
                   <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Quotes</p>
@@ -2011,6 +2050,7 @@ export function getSettings(): SettingsData {
     aiModel: 'default' as AiModel,
     defaultAorName: "",
     defaultAorCode: "",
+    wpNumbering: DEFAULT_WP_NUMBERING,
   };
 
   if (typeof window === "undefined") return defaults;
@@ -2068,6 +2108,11 @@ export function getSettings(): SettingsData {
         aiModel: (parsed.aiModel || 'default') as AiModel,
         defaultAorName: parsed.defaultAorName ?? "",
         defaultAorCode: parsed.defaultAorCode ?? "",
+        wpNumbering: {
+          facts: parsed.wpNumbering?.facts ?? DEFAULT_WP_NUMBERING.facts,
+          grounds: parsed.wpNumbering?.grounds ?? DEFAULT_WP_NUMBERING.grounds,
+          prayers: parsed.wpNumbering?.prayers ?? DEFAULT_WP_NUMBERING.prayers,
+        },
       };
     } catch (err) {
       console.error("Failed to parse settings:", err);

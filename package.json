@@ -162,6 +162,12 @@
           "name": "Drafto Project",
           "description": "Drafto Project File",
           "icon": "build/icon.ico"
+        },
+        {
+          "ext": "dhcwp",
+          "name": "Drafto Writ Petition",
+          "description": "Drafto Delhi HC Writ Petition File",
+          "icon": "build/icon.ico"
         }
       ]
     },
@@ -228,7 +234,8 @@
           {
             "CFBundleTypeName": "Drafto Project",
             "CFBundleTypeExtensions": [
-              "drafto"
+              "drafto",
+              "dhcwp"
             ],
             "CFBundleTypeRole": "Editor"
           }

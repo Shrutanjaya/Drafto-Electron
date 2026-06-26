@@ -1,6 +1,18 @@
 ﻿
 import { z } from "zod";
 
+// A constituent document inside a "(Colly)" annexure (Delhi HC writ petitions
+// only — colly is not permitted in the Supreme Court). Each constituent gets its
+// own nested bookmark in the output PDF, but the colly appears as a single entry
+// in the Index and in the Facts section.
+export const collyDocumentSchema = z.object({
+  id: z.string().default(() => `colly_${Math.random()}`),
+  title: z.string().default(""),
+  date: z.string().default(""),
+  file: z.any().optional(),
+  filePath: z.string().optional(), // Absolute path to the PDF file on disk (Electron only)
+});
+
 export const annexureSchema = z.object({
   id: z.string().default(() => `annex_${Math.random()}`),
   file: z.any().optional(),
@@ -9,15 +21,24 @@ export const annexureSchema = z.object({
   typedOrTranslatedFilePath: z.string().optional(), // Path for typed/translated file (Electron only)
   isAdditionalDocument: z.boolean().default(false),
   copyType: z.enum([
-      "true copy", 
-      "typed copy", 
-      "true and typed copy", 
-      "translated copy", 
+      "true copy",
+      "typed copy",
+      "true and typed copy",
+      "translated copy",
       "true and translated copy"
     ]).default("true copy"),
   title: z.string().default(""),
   date: z.string().default(""),
   customText: z.string().default(""),
+  // ── Delhi HC writ-petition-only fields (ignored by the SLP generator) ──
+  // Colly annexure: clubs several documents under one P-number, each bookmarked
+  // separately. `isColly` toggles it; `collyDocuments` holds the constituents.
+  isColly: z.boolean().default(false),
+  collyDocuments: z.array(collyDocumentSchema).default([]),
+  // Marks this annexure as an Impugned Order (IO writs): it sorts ahead of the
+  // other P-annexures (to P-1…) and is referenced by the auto-generated
+  // "quash and set aside" relief.
+  isImpugnedOrder: z.boolean().default(false),
 });
 
 export const iaAnnexureSchema = z.object({
@@ -116,6 +137,10 @@ export const draftoProjectSchema = z.object({
   petitioners: z.array(vaadiTableItemSchema).default([vaadiTableItemSchema.parse({})]),
   respondents: z.array(vaadiTableItemSchema).default([vaadiTableItemSchema.parse({})]),
   caseType: z.enum(["Civil", "Criminal"]).default("Civil"),
+  // Top-level document-type discriminator. Existing saved projects predate this
+  // field, so it defaults to "SLP" — they parse and behave exactly as before.
+  // "WritPetitionDHC" selects the Delhi High Court writ-petition interface.
+  courtType: z.enum(["SLP", "WritPetitionDHC"]).default("SLP"),
   isCommonOrder: z.boolean().default(false),
   commonOrderParties: z.array(commonOrderPartyGroupSchema).default([]),
   impugnedOrders: z.array(impugnedOrderSchema).default([impugnedOrderSchema.parse({})]),
@@ -308,6 +333,54 @@ export const draftoProjectSchema = z.object({
     q20_anticipatoryBail: yesNoNaSchema,
     q21_proforma: yesNoSchema,
     q21_identicalMatter: yesNoNaSchema,
+  }).default({}),
+
+  // ── Writ Petition (Delhi High Court) ────────────────────────────────────────
+  // All WP-specific data lives here so the SLP shape is untouched. Active only
+  // when courtType === "WritPetitionDHC". Reuses the shared petitioners /
+  // respondents / deponent / synopsis / listOfDates / grounds fields above.
+  wp: z.object({
+    // Jurisdiction basis printed in the cause title and the petition body.
+    articleBasis: z.enum(["226", "227", "226 read with 227"]).default("226 read with 227"),
+    // Date the Notice of Motion says the matter is "likely to be listed on".
+    listingDate: z.preprocess((arg) => {
+      if (typeof arg == "string" || arg instanceof Date) return new Date(arg);
+    }, z.date()).default(() => new Date()),
+    // IO writ: the impugned order is the first annexure(s) (marked via
+    // annexure.isImpugnedOrder) and relief (a) auto-quashes it.
+    isIoWrit: z.boolean().default(false),
+    // Reliefs — single source of truth (lettered list). The last item is the
+    // residuary prayer, auto-omitted from the top reliefs block and the intro.
+    reliefs: z.array(aamTableItemSchema).default([
+      aamTableItemSchema.parse({}),
+      aamTableItemSchema.parse({ particulars: "Pass any such other order(s) as this Hon'ble Court may deem fit in the facts and circumstances of this case." }),
+    ]),
+    // Facts section: transposed from the List of Dates by the AI assistant, then
+    // hand-editable. `factsEdited` suppresses auto-regeneration once touched.
+    facts: z.string().default(""),
+    factsEdited: z.boolean().default(false),
+    // Optionally split Synopsis and List of Dates onto separate pages.
+    splitSynopsisAndLod: z.boolean().default(false),
+    // "Filed by" advocate block (the High Court has no Advocate-on-Record).
+    advocate: z.object({
+      name: z.string().default(""),
+      firm: z.string().default(""),
+      address: z.string().default(""),
+      enrolmentNo: z.string().default(""),
+      email: z.string().default(""),
+      phone: z.string().default(""),
+    }).default({}),
+    // CM applications: three standard (each toggleable) + custom (A-series
+    // annexures, reusing the SLP custom-IA shape).
+    cms: z.object({
+      stay: z.object({
+        active: z.boolean().default(false), // IO writs: stay of the impugned order
+        grounds: z.array(aamTableItemSchema).default([aamTableItemSchema.parse({})]),
+      }).default({}),
+      lengthySynopsis: z.object({ active: z.boolean().default(false) }).default({}),
+      exemptionCopies: z.object({ active: z.boolean().default(false) }).default({}),
+    }).default({}),
+    customCms: z.array(customIaSchema).default([]),
   }).default({}),
 
   // PDF Generation Dialog state

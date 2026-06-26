@@ -22,7 +22,7 @@ interface ElectronAPI {
   getRecentFiles: () => Promise<DraftoFileInfo[]>;
   removeRecentFile: (filePath: string) => Promise<void>;
   deleteDraftoFile: (filePath: string) => Promise<{ ok: boolean; error?: string }>;
-  saveProject: (data: { petitionerName: string; content: string }) => Promise<string | null>;
+  saveProject: (data: { petitionerName: string; content: string; extension?: string }) => Promise<string | null>;
   openProjectsFolder: () => Promise<void>;
   openFolderPath: (folderPath: string) => Promise<void>;
   listDraftoFilesFromPath: (folderPath: string) => Promise<DraftoFileInfo[]>;

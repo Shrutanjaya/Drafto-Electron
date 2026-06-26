@@ -13,6 +13,18 @@ const { splitDocuments } = require("./ipc/pdf-split");
 // ── Environment ─────────────────────────────────────────────────────────────
 const isDev = !app.isPackaged;
 
+// ── Project file extensions ───────────────────────────────────────────────────
+// .drafto = SLP (Supreme Court); .dhcwp = Delhi HC writ petition. Both are JSON
+// project files; recognising both lets either type be opened/listed.
+const PROJECT_EXTS = [".drafto", ".dhcwp"];
+const isProjectFile = (f) => typeof f === "string" && PROJECT_EXTS.some((e) => f.toLowerCase().endsWith(e));
+const stripProjectExt = (f) => {
+  for (const e of PROJECT_EXTS) {
+    if (f.toLowerCase().endsWith(e)) return f.slice(0, -e.length);
+  }
+  return f;
+};
+
 // ── Register custom protocol for OAuth callbacks (must be before app ready) ──
 protocol.registerSchemesAsPrivileged([
   { scheme: "drafto", privileges: { standard: true, secure: true } },
@@ -305,8 +317,8 @@ if (!gotSingleInstanceLock) {
   app.on("second-instance", (_event, argv) => {
     const protocolUrl = argv.find((a) => a.startsWith("drafto://"));
     if (protocolUrl) handleProtocolUrl(protocolUrl);
-    // Handle double-clicking a .drafto file while app is already running
-    const draftoFile = argv.find((a) => a.endsWith(".drafto") && !a.startsWith("--"));
+    // Handle double-clicking a project file while app is already running
+    const draftoFile = argv.find((a) => isProjectFile(a) && !a.startsWith("--"));
     if (draftoFile) sendOpenFile(draftoFile);
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
@@ -316,8 +328,8 @@ if (!gotSingleInstanceLock) {
 
   app.whenReady().then(() => {
     app.setAsDefaultProtocolClient("drafto");
-    // Check if launched by double-clicking a .drafto file
-    const launchFile = process.argv.find((a) => a.endsWith(".drafto") && !a.startsWith("--"));
+    // Check if launched by double-clicking a project file
+    const launchFile = process.argv.find((a) => isProjectFile(a) && !a.startsWith("--"));
     if (launchFile) pendingOpenFilePath = launchFile;
     if (process.platform === "darwin") {
       findSoffice();
@@ -1137,7 +1149,7 @@ ipcMain.handle("get-recent-files", () => {
       try {
         const stats = fs.statSync(p);
         const sub = draftoSubtitle(p);
-        return { name: path.basename(p, ".drafto"), fileName: path.basename(p), path: p, modifiedDate: stats.mtime.toISOString(), size: stats.size, parties: sub.parties, caseNumber: sub.caseNumber };
+        return { name: stripProjectExt(path.basename(p)), fileName: path.basename(p), path: p, modifiedDate: stats.mtime.toISOString(), size: stats.size, parties: sub.parties, caseNumber: sub.caseNumber };
       } catch { return null; }
     })
     .filter(Boolean)
@@ -1146,7 +1158,7 @@ ipcMain.handle("get-recent-files", () => {
 
 ipcMain.handle("delete-drafto-file", (_event, filePath) => {
   try {
-    if (typeof filePath === "string" && filePath.endsWith(".drafto") && fs.existsSync(filePath)) {
+    if (isProjectFile(filePath) && fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
       return { ok: true };
     }
@@ -1156,9 +1168,10 @@ ipcMain.handle("delete-drafto-file", (_event, filePath) => {
   }
 });
 
-ipcMain.handle("save-project", (_event, { petitionerName, content }) => {
+ipcMain.handle("save-project", (_event, { petitionerName, content, extension }) => {
   const dir = projectsDir();
-  const filePath = path.join(dir, `${petitionerName}.drafto`);
+  const ext = extension === "dhcwp" ? "dhcwp" : "drafto";
+  const filePath = path.join(dir, `${petitionerName}.${ext}`);
   fs.writeFileSync(filePath, content, "utf-8");
   addRecentFile(filePath);
   return filePath;
@@ -1168,11 +1181,11 @@ ipcMain.handle("list-drafto-files", () => {
   const dir = projectsDir();
   try {
     return fs.readdirSync(dir)
-      .filter(f => f.endsWith(".drafto"))
+      .filter(isProjectFile)
       .map(f => {
         const fp = path.join(dir, f);
         const stats = fs.statSync(fp);
-        return { name: f.replace(".drafto", ""), fileName: f, path: fp, modifiedDate: stats.mtime.toISOString(), size: stats.size };
+        return { name: stripProjectExt(f), fileName: f, path: fp, modifiedDate: stats.mtime.toISOString(), size: stats.size };
       })
       .sort((a, b) => new Date(b.modifiedDate) - new Date(a.modifiedDate));
   } catch { return []; }
@@ -1207,11 +1220,11 @@ ipcMain.handle("list-drafto-files-from-path", (_event, folderPath) => {
   if (!fs.existsSync(folderPath)) return [];
   try {
     return fs.readdirSync(folderPath)
-      .filter(f => f.endsWith(".drafto"))
+      .filter(isProjectFile)
       .map(f => {
         const fp = path.join(folderPath, f);
         const stats = fs.statSync(fp);
-        return { name: f.replace(".drafto", ""), fileName: f, path: fp, modifiedDate: stats.mtime.toISOString(), size: stats.size };
+        return { name: stripProjectExt(f), fileName: f, path: fp, modifiedDate: stats.mtime.toISOString(), size: stats.size };
       })
       .sort((a, b) => new Date(b.modifiedDate) - new Date(a.modifiedDate));
   } catch { return []; }
@@ -1236,7 +1249,7 @@ ipcMain.handle("load-project-from-path", (_event, filePath) => {
 ipcMain.handle("open-drafto-file-dialog", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ["openFile"],
-    filters: [{ name: "Drafto Project", extensions: ["drafto"] }],
+    filters: [{ name: "Drafto Project", extensions: ["drafto", "dhcwp"] }],
   });
   return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
 });
@@ -1280,7 +1293,7 @@ ipcMain.handle("delete-lock-file", (_event, filePath) => {
 
 // Notify renderer to open a .drafto file by path (used on launch and second-instance)
 function sendOpenFile(filePath) {
-  if (mainWindow && !mainWindow.isDestroyed() && filePath && filePath.endsWith(".drafto")) {
+  if (mainWindow && !mainWindow.isDestroyed() && isProjectFile(filePath)) {
     // Wait for the renderer to finish mounting before sending
     mainWindow.webContents.send("open-file-path", filePath);
   }

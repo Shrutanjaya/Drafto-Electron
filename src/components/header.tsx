@@ -1,5 +1,5 @@
 import React, { useRef, useTransition, useState, useEffect } from "react";
-import { useFormContext } from "react-hook-form";
+import { useFormContext, useWatch } from "react-hook-form";
 import {
   FolderOpen,
   Save,
@@ -35,6 +35,9 @@ import { useToast } from "@/hooks/use-toast";
 import { draftoProjectSchema } from "@/lib/schema";
 import { PdfGenerationDialog } from "./dialogs/pdf-generation-dialog";
 import { LoadProjectDialog } from "./dialogs/load-project-dialog";
+import { ModeSelectDialog } from "./dialogs/mode-select-dialog";
+import { generateWpIndex, generateWpNoticeOfMotion, generateWpUrgencyApplication, generateWpMemoOfParties, generateWpSynopsisAndLod, generateWpPetition, generateWpVakalatnama, generateWpCms } from "@/lib/wp/wp-actions";
+import { generateWpPdf } from "@/lib/wp/wp-pdf";
 import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
 import { newBlankProject } from "@/lib/project-defaults";
 import { getIaList } from "@/lib/ia-list-utils";
@@ -61,6 +64,13 @@ export function getProjectFileName(data: { petitioners?: Array<{ name?: string }
   if (pet) return pet;
   if (res) return `v. ${res}`;
   return 'Untitled';
+}
+
+// Project-file extension by document type. A Delhi HC writ petition saves as
+// .dhcwp so it never overwrites an SLP (.drafto) for the same parties — e.g.
+// during autosave, since the filename is derived from the party names.
+export function projectExtensionFor(data: { courtType?: string }): string {
+  return data.courtType === "WritPetitionDHC" ? "dhcwp" : "drafto";
 }
 
 interface HeaderProps {
@@ -90,6 +100,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   const form = useFormContext<DraftoProject>();
   const { toast } = useToast();
   const { user, signOut } = useAuthContext();
+  const courtType = useWatch({ control: form.control, name: "courtType" });
   const [isPending, startTransition] = useTransition();
   const [draftSelection, setDraftSelection] = useState<DraftSelection>(
     draftOptions.reduce((acc, opt) => ({ ...acc, [opt.id]: false }), {} as DraftSelection)
@@ -97,6 +108,12 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   const [showLoadDialog, setShowLoadDialog] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
+  // Draft-type prompt (SLP vs Delhi HC writ petition). 'startup' fires once on
+  // launch; 'new' fires from the New Project action. null = closed.
+  const [modeDialog, setModeDialog] = useState<null | "startup" | "new">(null);
+
+  // Prompt for the draft type on app launch.
+  useEffect(() => { setModeDialog("startup"); }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -275,7 +292,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     if (defaultDraftoPath && window.electron?.saveProjectToPath) {
       try {
         const sep = defaultDraftoPath.includes('/') ? '/' : '\\';
-        const destPath = `${defaultDraftoPath}${sep}${petitionerName}.drafto`;
+        const destPath = `${defaultDraftoPath}${sep}${petitionerName}.${projectExtensionFor(data)}`;
         await window.electron.saveProjectToPath({ filePath: destPath, content: jsonString });
         setCurrentFilePath(destPath);
         if (window.electron.writeLockFile) await window.electron.writeLockFile(destPath);
@@ -292,6 +309,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         const savedPath = await window.electron.saveProject({
           petitionerName,
           content: jsonString,
+          extension: projectExtensionFor(data),
         });
         if (savedPath) setCurrentFilePath(savedPath);
         toast({ variant: "success", title: "Saved" });
@@ -302,7 +320,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     }
 
     const blob = new Blob([jsonString], { type: "application/json" });
-    saveAs(blob, `${petitionerName}.drafto`);
+    saveAs(blob, `${petitionerName}.${projectExtensionFor(data)}`);
     toast({ variant: "success", title: "Saved" });
   };
 
@@ -418,7 +436,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     const data = form.getValues();
     const petitionerName = getProjectFileName(data);
     const sep = dir.includes('/') ? '/' : '\\';
-    const destPath = `${dir}${sep}${petitionerName}.drafto`;
+    const destPath = `${dir}${sep}${petitionerName}.${projectExtensionFor(data)}`;
     try {
       const dataWithPaths = extractFilePaths(data);
       const jsonString = JSON.stringify(dataWithPaths, null, 2);
@@ -523,13 +541,24 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     }
   };
 
-  const handleNew = () => {
-    form.reset(newBlankProject());
+  // New Project now asks the user which document type to start.
+  const handleNew = () => { setModeDialog("new"); };
+
+  // Apply the chosen draft type. On startup, if the user keeps SLP the launch
+  // project already matches, so we leave it untouched; otherwise we reset to a
+  // fresh blank project of the chosen type.
+  const applyDraftMode = (courtType: DraftoProject["courtType"]) => {
+    const reason = modeDialog;
+    setModeDialog(null);
+    if (reason === "startup" && courtType === form.getValues("courtType")) return;
+    form.reset(newBlankProject(courtType));
     setCurrentFilePath(null);
     const defaultView = getSettings().slpTabView ?? 'splitter';
-    setSlpViewMode(defaultView);
     window.dispatchEvent(new CustomEvent('drafto-new-project', { detail: { mode: defaultView } }));
-    toast({ title: "New Project", description: "A new blank project has been created." });
+    if (reason === "new") {
+      const label = courtType === "WritPetitionDHC" ? "Writ Petition (Delhi HC)" : "SLP";
+      toast({ title: "New Project", description: `A new blank ${label} project has been created.` });
+    }
   };
   
   const downloadDocx = async (docx: string, fileName: string) => {
@@ -575,6 +604,60 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     toast({ title: "DOCX Generated", description: `Your document ${fileName} has been downloaded.` });
   };
 
+
+  // ── Writ Petition (Delhi HC) document generation ──────────────────────────
+  const wpGenerators: { id: string; label: string; fn: (d: DraftoProject) => Promise<{ success: boolean; docx?: string; fileName: string }> }[] = [
+    { id: "index", label: "Index", fn: generateWpIndex },
+    { id: "notice", label: "Notice of Motion", fn: generateWpNoticeOfMotion },
+    { id: "urgency", label: "Urgency Application", fn: generateWpUrgencyApplication },
+    { id: "memo", label: "Memo of Parties", fn: generateWpMemoOfParties },
+    { id: "slod", label: "Synopsis & List of Dates", fn: generateWpSynopsisAndLod },
+    { id: "petition", label: "Writ Petition (with Affidavit)", fn: generateWpPetition },
+    { id: "cms", label: "CM Applications", fn: generateWpCms },
+    { id: "vakalatnama", label: "Vakalatnama", fn: generateWpVakalatnama },
+  ];
+
+  const handleExportWp = (fn: (d: DraftoProject) => Promise<{ success: boolean; docx?: string; fileName: string }>) => {
+    startTransition(async () => {
+      const result = await fn(form.getValues());
+      if (result?.success && result.docx) await downloadDocx(result.docx, result.fileName);
+      else toast({ variant: "destructive", title: "Export Failed", description: "Could not generate the document." });
+    });
+  };
+
+  const handleGenerateAllWp = () => {
+    startTransition(async () => {
+      const data = form.getValues();
+      for (const g of wpGenerators) {
+        const r = await g.fn(data);
+        if (r?.success && r.docx) await downloadDocx(r.docx, r.fileName);
+      }
+    });
+  };
+
+  const handleGenerateWpPdf = () => {
+    startTransition(async () => {
+      toast({ title: "Generating PDF…", description: "Assembling the writ-petition paper-book." });
+      const result = await generateWpPdf(form.getValues());
+      if (!result.success || !result.pdfBase64) {
+        toast({ variant: "destructive", title: "PDF Failed", description: result.error || "Could not assemble the PDF." });
+        return;
+      }
+      const settings = getSettings();
+      try {
+        if (typeof window !== "undefined" && window.electron?.savePdf) {
+          const savedPath = await window.electron.savePdf({ fileName: result.fileName, content: result.pdfBase64, defaultPath: (settings as any).defaultPdfPath || undefined });
+          if (savedPath) {
+            toast({ title: "PDF Saved", description: savedPath });
+            window.electron.openFolderPath?.(savedPath.replace(/[\\/][^\\/]+$/, ""));
+            return;
+          }
+        }
+      } catch { /* fall through to browser download */ }
+      const bytes = Uint8Array.from(atob(result.pdfBase64), c => c.charCodeAt(0));
+      saveAs(new Blob([bytes], { type: "application/pdf" }), result.fileName);
+    });
+  };
 
   const handleExport = (type: DocType, iaDetails?: { identifier: string; customText?: string; }) => {
     startTransition(async () => {
@@ -763,6 +846,29 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent>
+            {courtType === "WritPetitionDHC" ? (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                    <FileDown className="mr-2" />
+                    <span>Writ Petition</span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="p-1">
+                    <DropdownMenuItem onSelect={handleGenerateWpPdf}>
+                        <FileText className="mr-2 h-4 w-4 text-red-600" />Paperbook (PDF)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={handleGenerateAllWp}>
+                        <FileDown className="mr-2" />All Documents (.docx)
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {wpGenerators.map(g => (
+                        <DropdownMenuItem key={g.id} onSelect={() => handleExportWp(g.fn)}>
+                            {g.label}
+                        </DropdownMenuItem>
+                    ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ) : (
+              <>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                     <FileDown className="mr-2" />
@@ -790,6 +896,8 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
               <DropdownMenuItem onSelect={handleGenerateAffidavitsAndVakalatnama}>
                   <FileDown className="mr-2" />Affidavit(s) and Vakalatnama(s)
               </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -838,14 +946,15 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         type="file"
         ref={fileInputRef}
         onChange={handleLoad}
-        accept=".drafto"
+        accept=".drafto,.dhcwp"
         className="hidden"
       />
-      <LoadProjectDialog 
-        open={showLoadDialog} 
+      <LoadProjectDialog
+        open={showLoadDialog}
         onOpenChange={setShowLoadDialog}
         onLoadFromPath={handleLoadFromPath}
       />
+      <ModeSelectDialog open={modeDialog !== null} onSelect={applyDraftMode} />
     </header>
   );
 }

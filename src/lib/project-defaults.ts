@@ -3,8 +3,11 @@ import { getSettings } from "@/components/dialogs/settings-dialog";
 
 // A fresh blank project with the user's Settings → User Defaults pre-applied
 // (currently AoR name/code). Used for the launch project and for "New Project".
-export function newBlankProject(): DraftoProject {
+// `courtType` selects the document type (SLP vs Delhi HC writ petition); it
+// defaults to "SLP" so existing call sites and saved projects are unaffected.
+export function newBlankProject(courtType: DraftoProject["courtType"] = "SLP"): DraftoProject {
   const project = draftoProjectSchema.parse({});
+  project.courtType = courtType;
   try {
     const s = getSettings();
     if (s.defaultAorName) project.advocate.aorName = s.defaultAorName;
