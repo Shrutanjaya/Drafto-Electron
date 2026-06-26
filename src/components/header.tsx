@@ -220,6 +220,11 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         if (p) cloned.listOfDates[i].annexures[j].filePath = p;
         const tp = getPath(annex.typedOrTranslatedFile);
         if (tp) cloned.listOfDates[i].annexures[j].typedOrTranslatedFilePath = tp;
+        // Colly constituent files (Delhi HC writ petitions)
+        for (let k = 0; k < (annex.collyDocuments ?? []).length; k++) {
+          const cp = getPath(annex.collyDocuments[k].file);
+          if (cp) cloned.listOfDates[i].annexures[j].collyDocuments[k].filePath = cp;
+        }
       }
     }
 
@@ -485,6 +490,12 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           annex.file = await tryRestore(annex.filePath, `lod[${li}].annex[${ai}].file`);
         if (needsTypedOrTranslated(annex.copyType) && annex.typedOrTranslatedFilePath && !(annex.typedOrTranslatedFile instanceof File))
           annex.typedOrTranslatedFile = await tryRestore(annex.typedOrTranslatedFilePath, `lod[${li}].annex[${ai}].typedOrTranslatedFile`);
+        // Colly constituent files (Delhi HC writ petitions)
+        for (let ci = 0; ci < (annex.collyDocuments ?? []).length; ci++) {
+          const cd = annex.collyDocuments[ci];
+          if (cd.filePath && !(cd.file instanceof File))
+            cd.file = await tryRestore(cd.filePath, `lod[${li}].annex[${ai}].colly[${ci}].file`);
+        }
       }
     }
 

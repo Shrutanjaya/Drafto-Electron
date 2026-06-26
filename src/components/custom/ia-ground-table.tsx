@@ -40,7 +40,7 @@ import React, { useEffect, useMemo, useState } from "react"
 import { cn } from "@/lib/utils"
 import { IaAnnexureDialog } from "./ia-annexure-dialog"
 
-type IaGroundTableName = "standardIas.condonationOfDelay.grounds" | `customIas.${number}.grounds` | "standardIas.exemptionFromSurrendering.grounds";
+type IaGroundTableName = "standardIas.condonationOfDelay.grounds" | `customIas.${number}.grounds` | "standardIas.exemptionFromSurrendering.grounds" | `wp.customCms.${number}.grounds`;
 
 interface IaGroundTableProps {
     name: IaGroundTableName;

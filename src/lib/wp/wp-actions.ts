@@ -501,6 +501,20 @@ function activeCms(project: DraftoProject): CmSpec[] {
       ],
     });
   }
+  // User-defined custom CMs (reusing the SLP custom-IA shape). Grounds and
+  // prayers are rich text (HTML); the body is the standard part-and-parcel line
+  // plus the optional para-2 free text.
+  (project.wp.customCms || []).forEach(cm => {
+    cms.push({
+      title: cm.title || "Application",
+      body: [
+        "The contents of the accompanying writ petition may kindly be treated as part and parcel of this Application.",
+        ...(cm.para2?.trim() ? [cm.para2] : []),
+      ],
+      grounds: (cm.grounds || []).map(g => ({ particulars: g.particulars })).filter(g => htmlHasText(g.particulars)),
+      prayers: (cm.prayers || []).map(p => p.particulars).filter(htmlHasText),
+    });
+  });
   return cms;
 }
 
@@ -532,8 +546,7 @@ export async function generateWpCms(project: DraftoProject) {
       children.push(...htmlListItems(nb.styled(num.grounds), groundStrings, numbering));
     }
     children.push(listItem(mainRef, "PRAYER: In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon’ble Court may be pleased to:", { before: 120 }));
-    const prayerRef = nb.styled(num.prayers);
-    cm.prayers.forEach(p => children.push(listItem(prayerRef, p)));
+    children.push(...htmlListItems(nb.styled(num.prayers), cm.prayers, numbering));
     children.push(...createWpFiledBy(project));
     // CM affidavit
     children.push(new Paragraph({ children: [new PageBreak()] }));

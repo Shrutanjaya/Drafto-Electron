@@ -1,10 +1,12 @@
 "use client";
 
 import { useRef } from "react";
-import { useFormContext, useWatch } from "react-hook-form";
-import { Sparkles } from "lucide-react";
+import { useFormContext, useWatch, useFieldArray } from "react-hook-form";
+import { Sparkles, PlusCircle } from "lucide-react";
 import type { DraftoProject } from "@/lib/schema";
+import { customIaSchema } from "@/lib/schema";
 import { transposeLodToFacts } from "@/lib/wp/wp-facts";
+import { CustomIaCard } from "@/components/custom/custom-ia-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -41,6 +43,8 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 export function WpWorkspace() {
   const form = useFormContext<DraftoProject>();
   const isIoWrit = useWatch({ control: form.control, name: "wp.isIoWrit" });
+
+  const customCms = useFieldArray({ control: form.control, name: "wp.customCms" });
 
   // Guards the programmatic Facts write so it isn't mistaken for a user edit.
   const generatingFacts = useRef(false);
@@ -344,9 +348,23 @@ export function WpWorkspace() {
               )}
             />
 
-            <p className="text-xs text-muted-foreground">
-              Custom CMs (with their own A-series annexures) will be added in a later phase.
-            </p>
+            <div className="space-y-2 rounded-md border p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Custom CMs</span>
+                <Button type="button" size="sm" variant="outline" onClick={() => customCms.append(customIaSchema.parse({}))}>
+                  <PlusCircle className="mr-1 h-3.5 w-3.5" />Add
+                </Button>
+              </div>
+              {customCms.fields.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No custom applications. Add one for any CM beyond the three standard ones (each gets its own A-series annexures).</p>
+              ) : (
+                <div className="space-y-2">
+                  {customCms.fields.map((field, index) => (
+                    <CustomIaCard key={field.id} index={index} basePath={`wp.customCms.${index}`} onRemove={() => customCms.remove(index)} />
+                  ))}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       </TabsContent>

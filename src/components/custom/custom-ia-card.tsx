@@ -18,11 +18,15 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 interface CustomIaCardProps {
   index: number;
   onRemove: () => void;
+  // Field-array base path. Defaults to the SLP custom IAs; WP custom CMs pass
+  // `wp.customCms.${index}`.
+  basePath?: string;
 }
 
-export function CustomIaCard({ index, onRemove }: CustomIaCardProps) {
+export function CustomIaCard({ index, onRemove, basePath }: CustomIaCardProps) {
   const form = useFormContext<DraftoProject>();
   const [isOpen, setIsOpen] = useState(true);
+  const base = basePath ?? `customIas.${index}`;
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen} asChild>
@@ -36,7 +40,7 @@ export function CustomIaCard({ index, onRemove }: CustomIaCardProps) {
             </CollapsibleTrigger>
             <FormField
               control={form.control}
-              name={`customIas.${index}.title`}
+              name={`${base}.title` as any}
               render={({ field }) => (
                 <FormItem className="flex-grow">
                   <FormControl>
@@ -70,11 +74,11 @@ export function CustomIaCard({ index, onRemove }: CustomIaCardProps) {
           <CardContent className="p-1 pt-0 space-y-1">
             <div>
               <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Grounds</h4>
-              <IaGroundTable name={`customIas.${index}.grounds`} />
+              <IaGroundTable name={`${base}.grounds` as any} />
             </div>
             <div>
               <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Prayers</h4>
-              <AamTable name={`customIas.${index}.prayers`} />
+              <AamTable name={`${base}.prayers` as any} />
             </div>
           </CardContent>
         </CollapsibleContent>
