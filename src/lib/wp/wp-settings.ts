@@ -26,6 +26,33 @@ export const DEFAULT_WP_NUMBERING: WpNumbering = {
   prayers: "lower-alpha",
 };
 
+// "Filed by" advocate defaults — set once in Settings, pre-filled into every new
+// writ petition so they needn't be re-entered per petition.
+export interface WpFiledBy {
+  name: string;
+  firm: string;
+  address: string;
+  enrolmentNo: string;
+  email: string;
+  phone: string;
+}
+
+export const DEFAULT_WP_FILED_BY: WpFiledBy = { name: "", firm: "", address: "", enrolmentNo: "", email: "", phone: "" };
+
+export function getWpFiledBy(): WpFiledBy {
+  if (typeof window === "undefined") return { ...DEFAULT_WP_FILED_BY };
+  try {
+    const raw = window.localStorage.getItem("drafto-settings");
+    const s = (raw ? JSON.parse(raw)?.wpFiledBy : null) ?? {};
+    return {
+      name: s.name || "", firm: s.firm || "", address: s.address || "",
+      enrolmentNo: s.enrolmentNo || "", email: s.email || "", phone: s.phone || "",
+    };
+  } catch {
+    return { ...DEFAULT_WP_FILED_BY };
+  }
+}
+
 const VALID: EnumStyle[] = ["lower-alpha", "lower-roman", "upper-alpha", "upper-roman", "decimal"];
 
 export function getWpNumbering(): WpNumbering {

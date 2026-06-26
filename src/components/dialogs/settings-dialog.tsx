@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { getGenerationCounts, type UsageCounts } from "@/lib/firebase/usage-service";
-import { WP_NUMBER_STYLES, DEFAULT_WP_NUMBERING, type WpNumbering } from "@/lib/wp/wp-settings";
+import { WP_NUMBER_STYLES, DEFAULT_WP_NUMBERING, type WpNumbering, DEFAULT_WP_FILED_BY, type WpFiledBy } from "@/lib/wp/wp-settings";
 import type { EnumStyle } from "@/lib/wp/wp-numbering";
 import { LICENSE_TEXT, TERMS_TEXT } from "@/lib/legal";
 import { cn } from "@/lib/utils";
@@ -25,7 +25,7 @@ type SlpTabView = 'splitter' | 'navigation';
 type QuoteLineSpacing = 'default' | 'single';
 type TrueCopyPosition = 'left' | 'center';
 type AiModel = 'default' | 'haiku' | 'sonnet' | 'opus';
-type SettingsSection = 'appearance' | 'workspace' | 'formatting' | 'paperbook' | 'userdefaults' | 'customize' | 'save' | 'shortcuts' | 'support';
+type SettingsSection = 'appearance' | 'workspace' | 'formatting' | 'writpetition' | 'paperbook' | 'userdefaults' | 'customize' | 'save' | 'shortcuts' | 'support';
 
 interface SettingsData {
   defaultDocxPath: string;
@@ -97,6 +97,8 @@ interface SettingsData {
 
   // Writ Petition — per-section sub-paragraph numbering styles
   wpNumbering: WpNumbering;
+  // Writ Petition — "Filed by" advocate defaults
+  wpFiledBy: WpFiledBy;
 }
 
 // Fonts offered for the output text formatting
@@ -356,6 +358,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     defaultAorName: "",
     defaultAorCode: "",
     wpNumbering: DEFAULT_WP_NUMBERING,
+    wpFiledBy: DEFAULT_WP_FILED_BY,
   });
 
   // Load settings from localStorage on mount
@@ -417,6 +420,14 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
             facts: parsed.wpNumbering?.facts ?? DEFAULT_WP_NUMBERING.facts,
             grounds: parsed.wpNumbering?.grounds ?? DEFAULT_WP_NUMBERING.grounds,
             prayers: parsed.wpNumbering?.prayers ?? DEFAULT_WP_NUMBERING.prayers,
+          },
+          wpFiledBy: {
+            name: parsed.wpFiledBy?.name ?? "",
+            firm: parsed.wpFiledBy?.firm ?? "",
+            address: parsed.wpFiledBy?.address ?? "",
+            enrolmentNo: parsed.wpFiledBy?.enrolmentNo ?? "",
+            email: parsed.wpFiledBy?.email ?? "",
+            phone: parsed.wpFiledBy?.phone ?? "",
           },
         });
         applyUiFont(parsed.uiFont || DEFAULT_UI_FONT);
@@ -687,6 +698,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
             <SettingsNavRow label="Appearance" selected={selectedSection === 'appearance'} onClick={() => setSelectedSection('appearance')} />
             <SettingsNavRow label="Workspace" selected={selectedSection === 'workspace'} onClick={() => setSelectedSection('workspace')} />
             <SettingsNavRow label="Formatting" selected={selectedSection === 'formatting'} onClick={() => setSelectedSection('formatting')} />
+            <SettingsNavRow label="Writ Petition (DHC)" selected={selectedSection === 'writpetition'} onClick={() => setSelectedSection('writpetition')} />
             <SettingsNavRow label="Paperbook" selected={selectedSection === 'paperbook'} onClick={() => setSelectedSection('paperbook')} />
             <SettingsNavRow label="User Defaults" selected={selectedSection === 'userdefaults'} onClick={() => setSelectedSection('userdefaults')} />
             <SettingsNavRow label="Mayur (AI)" selected={selectedSection === 'customize'} onClick={() => setSelectedSection('customize')} />
@@ -1279,34 +1291,6 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   </div>
                 </div>
 
-                {/* Writ Petition — sub-paragraph numbering */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Writ Petition — Sub-paragraph numbering</p>
-                  <p className="text-xs text-muted-foreground">First-level lettering for each section of a Delhi High Court writ petition. Deeper levels follow a fixed cascade automatically.</p>
-                  <div className="grid grid-cols-3 gap-3">
-                    {([
-                      ["facts", "Facts"],
-                      ["grounds", "Grounds"],
-                      ["prayers", "Prayers"],
-                    ] as [keyof WpNumbering, string][]).map(([key, label]) => (
-                      <div key={key} className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">{label}</Label>
-                        <Select
-                          value={settings.wpNumbering?.[key] ?? DEFAULT_WP_NUMBERING[key]}
-                          onValueChange={(v) => setSettings((prev) => ({ ...prev, wpNumbering: { ...(prev.wpNumbering ?? DEFAULT_WP_NUMBERING), [key]: v as EnumStyle } }))}
-                        >
-                          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {WP_NUMBER_STYLES.map((s) => (
-                              <SelectItem key={s.value} value={s.value} className="text-xs">{s.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
                 {/* Quotes */}
                 <div className="space-y-2">
                   <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Quotes</p>
@@ -1353,6 +1337,72 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   </div>
                 </div>
 
+              </div>
+            )}
+
+            {/* ── WRIT PETITION (DHC) ── */}
+            {selectedSection === 'writpetition' && (
+              <div className="space-y-6">
+                {/* Filed-by defaults */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">“Filed by” defaults</p>
+                  <p className="text-xs text-muted-foreground">Pre-filled into the “Filed by” block of every new writ petition, so you don’t re-enter them each time. Per-petition edits in the Preliminary tab override these.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {([
+                      ["name", "Advocate name"],
+                      ["firm", "Firm / Chamber"],
+                      ["enrolmentNo", "Enrolment No."],
+                      ["phone", "Phone"],
+                      ["email", "Email"],
+                    ] as [keyof WpFiledBy, string][]).map(([key, label]) => (
+                      <div key={key} className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">{label}</Label>
+                        <Input
+                          className="h-7 text-xs"
+                          value={settings.wpFiledBy?.[key] ?? ""}
+                          onChange={(e) => setSettings((prev) => ({ ...prev, wpFiledBy: { ...(prev.wpFiledBy ?? DEFAULT_WP_FILED_BY), [key]: e.target.value } }))}
+                        />
+                      </div>
+                    ))}
+                    <div className="col-span-2 space-y-1">
+                      <Label className="text-xs text-muted-foreground">Address</Label>
+                      <Textarea
+                        rows={2}
+                        className="text-xs"
+                        value={settings.wpFiledBy?.address ?? ""}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, wpFiledBy: { ...(prev.wpFiledBy ?? DEFAULT_WP_FILED_BY), address: e.target.value } }))}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sub-paragraph numbering */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Sub-paragraph numbering</p>
+                  <p className="text-xs text-muted-foreground">First-level lettering for each section. Deeper levels follow a fixed cascade automatically.</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {([
+                      ["facts", "Facts"],
+                      ["grounds", "Grounds"],
+                      ["prayers", "Prayers"],
+                    ] as [keyof WpNumbering, string][]).map(([key, label]) => (
+                      <div key={key} className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">{label}</Label>
+                        <Select
+                          value={settings.wpNumbering?.[key] ?? DEFAULT_WP_NUMBERING[key]}
+                          onValueChange={(v) => setSettings((prev) => ({ ...prev, wpNumbering: { ...(prev.wpNumbering ?? DEFAULT_WP_NUMBERING), [key]: v as EnumStyle } }))}
+                        >
+                          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            {WP_NUMBER_STYLES.map((s) => (
+                              <SelectItem key={s.value} value={s.value} className="text-xs">{s.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -2051,6 +2101,7 @@ export function getSettings(): SettingsData {
     defaultAorName: "",
     defaultAorCode: "",
     wpNumbering: DEFAULT_WP_NUMBERING,
+    wpFiledBy: DEFAULT_WP_FILED_BY,
   };
 
   if (typeof window === "undefined") return defaults;
@@ -2112,6 +2163,14 @@ export function getSettings(): SettingsData {
           facts: parsed.wpNumbering?.facts ?? DEFAULT_WP_NUMBERING.facts,
           grounds: parsed.wpNumbering?.grounds ?? DEFAULT_WP_NUMBERING.grounds,
           prayers: parsed.wpNumbering?.prayers ?? DEFAULT_WP_NUMBERING.prayers,
+        },
+        wpFiledBy: {
+          name: parsed.wpFiledBy?.name ?? "",
+          firm: parsed.wpFiledBy?.firm ?? "",
+          address: parsed.wpFiledBy?.address ?? "",
+          enrolmentNo: parsed.wpFiledBy?.enrolmentNo ?? "",
+          email: parsed.wpFiledBy?.email ?? "",
+          phone: parsed.wpFiledBy?.phone ?? "",
         },
       };
     } catch (err) {

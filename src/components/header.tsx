@@ -864,9 +864,6 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
                     <span>Writ Petition</span>
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="p-1">
-                    <DropdownMenuItem onSelect={handleGenerateWpPdf}>
-                        <FileText className="mr-2 h-4 w-4 text-red-600" />Paperbook (PDF)
-                    </DropdownMenuItem>
                     <DropdownMenuItem onSelect={handleGenerateAllWp}>
                         <FileDown className="mr-2" />All Documents (.docx)
                     </DropdownMenuItem>
@@ -912,17 +909,29 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <PdfGenerationDialog>
-          <Button variant="ghost" size="icon" title="Export PDF Paperbook" disabled={isPending}>
-            {isPending
+        {(() => {
+          const pdfButtonInner = (
+            isPending
               ? <Loader2 className="h-4 w-4 animate-spin" />
               : <span className="relative inline-flex items-center justify-center">
                   <FileText className="h-5 w-5 text-red-600" />
                   <span className="absolute -bottom-1.5 -right-1.5 text-[6px] font-bold leading-none text-white bg-red-600 rounded-sm px-0.5 py-px">PDF</span>
                 </span>
-            }
-          </Button>
-        </PdfGenerationDialog>
+          );
+          // A loaded writ petition uses the WP paper-book assembler; the same
+          // button opens the SLP paper-book dialog otherwise.
+          return courtType === "WritPetitionDHC" ? (
+            <Button variant="ghost" size="icon" title="Export Writ Petition Paperbook (PDF)" disabled={isPending} onClick={handleGenerateWpPdf}>
+              {pdfButtonInner}
+            </Button>
+          ) : (
+            <PdfGenerationDialog>
+              <Button variant="ghost" size="icon" title="Export PDF Paperbook" disabled={isPending}>
+                {pdfButtonInner}
+              </Button>
+            </PdfGenerationDialog>
+          );
+        })()}
 
         <Separator orientation="vertical" className="h-6" />
 

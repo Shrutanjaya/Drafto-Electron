@@ -153,30 +153,33 @@ export function WpWorkspace() {
             <CardTitle className="text-base">Advocate (“Filed by” block)</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <p className="col-span-full text-xs text-muted-foreground">
+              Pre-filled from Settings → Writ Petition (DHC). Edit here to override for this petition only.
+            </p>
             <Field label="Advocate name">
               <FormField control={form.control} name="wp.advocate.name"
-                render={({ field }) => <Input {...field} placeholder="e.g. Shrutanjaya Bhardwaj" />} />
+                render={({ field }) => <Input {...field} />} />
             </Field>
             <Field label="Firm / Chamber">
               <FormField control={form.control} name="wp.advocate.firm"
-                render={({ field }) => <Input {...field} placeholder="e.g. Pravah Law" />} />
+                render={({ field }) => <Input {...field} />} />
             </Field>
             <Field label="Address">
               <FormField control={form.control} name="wp.advocate.address"
-                render={({ field }) => <Textarea {...field} rows={2} placeholder="Office address" />} />
+                render={({ field }) => <Textarea {...field} rows={2} />} />
             </Field>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Enrolment No.">
                 <FormField control={form.control} name="wp.advocate.enrolmentNo"
-                  render={({ field }) => <Input {...field} placeholder="e.g. D 2051/2017" />} />
+                  render={({ field }) => <Input {...field} />} />
               </Field>
               <Field label="Phone">
                 <FormField control={form.control} name="wp.advocate.phone"
-                  render={({ field }) => <Input {...field} placeholder="e.g. 011-45621824" />} />
+                  render={({ field }) => <Input {...field} />} />
               </Field>
               <Field label="Email">
                 <FormField control={form.control} name="wp.advocate.email"
-                  render={({ field }) => <Input {...field} placeholder="office@firm.in" />} />
+                  render={({ field }) => <Input {...field} />} />
               </Field>
             </div>
           </CardContent>
@@ -216,7 +219,7 @@ export function WpWorkspace() {
               render={({ field }) => (
                 <div className="flex items-center gap-2">
                   <Checkbox id="wp-split" checked={field.value} onCheckedChange={field.onChange} />
-                  <label htmlFor="wp-split" className="text-xs">Start List of Dates on a fresh page</label>
+                  <label htmlFor="wp-split" className="text-sm">Start List of Dates on a fresh page</label>
                 </div>
               )}
             />
@@ -315,7 +318,7 @@ export function WpWorkspace() {
                   render={({ field }) => (
                     <div className="flex items-center gap-2">
                       <Checkbox id="cm-stay" checked={field.value} onCheckedChange={field.onChange} />
-                      <label htmlFor="cm-stay" className="text-sm font-medium">CM for Stay of the impugned order</label>
+                      <label htmlFor="cm-stay" className="text-sm">CM for Stay of the impugned order</label>
                     </div>
                   )}
                 />
