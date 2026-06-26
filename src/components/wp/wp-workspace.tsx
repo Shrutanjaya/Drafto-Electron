@@ -33,7 +33,7 @@ import { DateInput } from "@/components/custom/date-input";
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
-      <label className="text-sm font-medium">{label}</label>
+      <label className="text-xs font-medium">{label}</label>
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       {children}
     </div>
@@ -75,11 +75,11 @@ export function WpWorkspace() {
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
-              <p className="mb-1 text-sm font-medium">Petitioner(s)</p>
+              <p className="mb-1 text-xs font-medium">Petitioner(s)</p>
               <VaadiTable name="petitioners" />
             </div>
             <div>
-              <p className="mb-1 text-sm font-medium">Respondent(s)</p>
+              <p className="mb-1 text-xs font-medium">Respondent(s)</p>
               <VaadiTable name="respondents" />
             </div>
           </CardContent>
@@ -140,7 +140,7 @@ export function WpWorkspace() {
                 render={({ field }) => (
                   <div className="flex items-center gap-2 pt-1">
                     <Checkbox id="wp-io" checked={field.value} onCheckedChange={field.onChange} />
-                    <label htmlFor="wp-io" className="text-sm">This writ challenges an Impugned Order</label>
+                    <label htmlFor="wp-io" className="text-xs">This writ challenges an Impugned Order</label>
                   </div>
                 )}
               />
@@ -219,7 +219,7 @@ export function WpWorkspace() {
               render={({ field }) => (
                 <div className="flex items-center gap-2">
                   <Checkbox id="wp-split" checked={field.value} onCheckedChange={field.onChange} />
-                  <label htmlFor="wp-split" className="text-sm">Start List of Dates on a fresh page</label>
+                  <label htmlFor="wp-split" className="text-xs">Start List of Dates on a fresh page</label>
                 </div>
               )}
             />
@@ -318,7 +318,7 @@ export function WpWorkspace() {
                   render={({ field }) => (
                     <div className="flex items-center gap-2">
                       <Checkbox id="cm-stay" checked={field.value} onCheckedChange={field.onChange} />
-                      <label htmlFor="cm-stay" className="text-sm">CM for Stay of the impugned order</label>
+                      <label htmlFor="cm-stay" className="text-xs">CM for Stay of the impugned order</label>
                     </div>
                   )}
                 />
@@ -335,7 +335,7 @@ export function WpWorkspace() {
               render={({ field }) => (
                 <div className="flex items-center gap-2 rounded-md border p-3">
                   <Checkbox id="cm-synopsis" checked={field.value} onCheckedChange={field.onChange} />
-                  <label htmlFor="cm-synopsis" className="text-sm">CM seeking permission to file a lengthy Synopsis &amp; List of Dates</label>
+                  <label htmlFor="cm-synopsis" className="text-xs">CM seeking permission to file a lengthy Synopsis &amp; List of Dates</label>
                 </div>
               )}
             />
@@ -346,14 +346,14 @@ export function WpWorkspace() {
               render={({ field }) => (
                 <div className="flex items-center gap-2 rounded-md border p-3">
                   <Checkbox id="cm-exempt" checked={field.value} onCheckedChange={field.onChange} />
-                  <label htmlFor="cm-exempt" className="text-sm">CM for exemption from filing certified / legible / true-typed copies</label>
+                  <label htmlFor="cm-exempt" className="text-xs">CM for exemption from filing certified / legible / true-typed copies</label>
                 </div>
               )}
             />
 
             <div className="space-y-2 rounded-md border p-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Custom CMs</span>
+                <span className="text-xs font-medium">Custom CMs</span>
                 <Button type="button" size="sm" variant="outline" onClick={() => customCms.append(customIaSchema.parse({}))}>
                   <PlusCircle className="mr-1 h-3.5 w-3.5" />Add
                 </Button>
