@@ -66,38 +66,41 @@ const PETITION_LABEL: Record<DraftoProject["caseType"], string> = {
 //   Writ Petition (<Civil|Criminal>) No. _____ of <year>     (bold)
 export function createWpHeader(
   caseType: DraftoProject["caseType"],
-  opts?: { subTitle?: string },
+  opts?: { cm?: boolean },
 ) {
   const year = new Date().getFullYear();
   const label = PETITION_LABEL[caseType];
+  const centerBold = (text: string, italics = false) => new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { line: 240, after: 240 },
+    children: [smartTextRun({ text, bold: !italics, italics, size: 28 })],
+  });
+
   const lines: Paragraph[] = [
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { line: 240, after: 240 },
-      children: [smartTextRun({ text: "IN THE HIGH COURT OF DELHI AT NEW DELHI", size: 28 })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { line: 240, after: 240 },
-      children: [smartTextRun({ text: `${label} Extraordinary Writ Jurisdiction`, italics: true, size: 28 })],
-    }),
-    new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { line: 240, after: 240 },
-      children: [smartTextRun({ text: `Writ Petition (${label}) No. _____ of ${year}`, bold: true, size: 28 })],
-    }),
+    centerBold("IN THE HIGH COURT OF DELHI AT NEW DELHI"),
+    centerBold(`${label} Extraordinary Writ Jurisdiction`, true),
   ];
-  // Optional sub-title (e.g. "C.M. No. ____ of <year> / in" for a CM header).
-  if (opts?.subTitle) {
+  if (opts?.cm) {
+    // CM Appl. No. ____ of <year> / in / Writ Petition (…) No. ____ of <year>
     lines.push(
-      new Paragraph({
-        alignment: AlignmentType.CENTER,
-        spacing: { line: 240, after: 240 },
-        children: [smartTextRun({ text: opts.subTitle, bold: true, size: 28 })],
-      }),
+      centerBold(`CM Appl. No. _____ of ${year}`),
+      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { line: 240, after: 240 }, children: [smartTextRun({ text: "in", italics: true, size: 28 })] }),
+      centerBold(`Writ Petition (${label}) No. _____ of ${year}`),
     );
+  } else {
+    lines.push(centerBold(`Writ Petition (${label}) No. _____ of ${year}`));
   }
   return lines;
+}
+
+// Salutation block ("To / <addressee>…") — indented 0.5", italic, with zero
+// after-spacing on every line except the last.
+export function createSalutation(lines: string[]): Paragraph[] {
+  return lines.map((text, i) => new Paragraph({
+    indent: { left: 720 },
+    spacing: { after: i === lines.length - 1 ? 240 : 0 },
+    children: [smartTextRun({ text, italics: true })],
+  }));
 }
 
 // "IN THE MATTER OF:" + petitioner / Versus / respondent block.

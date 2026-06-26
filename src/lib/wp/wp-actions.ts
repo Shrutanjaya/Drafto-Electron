@@ -25,6 +25,7 @@ import {
   createWpHeader,
   createWpPartiesHeader,
   createWpFiledBy,
+  createSalutation,
   getWpStyles,
   wpMargins,
   NO_BORDERS,
@@ -125,6 +126,15 @@ function listItem(reference: string, text: string, opts?: { bold?: boolean; befo
   });
 }
 
+// An auto-numbered list item with mixed runs (e.g. a bold "Prayers:" prefix).
+function listItemRuns(reference: string, runs: (TextRun | string)[], before = 120): Paragraph {
+  return new Paragraph({
+    numbering: { reference, level: 0 },
+    spacing: { before },
+    children: runs.map(r => (typeof r === "string" ? smartTextRun(r) : r)),
+  });
+}
+
 // Rich-text auto-numbered list items: each HTML item's paragraphs are bound to
 // `reference` via parseHtml's defaultNumbering hook (so formatting survives and
 // raw tags never leak). Nested numbering defs are collected into `collect`.
@@ -181,9 +191,7 @@ export async function generateWpUrgencyApplication(project: DraftoProject) {
     ...createWpHeader(project.caseType),
     ...createWpPartiesHeader(petHeader, resHeader),
     centeredBold("URGENCY APPLICATION", { before: 360 }),
-    new Paragraph({ children: [smartTextRun("To")] }),
-    new Paragraph({ children: [smartTextRun("The Deputy Registrar,")] }),
-    new Paragraph({ children: [smartTextRun("Delhi High Court.")] }),
+    ...createSalutation(["To", "The Deputy Registrar,", "Delhi High Court."]),
     new Paragraph({ children: [smartTextRun("Sir,")] }),
     new Paragraph({ children: [smartTextRun("For the reasons stated in the accompanying writ petition, the same may be listed before the Hon’ble Court urgently as per the applicable rules.")] }),
     ...createWpFiledBy(project),
@@ -219,6 +227,7 @@ export async function generateWpMemoOfParties(project: DraftoProject) {
   const table = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     columnWidths: [1000, 6500, 2500],
+    borders: NO_BORDERS,
     rows: [headerRow, ...partyRows(project.petitioners, "Petitioner"), versusRow, ...partyRows(project.respondents, "Respondent")],
   });
 
@@ -336,11 +345,9 @@ export async function generateWpPetition(project: DraftoProject) {
     centeredBold(`Writ Petition under Article ${article} of the Constitution of India`, { before: 240 }),
     new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun("PRAYING FOR THE FOLLOWING RELIEFS:")] }),
     ...htmlListItems(reliefsTopRef, top, numbering),
-    // Salutation
-    new Paragraph({ spacing: { before: 240 }, children: [smartTextRun("To")] }),
-    new Paragraph({ children: [smartTextRun("The Hon’ble Chief Justice of the Delhi High Court")] }),
-    new Paragraph({ children: [smartTextRun("And His Companion Justices of the Hon’ble High Court of Delhi")] }),
-    new Paragraph({ children: [smartTextRun("The Petitioner most respectfully submits that:")] }),
+    // Salutation (indented, italic)
+    ...createSalutation(["To", "The Hon’ble Chief Justice of the Delhi High Court", "And His Companion Justices of the Hon’ble High Court of Delhi"]),
+    new Paragraph({ children: [smartTextRun({ text: "The Petitioner most respectfully submits that:", bold: true })] }),
     // 1. Intro
     listItem(mainRef, "This Writ Petition is filed praying for the reliefs set out hereinabove.", { before: 120 }),
     // 2. Facts
@@ -355,7 +362,7 @@ export async function generateWpPetition(project: DraftoProject) {
     listItem(mainRef, "The Petitioner has not filed any other Writ Petition or proceeding before the Hon’ble Supreme Court or before this Hon’ble Court or any other Court seeking the same or similar relief.", { before: 120 }),
     listItem(mainRef, "The Petitioner craves leave of this Hon’ble Court to produce additional documents and/or affidavits and to add, alter or amend this Writ Petition at a later stage of the proceedings, if required.", { before: 120 }),
     // 8. Prayers
-    listItem(mainRef, "Prayers: In view of the foregoing submissions, it is respectfully prayed that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and:", { before: 120 }),
+    listItemRuns(mainRef, [smartTextRun({ text: "Prayers:", bold: true }), " In view of the foregoing submissions, it is respectfully prayed that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and:"]),
     ...htmlListItems(prayersRef, all, numbering),
     ...createWpFiledBy(project),
     // Affidavit (the index lists the petition "with affidavit")
@@ -368,14 +375,23 @@ export async function generateWpPetition(project: DraftoProject) {
 
 // ── Affidavit (shared by the petition and CMs) ──────────────────────────────
 
+// The deponent defaults to the sole/first petitioner's name when not set.
+function deponentName(project: DraftoProject): string {
+  return project.deponent?.name?.trim() || project.petitioners?.[0]?.name?.trim() || "[Deponent]";
+}
+
 function deponentPreamble(project: DraftoProject): string {
   const d = project.deponent;
   const rel = d.relationship || "son of";
-  const name = d.name || "[Deponent]";
   const father = d.fatherName ? ` ${rel} ${d.fatherName},` : "";
   const age = d.age ? ` aged about ${d.age} years,` : "";
   const addr = d.address ? ` R/o ${d.address},` : "";
-  return `I, ${name},${father}${age}${addr} do hereby solemnly affirm and declare as under:`;
+  return `I, ${deponentName(project)},${father}${age}${addr} do hereby solemnly affirm and declare as under:`;
+}
+
+// Right-aligned bold "DEPONENT" signature line.
+function deponentLine(): Paragraph {
+  return new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 360 }, children: [smartTextRun({ text: "DEPONENT", bold: true })] });
 }
 
 function buildAffidavitChildren(
@@ -403,16 +419,17 @@ function buildAffidavitChildren(
 
   const place = project.advocate.filingPlace || "New Delhi";
   return [
-    ...createWpHeader(project.caseType),
+    ...createWpHeader(project.caseType, { cm: kind === "cm" }),
     ...createWpPartiesHeader(petHeader, resHeader),
     centeredBold("AFFIDAVIT", { before: 240 }),
     new Paragraph({ children: [smartTextRun(deponentPreamble(project))] }),
     ...paras.map(t => listItem(affRef, t, { before: 60 })),
-    centeredBold("VERIFICATION"),
+    deponentLine(),
+    new Paragraph({ alignment: AlignmentType.LEFT, spacing: { before: 240 }, children: [smartTextRun({ text: "VERIFICATION", bold: true })] }),
     new Paragraph({ children: [smartTextRun(
-      `I, ${project.deponent.name || "[Deponent]"}, the deponent above named, hereby verify at ${place} on this ____ day of __________, ${new Date().getFullYear()}, that the contents of the above ${kind === "petition" ? "Petition" : "Application"} are true and correct to the best of my knowledge and belief and nothing material has been concealed therefrom.`,
+      `I, ${deponentName(project)}, the deponent above named, hereby verify at ${place} on this ____ day of __________, ${new Date().getFullYear()}, that the contents of the above ${kind === "petition" ? "Petition" : "Application"} are true and correct to the best of my knowledge and belief and nothing material has been concealed therefrom.`,
     )]}),
-    new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: 480 }, children: [smartTextRun({ text: "DEPONENT", bold: true })] }),
+    deponentLine(),
   ];
 }
 
@@ -534,9 +551,9 @@ export async function generateWpCms(project: DraftoProject) {
     // Fresh references per CM so each application restarts its numbering.
     const mainRef = nb.decimal();
     children.push(
-      ...createWpHeader(project.caseType, { subTitle: `C.M. No. ____ of ${year}, in` }),
+      ...createWpHeader(project.caseType, { cm: true }),
       ...createWpPartiesHeader(petHeader, resHeader),
-      new Paragraph({ spacing: { before: 240 }, alignment: AlignmentType.CENTER, children: [smartTextRun({ text: cm.title, bold: true })] }),
+      new Paragraph({ spacing: { before: 240 }, alignment: AlignmentType.CENTER, children: [smartTextRun({ text: (cm.title || "").toUpperCase(), bold: true })] }),
       new Paragraph({ children: [smartTextRun("The Petitioner most respectfully submits that:")] }),
       ...cm.body.map(t => listItem(mainRef, t, { before: 60 })),
     );
@@ -545,7 +562,7 @@ export async function generateWpCms(project: DraftoProject) {
       children.push(listItem(mainRef, "GROUNDS", { bold: true, before: 120 }));
       children.push(...htmlListItems(nb.styled(num.grounds), groundStrings, numbering));
     }
-    children.push(listItem(mainRef, "PRAYER: In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon’ble Court may be pleased to:", { before: 120 }));
+    children.push(listItemRuns(mainRef, [smartTextRun({ text: "PRAYER:", bold: true }), " In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon’ble Court may be pleased to:"]));
     children.push(...htmlListItems(nb.styled(num.prayers), cm.prayers, numbering));
     children.push(...createWpFiledBy(project));
     // CM affidavit
@@ -597,6 +614,10 @@ export async function generateWpIndex(project: DraftoProject) {
     centeredBold("INDEX", { before: 240 }),
     table,
     ...createWpFiledBy(project),
+    new Paragraph({ spacing: { before: 360 }, children: [
+      smartTextRun({ text: "Note: ", bold: true }),
+      smartTextRun("The Petition has been duly bookmarked and an OCR version of the same has been served upon all the parties."),
+    ]}),
   ]);
   return pack(doc, "WP-Index.docx");
 }
