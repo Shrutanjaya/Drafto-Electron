@@ -131,25 +131,44 @@ export function createWpPartiesHeader(petHeader: string, resHeader: string) {
   ];
 }
 
-// The "Filed by" advocate block used at the foot of every WP component.
-export function createWpFiledBy(project: DraftoProject): Paragraph[] {
+// The "Filed by" block at the foot of every WP component — a borderless
+// two-column table: left = Filed on / Place, right = Filed by + advocate
+// details. Left-aligned, single line spacing.
+const filedByCellMargins = { top: 0, bottom: 0, left: 0, right: 115 };
+
+export function createWpFiledBy(project: DraftoProject): (Paragraph | Table)[] {
   const adv = project.wp.advocate;
   const filingDate = project.advocate.filingDate ? format(new Date(project.advocate.filingDate), "dd.MM.yyyy") : "__.__.____";
   const place = project.advocate.filingPlace || "New Delhi";
+  const single = { line: 240, before: 0, after: 0 };
+  const L = (text: string, bold = false) =>
+    new Paragraph({ spacing: single, alignment: AlignmentType.LEFT, children: [smartTextRun(bold ? { text, bold: true } : text)] });
 
-  const idLine = [adv.enrolmentNo ? `Enrl. No.: ${adv.enrolmentNo}` : ""].filter(Boolean).join("");
-  const contactLine = [adv.email, adv.phone].filter(Boolean).join(" | ");
+  const leftCell: Paragraph[] = [L(`Filed on: ${filingDate}`), L(`Place: ${place}`)];
 
-  const lines: (Paragraph | null)[] = [
-    new Paragraph({ spacing: { before: 240 }, children: [smartTextRun(`Filed on: ${filingDate}`)] }),
-    new Paragraph({ children: [smartTextRun(`Place: ${place}`)] }),
-    new Paragraph({ spacing: { before: 120 }, children: [smartTextRun("Filed by:")] }),
-    adv.name ? new Paragraph({ spacing: { before: 240 }, children: [smartTextRun({ text: adv.name, bold: true })] }) : null,
-    adv.firm ? new Paragraph({ children: [smartTextRun(adv.firm)] }) : null,
-    adv.address ? new Paragraph({ children: [smartTextRun(adv.address)] }) : null,
-    (idLine || contactLine) ? new Paragraph({ children: [smartTextRun([adv.enrolmentNo ? `Enrl. No.: ${adv.enrolmentNo}` : "", contactLine].filter(Boolean).join(" | "))] }) : null,
+  const rightCell: Paragraph[] = [L("Filed by:")];
+  if (adv.name) rightCell.push(new Paragraph({ spacing: { line: 240, before: 240, after: 0 }, alignment: AlignmentType.LEFT, children: [smartTextRun({ text: adv.name, bold: true })] }));
+  if (adv.firm) rightCell.push(L(adv.firm));
+  if (adv.address) rightCell.push(L(adv.address));
+  const idContact = [adv.enrolmentNo ? `Enrl. No.: ${adv.enrolmentNo}` : "", [adv.email, adv.phone].filter(Boolean).join(" | ")].filter(Boolean).join(" | ");
+  if (idContact) rightCell.push(L(idContact));
+
+  return [
+    new Paragraph({ spacing: { before: 240 }, children: [] }),
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      columnWidths: [4000, 6000],
+      borders: NO_BORDERS,
+      rows: [
+        new TableRow({
+          children: [
+            new TableCell({ children: leftCell, borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP, margins: filedByCellMargins }),
+            new TableCell({ children: rightCell, borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP, margins: filedByCellMargins }),
+          ],
+        }),
+      ],
+    }),
   ];
-  return lines.filter((p): p is Paragraph => p !== null);
 }
 
 // Position label for a party in the Memo of Parties.

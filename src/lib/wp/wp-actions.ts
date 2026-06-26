@@ -93,6 +93,40 @@ function letterPara(index: number, runs: (TextRun | string)[], style: EnumStyle 
   });
 }
 
+// True if the rich-text HTML has any visible text.
+function htmlHasText(html?: string): boolean {
+  return !!(html || "").replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim();
+}
+
+// Lettered list of rich-text items rendered as a borderless 2-column table
+// (letter | parsed HTML content), mirroring the SLP grounds layout. Each item is
+// run through parseHtml so formatting/nested lists survive and raw tags never
+// leak into the document. Plain strings (e.g. the synthetic IO relief) pass
+// through parseHtml unchanged.
+function letteredHtmlTable(items: string[], style: EnumStyle, numbering: any[]): Table {
+  const rows = items.map((html, i) => {
+    const parsed = parseHtml(html || "");
+    if (parsed.numbering.length) numbering.push(...parsed.numbering);
+    return new TableRow({
+      children: [
+        new TableCell({
+          children: [new Paragraph({ style: "Normal", children: [smartTextRun(`${enumLabel(i, style)})`)] })],
+          borders: NO_BORDERS,
+          width: { size: 8, type: WidthType.PERCENTAGE },
+          margins: cellMargins,
+        }),
+        new TableCell({
+          children: parsed.paragraphs.length ? parsed.paragraphs : [new Paragraph("")],
+          borders: NO_BORDERS,
+          width: { size: 92, type: WidthType.PERCENTAGE },
+          margins: cellMargins,
+        }),
+      ],
+    });
+  });
+  return new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: [800, 9200], borders: NO_BORDERS, rows });
+}
+
 // Rewrite the level formats of the Facts <ol> numbering (produced by parseHtml)
 // so its sub-paragraphs use the configured Facts style and cascade.
 function applyFactsCascade(numbering: any[], style: EnumStyle) {
@@ -241,8 +275,8 @@ export async function generateWpSynopsisAndLod(project: DraftoProject) {
 // Single source of truth. The last entry is the residuary prayer, included only
 // in the final Prayers block (para 8). When IO, relief (a) auto-quashes the IO.
 
-function reliefRuns(project: DraftoProject): { top: (TextRun | string)[][]; all: (TextRun | string)[][] } {
-  const items = (project.wp.reliefs || []).map(r => [convertToSmartQuotes(r.particulars || "")]);
+function reliefStrings(project: DraftoProject): { top: string[]; all: string[] } {
+  const items = (project.wp.reliefs || []).map(r => r.particulars || "").filter(htmlHasText);
   // Drop the residuary (last) item for the "top" block and the intro.
   const top = items.length > 1 ? items.slice(0, -1) : items;
 
@@ -258,10 +292,7 @@ function reliefRuns(project: DraftoProject): { top: (TextRun | string)[][]; all:
     } else {
       ioDesc = "Quash and set aside the Impugned Order [Annexure P-1]";
     }
-    return {
-      top: [[convertToSmartQuotes(ioDesc)], ...top],
-      all: [[convertToSmartQuotes(ioDesc)], ...items],
-    };
+    return { top: [ioDesc, ...top], all: [ioDesc, ...items] };
   }
   return { top, all: items };
 }
@@ -271,7 +302,7 @@ function reliefRuns(project: DraftoProject): { top: (TextRun | string)[][]; all:
 export async function generateWpPetition(project: DraftoProject) {
   const { petHeader, resHeader } = partyHeaders(project);
   const article = project.wp.articleBasis;
-  const { top, all } = reliefRuns(project);
+  const { top, all } = reliefStrings(project);
 
   const num = getWpNumbering();
   const facts = parseHtml(project.wp.facts || "");
@@ -283,7 +314,7 @@ export async function generateWpPetition(project: DraftoProject) {
     ...createWpPartiesHeader(petHeader, resHeader),
     centeredBold(`Writ Petition under Article ${article} of the Constitution of India`, { before: 240 }),
     new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun("PRAYING FOR THE FOLLOWING RELIEFS:")] }),
-    ...top.map((runs, i) => letterPara(i, runs, num.prayers)),
+    letteredHtmlTable(top, num.prayers, numbering),
     // Salutation
     new Paragraph({ spacing: { before: 240 }, children: [smartTextRun("To")] }),
     new Paragraph({ children: [smartTextRun("The Hon’ble Chief Justice of the Delhi High Court")] }),
@@ -296,7 +327,7 @@ export async function generateWpPetition(project: DraftoProject) {
     ...(facts.paragraphs.length ? facts.paragraphs : [new Paragraph({ children: [smartTextRun("[Facts — generated from the List of Dates.]")] })]),
     // 3. Grounds
     numberedHeading(3, "GROUNDS"),
-    ...(project.grounds || []).filter(g => g.particulars?.trim()).map((g, i) => letterPara(i, [convertToSmartQuotes(g.particulars)], num.grounds)),
+    letteredHtmlTable((project.grounds || []).map(g => g.particulars).filter(htmlHasText), num.grounds, numbering),
     // 4–7 boilerplate
     numberedPara(4, "This Hon’ble Court has the necessary jurisdiction to entertain this Writ Petition as the Respondents are situated within, and the cause of action has arisen within, the territorial jurisdiction of this Hon’ble Court."),
     numberedPara(5, "The Petitioner has no other equally efficacious alternate remedy available to approach this Hon’ble Court."),
@@ -304,7 +335,7 @@ export async function generateWpPetition(project: DraftoProject) {
     numberedPara(7, "The Petitioner craves leave of this Hon’ble Court to produce additional documents and/or affidavits and to add, alter or amend this Writ Petition at a later stage of the proceedings, if required."),
     // 8. Prayers
     numberedPara(8, "Prayers: In view of the foregoing submissions, it is respectfully prayed that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and:"),
-    ...all.map((runs, i) => letterPara(i, runs, num.prayers)),
+    letteredHtmlTable(all, num.prayers, numbering),
     ...createWpFiledBy(project),
     // Affidavit (the index lists the petition "with affidavit")
     new Paragraph({ children: [new PageBreak()] }),
@@ -470,6 +501,7 @@ export async function generateWpCms(project: DraftoProject) {
 
   const year = new Date().getFullYear();
   const num = getWpNumbering();
+  const cmNumbering: any[] = [];
   const children: (Paragraph | Table)[] = [];
 
   cms.forEach((cm, idx) => {
@@ -482,9 +514,10 @@ export async function generateWpCms(project: DraftoProject) {
       new Paragraph({ children: [smartTextRun("The Petitioner most respectfully submits that:")] }),
       ...cm.body.map(t => numberedPara(++n, t)),
     );
-    if (cm.grounds && cm.grounds.length) {
+    const groundStrings = (cm.grounds || []).map(g => g.particulars).filter(htmlHasText);
+    if (groundStrings.length) {
       children.push(numberedHeading(++n, "GROUNDS"));
-      cm.grounds.forEach((g, i) => children.push(letterPara(i, [convertToSmartQuotes(g.particulars)], num.grounds)));
+      children.push(letteredHtmlTable(groundStrings, num.grounds, cmNumbering));
     }
     children.push(numberedPara(++n, "PRAYER: In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon’ble Court may be pleased to:"));
     cm.prayers.forEach((p, i) => children.push(letterPara(i, [convertToSmartQuotes(p)], num.prayers)));
@@ -494,7 +527,7 @@ export async function generateWpCms(project: DraftoProject) {
     children.push(...buildAffidavitChildren(project, "cm", petHeader, resHeader));
   });
 
-  return pack(wpDoc(children), "WP-CMs.docx");
+  return pack(wpDoc(children, cmNumbering), "WP-CMs.docx");
 }
 
 // ── Index ───────────────────────────────────────────────────────────────────
