@@ -544,42 +544,66 @@ function activeCms(project: DraftoProject): CmSpec[] {
   return cms;
 }
 
+// The active CM specifications (standard + custom). Exported so the PDF
+// assembler can bookmark each CM separately with its full title.
+export function wpActiveCms(project: DraftoProject): { title: string }[] {
+  return activeCms(project).map(c => ({ title: c.title }));
+}
+
+// Bookmark/index title for a CM: "CM Appl. No. ____ of <yr>: <full title>".
+export function wpCmTitle(cm: { title: string }): string {
+  return `CM Appl. No. ____ of ${new Date().getFullYear()}: ${cm.title}`;
+}
+
+// Render one CM (header → body → grounds → prayer → filed-by → affidavit) into
+// the given numberer. Shared by the combined and single-CM generators.
+function renderCmChildren(project: DraftoProject, cm: CmSpec, petHeader: string, resHeader: string, nb: ReturnType<typeof numberer>, numbering: any[]): (Paragraph | Table)[] {
+  const num = getWpNumbering();
+  const mainRef = nb.decimal();
+  const children: (Paragraph | Table)[] = [
+    ...createWpHeader(project.caseType, { cm: true }),
+    ...createWpPartiesHeader(petHeader, resHeader),
+    new Paragraph({ spacing: { before: 240 }, alignment: AlignmentType.JUSTIFIED, indent: { left: 720, right: 720 }, children: [smartTextRun({ text: (cm.title || "").toUpperCase(), bold: true })] }),
+    new Paragraph({ children: [smartTextRun("The Petitioner most respectfully submits that:")] }),
+    ...cm.body.map(t => listItem(mainRef, t, { before: 60 })),
+  ];
+  const groundStrings = (cm.grounds || []).map(g => g.particulars).filter(htmlHasText);
+  if (groundStrings.length) {
+    children.push(listItem(mainRef, "GROUNDS", { bold: true, before: 120 }));
+    children.push(...htmlListItems(nb.styled(num.grounds), groundStrings, numbering));
+  }
+  children.push(listItemRuns(mainRef, [smartTextRun({ text: "PRAYER:", bold: true }), " In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon’ble Court may be pleased to:"]));
+  children.push(...htmlListItems(nb.styled(num.prayers), cm.prayers, numbering));
+  children.push(...createWpFiledBy(project));
+  // CM affidavit
+  children.push(new Paragraph({ children: [new PageBreak()] }));
+  children.push(...buildAffidavitChildren(project, "cm", petHeader, resHeader, numbering));
+  return children;
+}
+
 export async function generateWpCms(project: DraftoProject) {
   const { petHeader, resHeader } = partyHeaders(project);
   const cms = activeCms(project);
   if (cms.length === 0) return pack(wpDoc([new Paragraph("")]), "WP-CMs.docx");
 
-  const year = new Date().getFullYear();
-  const num = getWpNumbering();
   const nb = numberer();
   const numbering = nb.defs;
   const children: (Paragraph | Table)[] = [];
-
   cms.forEach((cm, idx) => {
     if (idx > 0) children.push(new Paragraph({ children: [new PageBreak()] }));
-    // Fresh references per CM so each application restarts its numbering.
-    const mainRef = nb.decimal();
-    children.push(
-      ...createWpHeader(project.caseType, { cm: true }),
-      ...createWpPartiesHeader(petHeader, resHeader),
-      new Paragraph({ spacing: { before: 240 }, alignment: AlignmentType.JUSTIFIED, indent: { left: 720, right: 720 }, children: [smartTextRun({ text: (cm.title || "").toUpperCase(), bold: true })] }),
-      new Paragraph({ children: [smartTextRun("The Petitioner most respectfully submits that:")] }),
-      ...cm.body.map(t => listItem(mainRef, t, { before: 60 })),
-    );
-    const groundStrings = (cm.grounds || []).map(g => g.particulars).filter(htmlHasText);
-    if (groundStrings.length) {
-      children.push(listItem(mainRef, "GROUNDS", { bold: true, before: 120 }));
-      children.push(...htmlListItems(nb.styled(num.grounds), groundStrings, numbering));
-    }
-    children.push(listItemRuns(mainRef, [smartTextRun({ text: "PRAYER:", bold: true }), " In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon’ble Court may be pleased to:"]));
-    children.push(...htmlListItems(nb.styled(num.prayers), cm.prayers, numbering));
-    children.push(...createWpFiledBy(project));
-    // CM affidavit
-    children.push(new Paragraph({ children: [new PageBreak()] }));
-    children.push(...buildAffidavitChildren(project, "cm", petHeader, resHeader, numbering));
+    children.push(...renderCmChildren(project, cm, petHeader, resHeader, nb, numbering));
   });
-
   return pack(wpDoc(children, numbering), "WP-CMs.docx");
+}
+
+// A single CM as its own docx (used by the PDF assembler for per-CM bookmarks).
+export async function generateWpSingleCm(project: DraftoProject, cmIndex: number) {
+  const { petHeader, resHeader } = partyHeaders(project);
+  const cm = activeCms(project)[cmIndex];
+  if (!cm) return pack(wpDoc([new Paragraph("")]), `WP-CM-${cmIndex + 1}.docx`);
+  const nb = numberer();
+  const children = renderCmChildren(project, cm, petHeader, resHeader, nb, nb.defs);
+  return pack(wpDoc(children, nb.defs), `WP-CM-${cmIndex + 1}.docx`);
 }
 
 // ── Index ───────────────────────────────────────────────────────────────────

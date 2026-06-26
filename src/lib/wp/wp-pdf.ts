@@ -20,9 +20,12 @@ import {
   generateWpMemoOfParties,
   generateWpSynopsisAndLod,
   generateWpPetition,
-  generateWpCms,
+  generateWpSingleCm,
   generateWpVakalatnama,
+  wpActiveCms,
+  wpCmTitle,
 } from "./wp-actions";
+import { factsAnnexureSentence } from "./wp-facts";
 
 function b64ToBytes(b64: string): Uint8Array {
   return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
@@ -50,11 +53,6 @@ interface WpBookmark {
   startPage?: number;
   endPage?: number;
   children?: WpBookmark[]; // nested constituents (colly annexures)
-}
-
-function hasAnyCm(p: DraftoProject): boolean {
-  const c = p.wp.cms;
-  return (p.wp.isIoWrit && c.stay.active) || c.lengthySynopsis.active || c.exemptionCopies.active || (p.wp.customCms?.length ?? 0) > 0;
 }
 
 // Read an annexure/constituent file to bytes (File object, or disk path via the
@@ -157,6 +155,7 @@ export async function generateWpPdf(
     const merged = await PDFDocument.create();
     const bookmarks: WpBookmark[] = [];
     const stamps: { pageIndex: number; number: number }[] = [];
+    const annexLabelStamps: { pageIndex: number; text: string }[] = [];
     let printedPage = 1;
 
     // Copy a source PDF into the merged book; records a bookmark + page stamps.
@@ -222,18 +221,31 @@ export async function generateWpPdf(
       }
       if (!src || src.getPageCount() === 0) { src = await PDFDocument.create(); src.addPage(); }
 
-      const title = `Annexure P-${pNumber}${annex.isColly ? " (Colly)" : ""}`;
-      const added = await addPdf(src, title, true);
-      if (added && collyChildren.length) {
-        bookmarks[bookmarks.length - 1].children = collyChildren.map(c => ({ title: c.title, pageIndex: added.startIndex + c.offset }));
+      // Bookmark carries the full HC-style description; the page gets a label.
+      const bmTitle = factsAnnexureSentence(pNumber, annex).replace(/\.\s*$/, "");
+      const label = `Annexure P-${pNumber}${annex.isColly ? " (Colly)" : ""}`;
+      const added = await addPdf(src, bmTitle, true);
+      if (added) {
+        for (let i = 0; i < added.count; i++) annexLabelStamps.push({ pageIndex: added.startIndex + i, text: label });
+        if (collyChildren.length) {
+          bookmarks[bookmarks.length - 1].children = collyChildren.map(c => ({ title: c.title, pageIndex: added.startIndex + c.offset }));
+        }
       }
     }
 
-    // CM applications, then the Vakalatnama.
-    if (hasAnyCm(project)) await addGen(generateWpCms, "CM Applications", true);
+    // CM applications (each separately bookmarked with its full title), then the
+    // Vakalatnama.
+    const cms = wpActiveCms(project);
+    for (let i = 0; i < cms.length; i++) {
+      onProgress?.(`CM Application ${i + 1}…`);
+      const res = await generateWpSingleCm(project, i);
+      if (!res.docx) continue;
+      await addPdf(await docxToPdf(res.docx), wpCmTitle(cms[i]), true);
+    }
     await addGen(generateWpVakalatnama, "Vakalatnama", true);
 
-    // Stamp continuous top-right bold page numbers.
+    // Stamp continuous top-right bold page numbers, plus the annexure label
+    // just below the page number on each annexure page.
     onProgress?.("Numbering pages…");
     const font = await merged.embedFont(StandardFonts.TimesRomanBold);
     const fontSize = 20;
@@ -245,6 +257,14 @@ export async function generateWpPdf(
       const text = String(s.number);
       const tw = font.widthOfTextAtSize(text, fontSize);
       page.drawText(text, { x: width - rightMargin - tw, y: height - topMargin - fontSize, size: fontSize, font, color: rgb(0, 0, 0) });
+    }
+    const labelSize = 13;
+    for (const s of annexLabelStamps) {
+      const page = merged.getPage(s.pageIndex);
+      const { width, height } = page.getSize();
+      const tw = font.widthOfTextAtSize(s.text, labelSize);
+      // Below the page number (page number occupies ~topMargin+fontSize from top).
+      page.drawText(s.text, { x: width - rightMargin - tw, y: height - topMargin - fontSize - labelSize - 8, size: labelSize, font, color: rgb(0, 0, 0) });
     }
 
     onProgress?.("Adding bookmarks…");
