@@ -351,10 +351,10 @@ export async function generateWpPetition(project: DraftoProject) {
     // 1. Intro
     listItem(mainRef, "This Writ Petition is filed praying for the reliefs set out hereinabove.", { before: 120 }),
     // 2. Facts
-    listItem(mainRef, "FACTS", { bold: true, before: 120 }),
+    listItemRuns(mainRef, [smartTextRun({ text: "FACTS", bold: true }), ": The facts and circumstances giving rise to this writ petition are as under:"]),
     ...(facts.paragraphs.length ? facts.paragraphs : [new Paragraph({ children: [smartTextRun("[Facts — generated from the List of Dates.]")] })]),
     // 3. Grounds
-    listItem(mainRef, "GROUNDS", { bold: true, before: 120 }),
+    listItemRuns(mainRef, [smartTextRun({ text: "GROUNDS", bold: true }), ": This writ petition is filed on the following grounds which are taken in addition and without prejudice to each other:"]),
     ...htmlListItems(groundsRef, groundStrings, numbering),
     // 4–7 boilerplate
     listItem(mainRef, "This Hon’ble Court has the necessary jurisdiction to entertain this Writ Petition as the Respondents are situated within, and the cause of action has arisen within, the territorial jurisdiction of this Hon’ble Court.", { before: 120 }),
@@ -362,7 +362,7 @@ export async function generateWpPetition(project: DraftoProject) {
     listItem(mainRef, "The Petitioner has not filed any other Writ Petition or proceeding before the Hon’ble Supreme Court or before this Hon’ble Court or any other Court seeking the same or similar relief.", { before: 120 }),
     listItem(mainRef, "The Petitioner craves leave of this Hon’ble Court to produce additional documents and/or affidavits and to add, alter or amend this Writ Petition at a later stage of the proceedings, if required.", { before: 120 }),
     // 8. Prayers
-    listItemRuns(mainRef, [smartTextRun({ text: "Prayers:", bold: true }), " In view of the foregoing submissions, it is respectfully prayed that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and:"]),
+    listItemRuns(mainRef, [smartTextRun({ text: "PRAYERS:", bold: true }), " In view of the foregoing submissions, it is respectfully prayed that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and:"]),
     ...htmlListItems(prayersRef, all, numbering),
     ...createWpFiledBy(project),
     // Affidavit (the index lists the petition "with affidavit")
@@ -460,7 +460,16 @@ export async function generateWpVakalatnama(project: DraftoProject) {
     new Paragraph({ spacing: { before: 120 }, children: [smartTextRun("AND I undertake that I or my duly authorised agent will appear in Court on all hearings and will inform the Advocate for appearance when the case is on the date of hearing.")] }),
     new Paragraph({ spacing: { before: 240 }, children: [smartTextRun("Dated: ____________")] }),
     new Paragraph({ children: [smartTextRun("Signed, Accepted and Identified by:")] }),
-    new Paragraph({ spacing: { before: 360 }, children: [smartTextRun({ text: "ADVOCATE", bold: true }), smartTextRun("                                        "), smartTextRun({ text: "CLIENT", bold: true })] }),
+    new Paragraph({ spacing: { before: 360 }, children: [] }),
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      columnWidths: [5000, 5000],
+      borders: NO_BORDERS,
+      rows: [new TableRow({ children: [
+        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.LEFT, children: [smartTextRun({ text: "ADVOCATE", bold: true })] })], borders: NO_BORDERS }),
+        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: "CLIENT", bold: true })] })], borders: NO_BORDERS }),
+      ]})],
+    }),
   ], nb.defs);
   return pack(doc, "WP-Vakalatnama.docx");
 }
@@ -553,7 +562,7 @@ export async function generateWpCms(project: DraftoProject) {
     children.push(
       ...createWpHeader(project.caseType, { cm: true }),
       ...createWpPartiesHeader(petHeader, resHeader),
-      new Paragraph({ spacing: { before: 240 }, alignment: AlignmentType.CENTER, children: [smartTextRun({ text: (cm.title || "").toUpperCase(), bold: true })] }),
+      new Paragraph({ spacing: { before: 240 }, alignment: AlignmentType.JUSTIFIED, indent: { left: 720, right: 720 }, children: [smartTextRun({ text: (cm.title || "").toUpperCase(), bold: true })] }),
       new Paragraph({ children: [smartTextRun("The Petitioner most respectfully submits that:")] }),
       ...cm.body.map(t => listItem(mainRef, t, { before: 60 })),
     );
@@ -613,11 +622,11 @@ export async function generateWpIndex(project: DraftoProject) {
     ...createWpPartiesHeader(petHeader, resHeader),
     centeredBold("INDEX", { before: 240 }),
     table,
-    ...createWpFiledBy(project),
-    new Paragraph({ spacing: { before: 360 }, children: [
+    new Paragraph({ spacing: { line: 240, before: 240, after: 120 }, children: [
       smartTextRun({ text: "Note: ", bold: true }),
       smartTextRun("The Petition has been duly bookmarked and an OCR version of the same has been served upon all the parties."),
     ]}),
+    ...createWpFiledBy(project),
   ]);
   return pack(doc, "WP-Index.docx");
 }

@@ -93,14 +93,19 @@ export function createWpHeader(
   return lines;
 }
 
-// Salutation block ("To / <addressee>…") — indented 0.5", italic, with zero
+// Salutation block ("To / <addressee>…"). The opening "To" line is left as
+// normal text; the addressee lines below it are indented 0.5" and italic. Zero
 // after-spacing on every line except the last.
 export function createSalutation(lines: string[]): Paragraph[] {
-  return lines.map((text, i) => new Paragraph({
-    indent: { left: 720 },
-    spacing: { after: i === lines.length - 1 ? 240 : 0 },
-    children: [smartTextRun({ text, italics: true })],
-  }));
+  return lines.map((text, i) => {
+    const isFirst = i === 0;
+    const isLast = i === lines.length - 1;
+    return new Paragraph({
+      ...(isFirst ? {} : { indent: { left: 720 } }),
+      spacing: { after: isLast ? 240 : 0 },
+      children: [smartTextRun({ text, italics: !isFirst })],
+    });
+  });
 }
 
 // "IN THE MATTER OF:" + petitioner / Versus / respondent block.
@@ -114,7 +119,7 @@ export function createWpPartiesHeader(petHeader: string, resHeader: string) {
       rows: [
         new TableRow({
           children: [
-            new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: petHeader, bold: true })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
+            new TableCell({ children: [new Paragraph({ children: [smartTextRun(petHeader)] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
             new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun("…Petitioner")] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
           ],
         }),
@@ -125,7 +130,7 @@ export function createWpPartiesHeader(petHeader: string, resHeader: string) {
         }),
         new TableRow({
           children: [
-            new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: resHeader, bold: true })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
+            new TableCell({ children: [new Paragraph({ children: [smartTextRun(resHeader)] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
             new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun("…Respondents")] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
           ],
         }),
