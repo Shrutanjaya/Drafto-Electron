@@ -620,25 +620,32 @@ export async function generateWpSingleCm(project: DraftoProject, cmIndex: number
 }
 
 // ── Index ───────────────────────────────────────────────────────────────────
-// 3-column index (Sr. No. | Particulars | Pg.). Page numbers are filled at
-// PDF-generation time, so the Pg. column is left blank here.
+// 3-column index (Sr. No. | Particulars | Pg.). `pageRanges` (keyed per item) is
+// supplied by the two-pass PDF assembler to back-fill the Pg. column; when
+// absent (e.g. the standalone docx export) the column is left blank.
 
-export async function generateWpIndex(project: DraftoProject) {
-  const { petHeader, resHeader } = partyHeaders(project);
+// The ordered index items with their stable keys — shared with the PDF
+// assembler so page ranges line up.
+export function wpIndexItems(project: DraftoProject): { key: string; runs: (TextRun | string)[] }[] {
   const year = new Date().getFullYear();
-
-  const particulars: (TextRun | string)[][] = [
-    [smartTextRun("Notice of Motion")],
-    [smartTextRun("Urgency Application")],
-    [smartTextRun("Memo of Parties")],
-    [smartTextRun("Synopsis and List of Dates")],
-    [smartTextRun(`Writ Petition under Article ${project.wp.articleBasis} of the Constitution of India, with affidavit.`)],
+  const items: { key: string; runs: (TextRun | string)[] }[] = [
+    { key: "notice", runs: [smartTextRun("Notice of Motion")] },
+    { key: "urgency", runs: [smartTextRun("Urgency Application")] },
+    { key: "memo", runs: [smartTextRun("Memo of Parties")] },
+    { key: "slod", runs: [smartTextRun("Synopsis and List of Dates")] },
+    { key: "petition", runs: [smartTextRun(`Writ Petition under Article ${project.wp.articleBasis} of the Constitution of India, with affidavit.`)] },
   ];
-  wpAnnexureOrder(project).forEach(({ annex, pNumber }) => particulars.push(annexIndexRuns(pNumber, annex)));
-  activeCms(project).forEach(cm => particulars.push([smartTextRun({ text: `C.M. No. ____ of ${year}: `, bold: true }), convertToSmartQuotes(cm.title + ", with affidavit.")]));
-  particulars.push([smartTextRun("Vakalatnama")]);
-  particulars.push([smartTextRun("Court Fee")]);
-  particulars.push([smartTextRun("Proof of Service")]);
+  wpAnnexureOrder(project).forEach(({ annex, pNumber }) => items.push({ key: `annex:${annex.id}`, runs: annexIndexRuns(pNumber, annex) }));
+  activeCms(project).forEach((cm, i) => items.push({ key: `cm:${i}`, runs: [smartTextRun({ text: `C.M. No. ____ of ${year}: `, bold: true }), convertToSmartQuotes(cm.title + ", with affidavit.")] }));
+  items.push({ key: "vakalatnama", runs: [smartTextRun("Vakalatnama")] });
+  items.push({ key: "courtfee", runs: [smartTextRun("Court Fee")] });
+  items.push({ key: "proofofservice", runs: [smartTextRun("Proof of Service")] });
+  return items;
+}
+
+export async function generateWpIndex(project: DraftoProject, pageRanges?: Record<string, string>) {
+  const { petHeader, resHeader } = partyHeaders(project);
+  const items = wpIndexItems(project);
 
   const headerRow = new TableRow({ children: [
     new TableCell({ children: [centeredBoldCell("Sr. No.")], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
@@ -646,10 +653,10 @@ export async function generateWpIndex(project: DraftoProject) {
     new TableCell({ children: [centeredBoldCell("Pg.")], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
   ]});
 
-  const rows = particulars.map((runs, i) => new TableRow({ children: [
+  const rows = items.map((it, i) => new TableRow({ children: [
     new TableCell({ children: [new Paragraph({ text: `${i + 1}.`, alignment: AlignmentType.CENTER, spacing: tableSpacing })], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
-    new TableCell({ children: [new Paragraph({ children: runs.map(r => (typeof r === "string" ? smartTextRun(r) : r)), spacing: tableSpacing })], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
-    new TableCell({ children: [new Paragraph({ text: "", alignment: AlignmentType.CENTER, spacing: tableSpacing })], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
+    new TableCell({ children: [new Paragraph({ children: it.runs.map(r => (typeof r === "string" ? smartTextRun(r) : r)), spacing: tableSpacing })], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
+    new TableCell({ children: [new Paragraph({ text: pageRanges?.[it.key] ?? "", alignment: AlignmentType.CENTER, spacing: tableSpacing })], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
   ]}));
 
   const table = new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: [1000, 7500, 1500], rows: [headerRow, ...rows] });

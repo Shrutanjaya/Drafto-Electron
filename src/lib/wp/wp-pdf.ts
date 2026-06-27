@@ -157,65 +157,40 @@ export async function generateWpPdf(
     const bookmarks: WpBookmark[] = [];
     const stamps: { pageIndex: number; number: number }[] = [];
     const annexLabelStamps: { pageIndex: number; text: string }[] = [];
-    let printedPage = 1;
+    const uploads = project.wp.uploads || ({} as any);
 
-    // Copy a source PDF into the merged book; records a bookmark + page stamps.
-    const addPdf = async (src: PDFDocument, title: string, paginated: boolean, children?: WpBookmark[]) => {
-      const count = src.getPageCount();
-      if (count === 0) return null;
-      const startIndex = merged.getPageCount();
-      const copied = await merged.copyPages(src, src.getPageIndices());
-      copied.forEach(p => merged.addPage(p));
-      const bm: WpBookmark = { title, pageIndex: startIndex };
-      if (paginated) {
-        bm.startPage = printedPage;
-        bm.endPage = printedPage + count - 1;
-        for (let i = 0; i < count; i++) stamps.push({ pageIndex: startIndex + i, number: printedPage + i });
-        printedPage += count;
-      }
-      if (children) bm.children = children;
-      bookmarks.push(bm);
-      return { startIndex, count };
-    };
+    // ── PASS 1: collect every body component (the Index is generated last, once
+    // page ranges are known). Each carries its index key so ranges line up. ──
+    interface BodyItem { key: string; title: string; pdf: PDFDocument; paginated: boolean; colly?: { title: string; offset: number }[]; label?: string; }
+    const items: BodyItem[] = [];
 
-    // Convert and add a generated docx component.
-    const addGen = async (gen: (p: DraftoProject) => Promise<{ docx?: string }>, title: string, paginated: boolean) => {
+    const genItem = async (gen: (p: DraftoProject) => Promise<{ docx?: string }>, key: string, title: string) => {
       const res = await gen(project);
-      if (!res.docx) return;
-      await addPdf(await docxToPdf(res.docx), title, paginated);
+      if (res.docx) items.push({ key, title, pdf: await docxToPdf(res.docx), paginated: true });
     };
-
-    // Add an uploaded PDF/image (Court Fee, Proof of Service, signed Affidavit/
-    // Vakalatnama). Returns true if a file was present and added.
-    const addUpload = async (entry: any, title: string): Promise<boolean> => {
+    const uploadItem = async (entry: any, key: string, title: string): Promise<boolean> => {
       const bytes = await fileBytes(entry?.file, entry?.filePath);
       if (!bytes) return false;
       const pdf = await pdfFromBytes(bytes);
       if (!pdf || pdf.getPageCount() === 0) return false;
-      await addPdf(pdf, title, true);
+      items.push({ key, title, pdf, paginated: true });
       return true;
     };
-    const uploads = project.wp.uploads || ({} as any);
 
-    // Front matter + petition.
     onProgress?.("Building front matter…");
-    await addGen(generateWpIndex, "Index", false); // Index pages are unnumbered
-    await addGen(generateWpNoticeOfMotion, "Notice of Motion", true);
-    await addGen(generateWpUrgencyApplication, "Urgency Application", true);
-    await addGen(generateWpMemoOfParties, "Memo of Parties", true);
-    await addGen(generateWpSynopsisAndLod, "Synopsis and List of Dates", true);
-    await addGen((p) => generateWpPetition(p, { includeAffidavit: false }), `Writ Petition under Article ${project.wp.articleBasis}`, true);
-    // Affidavit: uploaded signed/notarised version if present, else the generated one.
-    if (!(await addUpload(uploads.signedAffidavit, "Affidavit"))) await addGen(generateWpAffidavit, "Affidavit", true);
+    await genItem(generateWpNoticeOfMotion, "notice", "Notice of Motion");
+    await genItem(generateWpUrgencyApplication, "urgency", "Urgency Application");
+    await genItem(generateWpMemoOfParties, "memo", "Memo of Parties");
+    await genItem(generateWpSynopsisAndLod, "slod", "Synopsis and List of Dates");
+    await genItem((p) => generateWpPetition(p, { includeAffidavit: false }), "petition", `Writ Petition under Article ${project.wp.articleBasis}`);
+    if (!(await uploadItem(uploads.signedAffidavit, "affidavit", "Affidavit"))) await genItem(generateWpAffidavit, "affidavit", "Affidavit");
 
-    // Annexures (impugned-order first), interleaved after the petition. Colly
-    // annexures are assembled from their constituent files with nested
-    // bookmarks; missing files get a placeholder page so pagination is stable.
+    // Annexures (impugned-order first). Colly annexures are assembled from their
+    // constituent files with nested bookmarks; missing files get a placeholder.
     for (const { annex, pNumber } of wpAnnexureOrder(project)) {
       onProgress?.(`Annexure P-${pNumber}…`);
       let src: PDFDocument | null = null;
-      let collyChildren: { title: string; offset: number }[] = [];
-
+      const collyChildren: { title: string; offset: number }[] = [];
       if (annex.isColly && (annex.collyDocuments?.length ?? 0) > 0) {
         src = await PDFDocument.create();
         for (const cd of annex.collyDocuments) {
@@ -225,9 +200,7 @@ export async function generateWpPdf(
           if (cpdf && cpdf.getPageCount() > 0) {
             const cp = await src.copyPages(cpdf, cpdf.getPageIndices());
             cp.forEach(p => src!.addPage(p));
-          } else {
-            src.addPage();
-          }
+          } else { src.addPage(); }
           collyChildren.push({ title: cd.title || cd.date || "Document", offset });
         }
       } else {
@@ -235,33 +208,71 @@ export async function generateWpPdf(
         src = bytes ? await pdfFromBytes(bytes) : null;
       }
       if (!src || src.getPageCount() === 0) { src = await PDFDocument.create(); src.addPage(); }
-
-      // Bookmark carries the full HC-style description; the page gets a label.
-      const bmTitle = factsAnnexureSentence(pNumber, annex).replace(/\.\s*$/, "");
-      const label = `Annexure P-${pNumber}${annex.isColly ? " (Colly)" : ""}`;
-      const added = await addPdf(src, bmTitle, true);
-      if (added) {
-        for (let i = 0; i < added.count; i++) annexLabelStamps.push({ pageIndex: added.startIndex + i, text: label });
-        if (collyChildren.length) {
-          bookmarks[bookmarks.length - 1].children = collyChildren.map(c => ({ title: c.title, pageIndex: added.startIndex + c.offset }));
-        }
-      }
+      items.push({
+        key: `annex:${annex.id}`,
+        title: factsAnnexureSentence(pNumber, annex).replace(/\.\s*$/, ""),
+        pdf: src,
+        paginated: true,
+        colly: collyChildren.length ? collyChildren : undefined,
+        label: `Annexure P-${pNumber}${annex.isColly ? " (Colly)" : ""}`,
+      });
     }
 
-    // CM applications (each separately bookmarked with its full title), then the
-    // Vakalatnama.
+    // CM applications (each separately bookmarked), then Vakalatnama, Court Fee,
+    // Proof of Service.
     const cms = wpActiveCms(project);
     for (let i = 0; i < cms.length; i++) {
       onProgress?.(`CM Application ${i + 1}…`);
       const res = await generateWpSingleCm(project, i);
-      if (!res.docx) continue;
-      await addPdf(await docxToPdf(res.docx), wpCmTitle(cms[i]), true);
+      if (res.docx) items.push({ key: `cm:${i}`, title: wpCmTitle(cms[i]), pdf: await docxToPdf(res.docx), paginated: true });
     }
-    // Vakalatnama: uploaded signed/stamped version if present, else generated.
-    if (!(await addUpload(uploads.signedVakalatnama, "Vakalatnama"))) await addGen(generateWpVakalatnama, "Vakalatnama", true);
-    // Court Fee and Proof of Service (upload-only).
-    await addUpload(uploads.courtFee, "Court Fee");
-    await addUpload(uploads.proofOfService, "Proof of Service");
+    if (!(await uploadItem(uploads.signedVakalatnama, "vakalatnama", "Vakalatnama"))) await genItem(generateWpVakalatnama, "vakalatnama", "Vakalatnama");
+    await uploadItem(uploads.courtFee, "courtfee", "Court Fee");
+    await uploadItem(uploads.proofOfService, "proofofservice", "Proof of Service");
+
+    // ── Compute printed page ranges (continuous from 1) for the Index. ──
+    let calc = 1;
+    const rangeByKey: Record<string, { s: number; e: number }> = {};
+    for (const it of items) {
+      if (!it.paginated) continue;
+      const n = it.pdf.getPageCount();
+      rangeByKey[it.key] = { s: calc, e: calc + n - 1 };
+      calc += n;
+    }
+    const fmt = (r: { s: number; e: number }) => (r.s === r.e ? `${r.s}` : `${r.s}-${r.e}`);
+    const pageRanges: Record<string, string> = {};
+    for (const k in rangeByKey) pageRanges[k] = fmt(rangeByKey[k]);
+    // The Index "Writ Petition … with affidavit" row spans petition + affidavit.
+    if (rangeByKey["petition"]) {
+      pageRanges["petition"] = fmt({ s: rangeByKey["petition"].s, e: (rangeByKey["affidavit"] ?? rangeByKey["petition"]).e });
+    }
+
+    // ── Generate the Index with the page ranges, then assemble Index-first. ──
+    onProgress?.("Building index…");
+    const idxRes = await generateWpIndex(project, pageRanges);
+    const indexPdf = idxRes.docx ? await docxToPdf(idxRes.docx) : null;
+
+    let printedPage = 1;
+    const addToMerged = async (src: PDFDocument, title: string, paginated: boolean, opts?: { colly?: { title: string; offset: number }[]; label?: string }) => {
+      const count = src.getPageCount();
+      if (count === 0) return;
+      const startIndex = merged.getPageCount();
+      const cp = await merged.copyPages(src, src.getPageIndices());
+      cp.forEach(p => merged.addPage(p));
+      const bm: WpBookmark = { title, pageIndex: startIndex };
+      if (paginated) {
+        bm.startPage = printedPage;
+        bm.endPage = printedPage + count - 1;
+        for (let i = 0; i < count; i++) stamps.push({ pageIndex: startIndex + i, number: printedPage + i });
+        printedPage += count;
+      }
+      if (opts?.colly) bm.children = opts.colly.map(c => ({ title: c.title, pageIndex: startIndex + c.offset }));
+      if (opts?.label) for (let i = 0; i < count; i++) annexLabelStamps.push({ pageIndex: startIndex + i, text: opts.label });
+      bookmarks.push(bm);
+    };
+
+    if (indexPdf) await addToMerged(indexPdf, "Index", false); // Index pages are unnumbered
+    for (const it of items) await addToMerged(it.pdf, it.title, it.paginated, { colly: it.colly, label: it.label });
 
     // Stamp continuous top-right bold page numbers, plus the annexure label
     // just below the page number on each annexure page.
