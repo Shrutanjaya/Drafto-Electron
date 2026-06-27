@@ -37,11 +37,33 @@ const LEAD_LOWERCASE = new Set([
   "It", "He", "She", "They", "His", "Her", "Their", "Its",
 ]);
 
-// "01.01.2006" → "On 01.01.2006, ";  "1968" → "In 1968, ";  "" → "".
+// Words that already introduce the date themselves — used as typed, not prefixed.
+const DATE_CONNECTIVE = /^(from|till|until|since|by|between|during|in|on|upto|up\s?to|after|before|as\s?on|as\s?of|w\.?\s?e\.?\s?f\.?|on\s?or\s?about|around|circa|throughout)\b/i;
+
+// Turn a date field into a leading clause:
+//   "01.01.2006"            → "On 01.01.2006, "
+//   "1968"                  → "In 1968, "
+//   "1968-1994" / "1968 to 1994" → "From 1968 to 1994, "
+//   "01.01.1968 - 31.12.1994"    → "From 01.01.1968 to 31.12.1994, "
+//   "Till 1994" / "From X to Y"  → used verbatim (already phrased) + ", "
+//   ""                      → ""
 export function datePhrase(date: string): string {
   const d = (date || "").trim();
   if (!d) return "";
+  // Already a connective phrase ("From…", "Till…", "Since…") → use as typed.
+  if (DATE_CONNECTIVE.test(d)) return `${d.charAt(0).toUpperCase()}${d.slice(1)}, `;
+  // Year–year range.
+  let m = d.match(/^(\d{4})\s*(?:[-–—]|to)\s*(\d{4})$/i);
+  if (m) return `From ${m[1]} to ${m[2]}, `;
+  // Full-date–full-date range (dot/slash dates, dash- or "to"-separated).
+  m = d.match(/^(\d{1,2}[./]\d{1,2}[./]\d{2,4})\s*(?:[-–—]|to)\s*(\d{1,2}[./]\d{1,2}[./]\d{2,4})$/i);
+  if (m) return `From ${m[1]} to ${m[2]}, `;
+  // Generic "X to Y" range (e.g. "Jan 2006 to Mar 2007").
+  m = d.match(/^(.+?)\s+to\s+(.+)$/i);
+  if (m) return `From ${m[1].trim()} to ${m[2].trim()}, `;
+  // Single bare year.
   if (/^\d{4}$/.test(d)) return `In ${d}, `;
+  // Single full date.
   return `On ${d}, `;
 }
 
