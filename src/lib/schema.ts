@@ -381,6 +381,15 @@ export const draftoProjectSchema = z.object({
       exemptionCopies: z.object({ active: z.boolean().default(false) }).default({}),
     }).default({}),
     customCms: z.array(customIaSchema).default([]),
+    // Upload-only filing documents, merged into the paper-book at PDF time.
+    // signedAffidavit / signedVakalatnama, when present, replace the generated
+    // clean versions (the client signs/notarises and uploads the PDF).
+    uploads: z.object({
+      courtFee: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
+      proofOfService: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
+      signedAffidavit: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
+      signedVakalatnama: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
+    }).default({}),
   }).default({}),
 
   // PDF Generation Dialog state

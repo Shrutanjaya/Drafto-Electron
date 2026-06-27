@@ -319,7 +319,8 @@ function reliefStrings(project: DraftoProject): { top: string[]; all: string[] }
 
 // ── Writ Petition (body + affidavit) ────────────────────────────────────────
 
-export async function generateWpPetition(project: DraftoProject) {
+export async function generateWpPetition(project: DraftoProject, opts?: { includeAffidavit?: boolean }) {
+  const includeAffidavit = opts?.includeAffidavit ?? true;
   const { petHeader, resHeader } = partyHeaders(project);
   const article = project.wp.articleBasis;
   const { top, all } = reliefStrings(project);
@@ -365,12 +366,24 @@ export async function generateWpPetition(project: DraftoProject) {
     listItemRuns(mainRef, [smartTextRun({ text: "PRAYERS:", bold: true }), " In view of the foregoing submissions, it is respectfully prayed that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and:"]),
     ...htmlListItems(prayersRef, all, numbering),
     ...createWpFiledBy(project),
-    // Affidavit (the index lists the petition "with affidavit")
-    new Paragraph({ children: [new PageBreak()] }),
-    ...buildAffidavitChildren(project, "petition", petHeader, resHeader, numbering),
+    // Affidavit (the index lists the petition "with affidavit"). Omitted for the
+    // PDF path, which appends the affidavit (generated or uploaded) separately.
+    ...(includeAffidavit ? [
+      new Paragraph({ children: [new PageBreak()] }),
+      ...buildAffidavitChildren(project, "petition", petHeader, resHeader, numbering),
+    ] : []),
   ];
 
   return pack(wpDoc(children, numbering), "WP-Petition.docx");
+}
+
+// Standalone petition affidavit (used by the PDF path so an uploaded signed
+// affidavit can replace it).
+export async function generateWpAffidavit(project: DraftoProject) {
+  const { petHeader, resHeader } = partyHeaders(project);
+  const nb = numberer();
+  const children = buildAffidavitChildren(project, "petition", petHeader, resHeader, nb.defs);
+  return pack(wpDoc(children, nb.defs), "WP-Affidavit.docx");
 }
 
 // ── Affidavit (shared by the petition and CMs) ──────────────────────────────

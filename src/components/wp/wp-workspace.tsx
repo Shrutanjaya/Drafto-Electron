@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useFormContext, useWatch, useFieldArray } from "react-hook-form";
-import { Sparkles, PlusCircle, Columns2, LayoutList } from "lucide-react";
+import { Sparkles, PlusCircle, Columns2, LayoutList, Upload, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DraftoProject } from "@/lib/schema";
 import { customIaSchema } from "@/lib/schema";
+import { pickFile } from "@/lib/utils/pick-file";
 import { transposeLodToFacts } from "@/lib/wp/wp-facts";
 import { CustomIaCard } from "@/components/custom/custom-ia-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -78,7 +79,7 @@ export function WpWorkspace() {
   }, []);
 
   const [editorSection, setEditorSection] = useState<EditorSection>("synopsis");
-  const [prelim, setPrelim] = useState<"parties" | "details" | "deponent" | "advocate">("parties");
+  const [prelim, setPrelim] = useState<"parties" | "details" | "deponent" | "advocate" | "uploads">("parties");
   const [cmSection, setCmSection] = useState<"stay" | "lengthySynopsis" | "exemptionCopies" | "custom">(isIoWrit ? "stay" : "lengthySynopsis");
 
   // Facts generation (edit-locked).
@@ -324,7 +325,41 @@ export function WpWorkspace() {
       <Field label="Address"><FormField control={form.control} name="deponent.address" render={({ field }) => <Textarea {...field} rows={2} />} /></Field>
     </div>
   );
-  const prelimContent = { parties: partiesContent, details: detailsContent, deponent: deponentContent, advocate: advocateContent }[prelim];
+  const uploadSlot = (key: string, label: string, hint: string) => {
+    const val: any = form.watch(`wp.uploads.${key}` as any);
+    const has = val?.file instanceof File || !!val?.filePath;
+    const fileName = val?.file?.name || (val?.filePath ? String(val.filePath).split(/[\\/]/).pop() : "");
+    const pick = async () => {
+      const file = await pickFile();
+      if (file) {
+        form.setValue(`wp.uploads.${key}.file` as any, file, { shouldDirty: true });
+        form.setValue(`wp.uploads.${key}.filePath` as any, (file as any).path);
+      }
+    };
+    const clear = () => {
+      form.setValue(`wp.uploads.${key}.file` as any, undefined, { shouldDirty: true });
+      form.setValue(`wp.uploads.${key}.filePath` as any, undefined);
+    };
+    return (
+      <Field label={label} hint={hint}>
+        <div className="flex items-center gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={pick}><Upload className="mr-1 h-3.5 w-3.5" />{has ? "Replace" : "Upload"}</Button>
+          {has && <span className="max-w-[180px] truncate text-xs text-muted-foreground">{fileName}</span>}
+          {has && <Button type="button" size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={clear}><Trash2 className="h-3.5 w-3.5" /></Button>}
+        </div>
+      </Field>
+    );
+  };
+  const uploadsContent = (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <p className="col-span-full text-xs text-muted-foreground">PDFs merged into the paper-book at PDF generation. Signed/notarised uploads replace the generated clean versions.</p>
+      {uploadSlot("courtFee", "Court Fee", "e-Court Fee receipt.")}
+      {uploadSlot("proofOfService", "Proof of Service", "Advance-service email / acknowledgement.")}
+      {uploadSlot("signedAffidavit", "Signed Affidavit", "Notarised affidavit — replaces the generated one.")}
+      {uploadSlot("signedVakalatnama", "Signed Vakalatnama", "Signed/stamped vakalatnama — replaces the generated one.")}
+    </div>
+  );
+  const prelimContent = { parties: partiesContent, details: detailsContent, deponent: deponentContent, advocate: advocateContent, uploads: uploadsContent }[prelim];
 
   // ── Applications content ────────────────────────────────────────────────────
   const stayContent = (
@@ -405,6 +440,7 @@ export function WpWorkspace() {
             { id: "details", label: "Petition Details", active: true },
             { id: "deponent", label: "Deponent", active: !!depName?.trim() },
             { id: "advocate", label: "Advocate (“Filed by”)", active: !!advName?.trim() },
+            { id: "uploads", label: "Filing Documents", active: false },
           ],
           prelim, setPrelim, prelimContent, "wp-prelim-nav",
         )}

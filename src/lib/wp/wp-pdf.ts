@@ -20,6 +20,7 @@ import {
   generateWpMemoOfParties,
   generateWpSynopsisAndLod,
   generateWpPetition,
+  generateWpAffidavit,
   generateWpSingleCm,
   generateWpVakalatnama,
   wpActiveCms,
@@ -184,6 +185,18 @@ export async function generateWpPdf(
       await addPdf(await docxToPdf(res.docx), title, paginated);
     };
 
+    // Add an uploaded PDF/image (Court Fee, Proof of Service, signed Affidavit/
+    // Vakalatnama). Returns true if a file was present and added.
+    const addUpload = async (entry: any, title: string): Promise<boolean> => {
+      const bytes = await fileBytes(entry?.file, entry?.filePath);
+      if (!bytes) return false;
+      const pdf = await pdfFromBytes(bytes);
+      if (!pdf || pdf.getPageCount() === 0) return false;
+      await addPdf(pdf, title, true);
+      return true;
+    };
+    const uploads = project.wp.uploads || ({} as any);
+
     // Front matter + petition.
     onProgress?.("Building front matter…");
     await addGen(generateWpIndex, "Index", false); // Index pages are unnumbered
@@ -191,7 +204,9 @@ export async function generateWpPdf(
     await addGen(generateWpUrgencyApplication, "Urgency Application", true);
     await addGen(generateWpMemoOfParties, "Memo of Parties", true);
     await addGen(generateWpSynopsisAndLod, "Synopsis and List of Dates", true);
-    await addGen(generateWpPetition, `Writ Petition under Article ${project.wp.articleBasis}, with affidavit`, true);
+    await addGen((p) => generateWpPetition(p, { includeAffidavit: false }), `Writ Petition under Article ${project.wp.articleBasis}`, true);
+    // Affidavit: uploaded signed/notarised version if present, else the generated one.
+    if (!(await addUpload(uploads.signedAffidavit, "Affidavit"))) await addGen(generateWpAffidavit, "Affidavit", true);
 
     // Annexures (impugned-order first), interleaved after the petition. Colly
     // annexures are assembled from their constituent files with nested
@@ -242,7 +257,11 @@ export async function generateWpPdf(
       if (!res.docx) continue;
       await addPdf(await docxToPdf(res.docx), wpCmTitle(cms[i]), true);
     }
-    await addGen(generateWpVakalatnama, "Vakalatnama", true);
+    // Vakalatnama: uploaded signed/stamped version if present, else generated.
+    if (!(await addUpload(uploads.signedVakalatnama, "Vakalatnama"))) await addGen(generateWpVakalatnama, "Vakalatnama", true);
+    // Court Fee and Proof of Service (upload-only).
+    await addUpload(uploads.courtFee, "Court Fee");
+    await addUpload(uploads.proofOfService, "Proof of Service");
 
     // Stamp continuous top-right bold page numbers, plus the annexure label
     // just below the page number on each annexure page.

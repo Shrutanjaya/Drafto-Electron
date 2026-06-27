@@ -239,6 +239,12 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       }
     }
 
+    // WP filing uploads (Court Fee, Proof of Service, signed Affidavit/Vakalatnama)
+    for (const k of ['courtFee', 'proofOfService', 'signedAffidavit', 'signedVakalatnama'] as const) {
+      const p = getPath(data.wp?.uploads?.[k]?.file);
+      if (p && cloned.wp?.uploads?.[k]) cloned.wp.uploads[k].filePath = p;
+    }
+
     // standardIas grounds annexures
     for (const key of ['condonationOfDelay', 'exemptionFromSurrendering'] as const) {
       const grounds = data.standardIas?.[key]?.grounds ?? [];
@@ -497,6 +503,12 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
             cd.file = await tryRestore(cd.filePath, `lod[${li}].annex[${ai}].colly[${ci}].file`);
         }
       }
+    }
+
+    // WP filing uploads
+    for (const k of ['courtFee', 'proofOfService', 'signedAffidavit', 'signedVakalatnama'] as const) {
+      const u = data.wp?.uploads?.[k];
+      if (u?.filePath && !(u.file instanceof File)) u.file = await tryRestore(u.filePath, `wp.uploads.${k}.file`);
     }
 
     // customIas grounds annexures
