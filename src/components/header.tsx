@@ -38,6 +38,7 @@ import { LoadProjectDialog } from "./dialogs/load-project-dialog";
 import { ModeSelectDialog } from "./dialogs/mode-select-dialog";
 import { generateWpIndex, generateWpNoticeOfMotion, generateWpUrgencyApplication, generateWpMemoOfParties, generateWpSynopsisAndLod, generateWpPetition, generateWpVakalatnama, generateWpCms } from "@/lib/wp/wp-actions";
 import { generateWpPdf } from "@/lib/wp/wp-pdf";
+import { WpPdfGenerationDialog } from "./dialogs/wp-pdf-generation-dialog";
 import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
 import { newBlankProject } from "@/lib/project-defaults";
 import { getIaList } from "@/lib/ia-list-utils";
@@ -933,9 +934,11 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           // A loaded writ petition uses the WP paper-book assembler; the same
           // button opens the SLP paper-book dialog otherwise.
           return courtType === "WritPetitionDHC" ? (
-            <Button variant="ghost" size="icon" title="Export Writ Petition Paperbook (PDF)" disabled={isPending} onClick={handleGenerateWpPdf}>
-              {pdfButtonInner}
-            </Button>
+            <WpPdfGenerationDialog onGenerate={handleGenerateWpPdf} isPending={isPending}>
+              <Button variant="ghost" size="icon" title="Generate Writ Petition Paperbook (PDF)" disabled={isPending}>
+                {pdfButtonInner}
+              </Button>
+            </WpPdfGenerationDialog>
           ) : (
             <PdfGenerationDialog>
               <Button variant="ghost" size="icon" title="Export PDF Paperbook" disabled={isPending}>
