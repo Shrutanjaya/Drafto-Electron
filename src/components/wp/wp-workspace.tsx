@@ -327,28 +327,35 @@ export function WpWorkspace() {
   const prelimContent = { parties: partiesContent, details: detailsContent, deponent: deponentContent, advocate: advocateContent }[prelim];
 
   // ── Applications content ────────────────────────────────────────────────────
+  const cmToggle = (name: any, id: string, label: string) => (
+    <FormField control={form.control} name={name} render={({ field }) => (
+      <div className="flex items-center gap-2">
+        <Checkbox id={id} checked={field.value} onCheckedChange={field.onChange} />
+        <label htmlFor={id} className="text-xs">{label}</label>
+      </div>
+    )} />
+  );
+  const cmBody = (name: any) => (
+    <div><p className="mb-1 text-xs text-muted-foreground">Application paragraphs (editable — add or insert paras as needed)</p><AamTable name={name} /></div>
+  );
   const stayContent = (
     <div className="space-y-3">
-      <FormField control={form.control} name="wp.cms.stay.active" render={({ field }) => (
-        <div className="flex items-center gap-2">
-          <Checkbox id="cm-stay" checked={field.value} onCheckedChange={field.onChange} />
-          <label htmlFor="cm-stay" className="text-xs">Include a CM for Stay of the impugned order</label>
-        </div>
-      )} />
+      {cmToggle("wp.cms.stay.active", "cm-stay", "Include a CM for Stay of the impugned order")}
+      {cmBody("wp.cms.stay.body")}
       <div><p className="mb-1 text-xs text-muted-foreground">Grounds for stay</p><AamTable name="wp.cms.stay.grounds" /></div>
     </div>
   );
   const lengthyContent = (
-    <FormField control={form.control} name="wp.cms.lengthySynopsis.active" render={({ field }) => (
-      <div className="flex items-center gap-2"><Checkbox id="cm-syn" checked={field.value} onCheckedChange={field.onChange} />
-        <label htmlFor="cm-syn" className="text-xs">Include a CM seeking permission to file a lengthy Synopsis &amp; List of Dates</label></div>
-    )} />
+    <div className="space-y-3">
+      {cmToggle("wp.cms.lengthySynopsis.active", "cm-syn", "Include a CM seeking permission to file a lengthy Synopsis & List of Dates")}
+      {cmBody("wp.cms.lengthySynopsis.body")}
+    </div>
   );
   const exemptionContent = (
-    <FormField control={form.control} name="wp.cms.exemptionCopies.active" render={({ field }) => (
-      <div className="flex items-center gap-2"><Checkbox id="cm-exempt" checked={field.value} onCheckedChange={field.onChange} />
-        <label htmlFor="cm-exempt" className="text-xs">Include a CM for exemption from filing certified / legible / true-typed copies</label></div>
-    )} />
+    <div className="space-y-3">
+      {cmToggle("wp.cms.exemptionCopies.active", "cm-exempt", "Include a CM for exemption from filing certified / legible / true-typed copies")}
+      {cmBody("wp.cms.exemptionCopies.body")}
+    </div>
   );
   const customContent = (
     <div className="space-y-2">

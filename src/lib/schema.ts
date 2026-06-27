@@ -373,12 +373,32 @@ export const draftoProjectSchema = z.object({
     // CM applications: three standard (each toggleable) + custom (A-series
     // annexures, reusing the SLP custom-IA shape).
     cms: z.object({
+      // Each standard CM's body paragraphs are editable (pre-seeded), so the user
+      // can edit them and insert paras in the middle (like the SLP IAs).
       stay: z.object({
         active: z.boolean().default(false), // IO writs: stay of the impugned order
+        body: z.array(aamTableItemSchema).default([
+          aamTableItemSchema.parse({ particulars: "The contents of the accompanying writ petition may kindly be treated as part and parcel of this Application and are not being repeated herein for the sake of brevity." }),
+          aamTableItemSchema.parse({ particulars: "The Petitioner has a strong prima facie case and the balance of convenience lies in favour of the Petitioner. Irreparable injury would be caused to the Petitioner if the operation of the Impugned Order is not stayed during the pendency of the writ petition." }),
+        ]),
         grounds: z.array(aamTableItemSchema).default([aamTableItemSchema.parse({})]),
       }).default({}),
-      lengthySynopsis: z.object({ active: z.boolean().default(false) }).default({}),
-      exemptionCopies: z.object({ active: z.boolean().default(false) }).default({}),
+      lengthySynopsis: z.object({
+        active: z.boolean().default(false),
+        body: z.array(aamTableItemSchema).default([
+          aamTableItemSchema.parse({ particulars: "The contents of the accompanying writ petition may kindly be treated as part and parcel of this Application." }),
+          aamTableItemSchema.parse({ particulars: "By way of the present Application, the Petitioner prays that he be permitted to file a lengthy Synopsis and List of Dates in view of the complex and intricate set of facts in this case. Only those facts essential to the present Petition have been detailed therein." }),
+          aamTableItemSchema.parse({ particulars: "No prejudice will be caused to the Respondents if the present Application is allowed. This Application is filed in good faith and in the interest of justice." }),
+        ]),
+      }).default({}),
+      exemptionCopies: z.object({
+        active: z.boolean().default(false),
+        body: z.array(aamTableItemSchema).default([
+          aamTableItemSchema.parse({ particulars: "The captioned writ petition is being filed on an urgent basis and in view of a lengthy and complex set of facts and circumstances." }),
+          aamTableItemSchema.parse({ particulars: "The Petitioner prays that this Hon’ble Court exempt the Petitioner from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition. The Petitioner undertakes to furnish clear/typed copies if directed by this Hon’ble Court." }),
+          aamTableItemSchema.parse({ particulars: "No prejudice will be caused to the Respondents if this Application is allowed. This Application has been made bona fide and in the interest of justice." }),
+        ]),
+      }).default({}),
     }).default({}),
     customCms: z.array(customIaSchema).default([]),
     // Upload-only filing documents, merged into the paper-book at PDF time.

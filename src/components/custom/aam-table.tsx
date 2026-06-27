@@ -41,6 +41,7 @@ import React, { useEffect, useState } from "react"
 type AamTableName = "grounds" | "questionsOfLaw" | "interimReliefGrounds" | "interimReliefPrayers" | "standardIas.additionalDocumentsGrounds" | "customIas.0.grounds" | "customIas.0.prayers" | "customIas.1.grounds" | "customIas.1.prayers" | "customIas.2.grounds" | "customIas.2.prayers" | "customIas.3.grounds" | "customIas.3.prayers" | "customIas.4.grounds" | "customIas.4.prayers"
   // Writ Petition (Delhi HC) paths
   | "wp.reliefs" | "wp.cms.stay.grounds"
+  | "wp.cms.stay.body" | "wp.cms.lengthySynopsis.body" | "wp.cms.exemptionCopies.body"
   | `wp.customCms.${number}.grounds` | `wp.customCms.${number}.prayers`
 
 interface AamTableProps {

@@ -501,10 +501,7 @@ function activeCms(project: DraftoProject): CmSpec[] {
   if (project.wp.isIoWrit && project.wp.cms.stay.active) {
     cms.push({
       title: "Application under Order XXXIX Rules 1 and 2 read with Section 151 of the Code of Civil Procedure, 1908 seeking stay of the operation of the Impugned Order",
-      body: [
-        "The contents of the accompanying writ petition may kindly be treated as part and parcel of this Application and are not being repeated herein for the sake of brevity.",
-        "The Petitioner has a strong prima facie case and the balance of convenience lies in favour of the Petitioner. Irreparable injury would be caused to the Petitioner if the operation of the Impugned Order is not stayed during the pendency of the writ petition.",
-      ],
+      body: (project.wp.cms.stay.body || []).map(b => b.particulars).filter(htmlHasText),
       grounds: project.wp.cms.stay.grounds?.filter(g => g.particulars?.trim()),
       prayers: [
         "Stay the operation of the Impugned Order during the pendency of the present writ petition; and",
@@ -515,11 +512,7 @@ function activeCms(project: DraftoProject): CmSpec[] {
   if (project.wp.cms.lengthySynopsis.active) {
     cms.push({
       title: "Application under Section 151 of the Code of Civil Procedure, 1908 seeking permission to file a lengthy Synopsis and List of Dates",
-      body: [
-        "The contents of the accompanying writ petition may kindly be treated as part and parcel of this Application.",
-        "By way of the present Application, the Petitioner prays that he be permitted to file a lengthy Synopsis and List of Dates in view of the complex and intricate set of facts in this case. Only those facts essential to the present Petition have been detailed therein.",
-        "No prejudice will be caused to the Respondents if the present Application is allowed. This Application is filed in good faith and in the interest of justice.",
-      ],
+      body: (project.wp.cms.lengthySynopsis.body || []).map(b => b.particulars).filter(htmlHasText),
       prayers: [
         "Exempt the Petitioner from complying with the applicable rules pertaining to filing a brief Synopsis and List of Dates and permit the filing of a lengthy Synopsis and List of Dates; and",
         "Pass any such other order(s) as this Hon’ble Court may deem fit in the facts and circumstances of this case.",
@@ -529,11 +522,7 @@ function activeCms(project: DraftoProject): CmSpec[] {
   if (project.wp.cms.exemptionCopies.active) {
     cms.push({
       title: "Application under Section 151 of the Code of Civil Procedure, 1908 for exemption from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition",
-      body: [
-        "The captioned writ petition is being filed on an urgent basis and in view of a lengthy and complex set of facts and circumstances.",
-        "The Petitioner prays that this Hon’ble Court exempt the Petitioner from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition. The Petitioner undertakes to furnish clear/typed copies if directed by this Hon’ble Court.",
-        "No prejudice will be caused to the Respondents if this Application is allowed. This Application has been made bona fide and in the interest of justice.",
-      ],
+      body: (project.wp.cms.exemptionCopies.body || []).map(b => b.particulars).filter(htmlHasText),
       prayers: [
         "Exempt the Petitioner from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition; and",
         "Pass any such other order(s) as this Hon’ble Court may deem fit in the facts and circumstances of this case.",
@@ -578,7 +567,7 @@ function renderCmChildren(project: DraftoProject, cm: CmSpec, petHeader: string,
     ...createWpPartiesHeader(petHeader, resHeader),
     new Paragraph({ spacing: { before: 240 }, alignment: AlignmentType.JUSTIFIED, indent: { left: 720, right: 720 }, children: [smartTextRun({ text: (cm.title || "").toUpperCase(), bold: true })] }),
     new Paragraph({ children: [smartTextRun("The Petitioner most respectfully submits that:")] }),
-    ...cm.body.map(t => listItem(mainRef, t, { before: 60 })),
+    ...htmlListItems(mainRef, cm.body, numbering),
   ];
   const groundStrings = (cm.grounds || []).map(g => g.particulars).filter(htmlHasText);
   if (groundStrings.length) {
