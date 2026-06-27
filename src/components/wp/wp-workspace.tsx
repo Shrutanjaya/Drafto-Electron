@@ -78,7 +78,7 @@ export function WpWorkspace() {
   }, []);
 
   const [editorSection, setEditorSection] = useState<EditorSection>("synopsis");
-  const [prelim, setPrelim] = useState<"parties" | "details" | "advocate">("parties");
+  const [prelim, setPrelim] = useState<"parties" | "details" | "deponent" | "advocate">("parties");
   const [cmSection, setCmSection] = useState<"stay" | "lengthySynopsis" | "exemptionCopies" | "custom">(isIoWrit ? "stay" : "lengthySynopsis");
 
   // Facts generation (edit-locked).
@@ -101,6 +101,7 @@ export function WpWorkspace() {
   const grounds = useWatch({ control: form.control, name: "grounds" });
   const petitioners = useWatch({ control: form.control, name: "petitioners" });
   const advName = useWatch({ control: form.control, name: "wp.advocate.name" });
+  const depName = useWatch({ control: form.control, name: "deponent.name" });
   const hasAam = (rows: any[]) => rows?.some((r: any) => r.particulars?.trim()) ?? false;
   const hasLoD = (rows: any[]) => rows?.some((r: any) => r.date?.trim() || r.event?.trim()) ?? false;
 
@@ -302,7 +303,28 @@ export function WpWorkspace() {
       </div>
     </div>
   );
-  const prelimContent = { parties: partiesContent, details: detailsContent, advocate: advocateContent }[prelim];
+  const deponentContent = (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <p className="col-span-full text-xs text-muted-foreground">Deponent for the affidavit &amp; verification. The name defaults to the first Petitioner if left blank.</p>
+      <Field label="Deponent name">{advInput("deponent.name")}</Field>
+      <Field label="Relationship">
+        <FormField control={form.control} name="deponent.relationship" render={({ field }) => (
+          <Select onValueChange={field.onChange} value={field.value}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="son of">son of</SelectItem>
+              <SelectItem value="daughter of">daughter of</SelectItem>
+              <SelectItem value="wife of">wife of</SelectItem>
+            </SelectContent>
+          </Select>
+        )} />
+      </Field>
+      <Field label="Father’s / Husband’s name">{advInput("deponent.fatherName")}</Field>
+      <Field label="Age (years)">{advInput("deponent.age")}</Field>
+      <Field label="Address"><FormField control={form.control} name="deponent.address" render={({ field }) => <Textarea {...field} rows={2} />} /></Field>
+    </div>
+  );
+  const prelimContent = { parties: partiesContent, details: detailsContent, deponent: deponentContent, advocate: advocateContent }[prelim];
 
   // ── Applications content ────────────────────────────────────────────────────
   const stayContent = (
@@ -381,6 +403,7 @@ export function WpWorkspace() {
           [
             { id: "parties", label: "Parties", active: !!petitioners?.[0]?.name?.trim() },
             { id: "details", label: "Petition Details", active: true },
+            { id: "deponent", label: "Deponent", active: !!depName?.trim() },
             { id: "advocate", label: "Advocate (“Filed by”)", active: !!advName?.trim() },
           ],
           prelim, setPrelim, prelimContent, "wp-prelim-nav",

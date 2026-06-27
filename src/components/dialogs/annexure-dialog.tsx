@@ -3,7 +3,8 @@
 
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
-import { annexureSchema, type DraftoProject } from "@/lib/schema";
+import { annexureSchema, collyDocumentSchema, type DraftoProject } from "@/lib/schema";
+import { pickFile } from "@/lib/utils/pick-file";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -17,7 +18,7 @@ import {
   FormMessage,
 } from "../ui/form";
 import { Input } from "../ui/input";
-import { PlusCircle, Trash2, Paperclip, Copy } from "lucide-react";
+import { PlusCircle, Trash2, Paperclip, Copy, Upload } from "lucide-react";
 import { Checkbox } from "../ui/checkbox";
 import { Card, CardContent } from "../ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
@@ -47,6 +48,49 @@ function useIsDark() {
     return () => observer.disconnect();
   }, []);
   return isDark;
+}
+
+// Colly constituents editor (Delhi HC writ petitions). Lets the user club several
+// files under one P-number; each constituent is bookmarked separately in the PDF.
+function CollyConstituents({ lodIndex, annexIndex }: { lodIndex: number; annexIndex: number }) {
+  const form = useFormContext<DraftoProject>();
+  const base = `listOfDates.${lodIndex}.annexures.${annexIndex}.collyDocuments`;
+  const { fields, append, remove } = useFieldArray({ control: form.control, name: base as any });
+  const pick = async (i: number) => {
+    const file = await pickFile();
+    if (file) {
+      form.setValue(`${base}.${i}.file` as any, file, { shouldDirty: true });
+      form.setValue(`${base}.${i}.filePath` as any, (file as any).path);
+    }
+  };
+  return (
+    <div className="mt-1 ml-6 space-y-1 border-l pl-2">
+      <p className="text-[10px] text-muted-foreground">Colly constituents — each is bookmarked separately in the PDF:</p>
+      {fields.map((f, i) => {
+        const cd: any = form.watch(`${base}.${i}` as any);
+        const has = cd?.file instanceof File || !!cd?.filePath;
+        return (
+          <div key={f.id} className="flex items-center gap-1">
+            <button type="button" onClick={() => pick(i)} title="Upload file" className={cn("rounded p-1 hover:bg-muted", has && "text-accent")}>
+              <Upload className="h-3.5 w-3.5" />
+            </button>
+            <FormField control={form.control} name={`${base}.${i}.title` as any} render={({ field }) => (
+              <FormItem className="flex-grow"><FormControl><Input {...field} placeholder="Description" className="h-7 text-xs" /></FormControl></FormItem>
+            )} />
+            <FormField control={form.control} name={`${base}.${i}.date` as any} render={({ field }) => (
+              <FormItem><FormControl><Input {...field} placeholder="Date" className="h-7 w-[110px] text-xs" /></FormControl></FormItem>
+            )} />
+            <Button type="button" variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => remove(i)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        );
+      })}
+      <Button type="button" size="sm" variant="outline" className="h-6 text-xs" onClick={() => append(collyDocumentSchema.parse({}))}>
+        <PlusCircle className="mr-1 h-3 w-3" />Add document
+      </Button>
+    </div>
+  );
 }
 
 export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: AnnexureDialogProps) {
@@ -370,6 +414,9 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                             </AlertDialogContent>
                           </AlertDialog>
                         </div>
+                        {isWp && currentAnnexure.isColly && (
+                          <CollyConstituents lodIndex={lodIndex} annexIndex={index} />
+                        )}
                       </CardContent>
                   </Card>
                   )
