@@ -1,5 +1,5 @@
 ﻿
-import { AlignmentType, Indent, Paragraph, TextRun, UnderlineType, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, LineRuleType } from "docx";
+import { AlignmentType, Indent, Paragraph, TextRun, UnderlineType, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, LineRuleType, TableLayoutType } from "docx";
 import { convertToSmartQuotes } from "./docx-helpers";
 
 // Smart (curly) quotation marks used to wrap a quoted block on export.
@@ -60,6 +60,13 @@ function decodeHtmlEntities(text: string): string {
         .replace(/&apos;/g, "'");
 }
 
+// HTML void elements: they never have a closing tag, so the parser must not push
+// them onto the open-tag stack (doing so misaligns every subsequent close tag).
+const VOID_ELEMENTS = new Set([
+    'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+    'link', 'meta', 'param', 'source', 'track', 'wbr',
+]);
+
 // Basic HTML parser to create a tree structure
 function htmlToTree(html: string): (SimpleNode | string)[] {
     const stack: SimpleNode[] = [];
@@ -92,7 +99,12 @@ function htmlToTree(html: string): (SimpleNode | string)[] {
         } else {
             const newNode: SimpleNode = { tagName: tagName.toLowerCase(), attributes, children: [] };
             stack[stack.length - 1].children.push(newNode);
-            if (!['br'].includes(newNode.tagName)) {
+            // Void (self-closing) elements have no closing tag, so they must not be
+            // pushed onto the stack. TipTap tables emit <colgroup><col>…</colgroup>;
+            // an unclosed <col> previously corrupted the stack so the matching
+            // </table> popped a <col> instead of the table, burying — and dropping —
+            // every block that followed the table (e.g. text after a table in a box).
+            if (!VOID_ELEMENTS.has(newNode.tagName)) {
                 stack.push(newNode);
             }
         }
@@ -162,29 +174,109 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                     return rows;
                 };
 
+                // Manual column widths the user set by dragging in the editor, read
+                // from the TipTap-emitted <colgroup><col style="width:Npx">. Returns
+                // one entry per column (0 = unspecified).
+                const parseColWidths = (ns: (SimpleNode | string)[]): number[] => {
+                    const cols: number[] = [];
+                    const visit = (arr: (SimpleNode | string)[]) => {
+                        arr.forEach(n => {
+                            if (typeof n === 'string') return;
+                            if (n.tagName === 'col') {
+                                const style = n.attributes.style || '';
+                                const m = style.match(/(?:min-)?width:\s*([\d.]+)px/);
+                                const attr = parseFloat(n.attributes.width || '');
+                                cols.push(m ? parseFloat(m[1]) : (isFinite(attr) ? attr : 0));
+                            } else if (n.tagName === 'colgroup') {
+                                visit(n.children);
+                            }
+                        });
+                    };
+                    visit(ns);
+                    return cols;
+                };
+
+                const longestWord = (t: string): number =>
+                    t.split(/\s+/).reduce((mx, w) => Math.max(mx, w.length), 0);
+
                 const trNodes = collectTr(node.children);
-                const tableRows = trNodes.map(trNode => {
-                    const cells = trNode.children
+
+                // Per-row cell metadata: the node, its colspan, text length and longest
+                // single word (the last two drive content-proportional column sizing).
+                const rowsData = trNodes.map(trNode =>
+                    trNode.children
                         .filter((c): c is SimpleNode => typeof c !== 'string' && (c.tagName === 'td' || c.tagName === 'th'))
                         .map(cellNode => {
-                            const cellResult = treeToDocx(cellNode.children, olCounterRef, 0, false, undefined, spacing, undefined, exportHighlight);
-                            result.numbering.push(...cellResult.numbering);
-                            // Ensure at least one paragraph in the cell
-                            const cellChildren = cellResult.paragraphs.length > 0
-                                ? cellResult.paragraphs
-                                : [new Paragraph('')];
-                            return new TableCell({
-                                children: cellChildren as any,
-                                borders: allBorders,
-                            });
+                            const span = Math.max(1, parseInt(cellNode.attributes.colspan || '1', 10) || 1);
+                            const text = extractPlainText(cellNode.children).trim();
+                            return { cellNode, span, textLen: text.length, word: longestWord(text) };
+                        })
+                );
+
+                // Column count = widest row (summing colspans).
+                const columnCount = rowsData.reduce(
+                    (mx, cells) => Math.max(mx, cells.reduce((s, c) => s + c.span, 0)), 0,
+                );
+
+                // Per-column weight: honour manual <col> widths if they cover every
+                // column; otherwise size each column by its heaviest content — the
+                // greater of (cell text length, longest single word) across rows — so
+                // the busiest column gets the most room and words never break mid-word.
+                const manualCols = parseColWidths(node.children);
+                const weights = new Array(columnCount).fill(0);
+                if (manualCols.length === columnCount && manualCols.every(w => w > 0)) {
+                    for (let i = 0; i < columnCount; i++) weights[i] = manualCols[i];
+                } else {
+                    rowsData.forEach(cells => {
+                        let col = 0;
+                        cells.forEach(c => {
+                            const share = Math.max(c.textLen, c.word) / c.span;
+                            for (let k = 0; k < c.span && col + k < columnCount; k++) {
+                                weights[col + k] = Math.max(weights[col + k], share);
+                            }
+                            col += c.span;
                         });
-                    return new TableRow({ children: cells });
+                    });
+                }
+
+                // Normalise to dxa widths summing to a conservative usable width that
+                // fits inside the page margins on both A4 and Letter. A fixed layout
+                // makes Word honour these exact proportions instead of auto-fitting.
+                const TABLE_TOTAL_TWIPS = 8200;
+                const sumW = weights.reduce((s, w) => s + w, 0);
+                const colWidths: number[] = (columnCount === 0 || sumW === 0)
+                    ? new Array(Math.max(1, columnCount)).fill(
+                        columnCount > 0 ? Math.floor(TABLE_TOTAL_TWIPS / columnCount) : TABLE_TOTAL_TWIPS)
+                    : weights.map(w => Math.max(360, Math.round((w / sumW) * TABLE_TOTAL_TWIPS)));
+
+                const tableRows = rowsData.map(cells => {
+                    let col = 0;
+                    const docxCells = cells.map(c => {
+                        const cellResult = treeToDocx(c.cellNode.children, olCounterRef, 0, false, undefined, spacing, undefined, exportHighlight);
+                        result.numbering.push(...cellResult.numbering);
+                        // Ensure at least one paragraph in the cell
+                        const cellChildren = cellResult.paragraphs.length > 0
+                            ? cellResult.paragraphs
+                            : [new Paragraph('')];
+                        let widthDxa = 0;
+                        for (let k = 0; k < c.span && col + k < colWidths.length; k++) widthDxa += colWidths[col + k];
+                        col += c.span;
+                        return new TableCell({
+                            children: cellChildren as any,
+                            borders: allBorders,
+                            width: { size: widthDxa || Math.round(TABLE_TOTAL_TWIPS / Math.max(1, columnCount)), type: WidthType.DXA },
+                            ...(c.span > 1 ? { columnSpan: c.span } : {}),
+                        });
+                    });
+                    return new TableRow({ children: docxCells });
                 });
 
                 if (tableRows.length > 0) {
                     result.paragraphs.push(new Table({
                         rows: tableRows,
-                        width: { size: 100, type: WidthType.PERCENTAGE },
+                        width: { size: TABLE_TOTAL_TWIPS, type: WidthType.DXA },
+                        layout: TableLayoutType.FIXED,
+                        columnWidths: colWidths,
                     }));
                 }
                 break;

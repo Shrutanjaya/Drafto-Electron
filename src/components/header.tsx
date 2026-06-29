@@ -48,6 +48,24 @@ const firstWords = (str: string, n: number) =>
   str.trim().split(/\s+/).slice(0, n).join(' ');
 
 /**
+ * On load, the advocate's signing dates (Filed by / Drawn on / Settled on) default
+ * to "today" for a fresh draft. A saved project carries the date it was last filed,
+ * which is almost always stale by the time it is reopened — so any of these dates
+ * that falls before today is bumped forward to today. Mutates `data` in place.
+ */
+const bumpStaleAdvocateDates = (data: any) => {
+  const adv = data?.advocate;
+  if (!adv) return;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const next = { ...adv };
+  (['filingDate', 'drawnByDate', 'settledByDate'] as const).forEach((key) => {
+    const d = next[key] ? new Date(next[key]) : null;
+    if (d && d < today) next[key] = today;
+  });
+  data.advocate = next;
+};
+
+/**
  * Generates a clean file/folder name in the form "Petitioner v. Respondent".
  * Uses up to the first 3 words of each party's name.
  * Falls back gracefully when either side is absent.
@@ -326,9 +344,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           }
           
           const validatedData = draftoProjectSchema.parse(data);
-          const today = new Date(); today.setHours(0, 0, 0, 0);
-          const fd = validatedData.advocate?.filingDate ? new Date(validatedData.advocate.filingDate) : null;
-          if (fd && fd < today) { (validatedData as any).advocate = { ...validatedData.advocate, filingDate: today }; }
+          bumpStaleAdvocateDates(validatedData);
           form.reset(validatedData);
           setCurrentFilePath(null);
           toast({ title: "Project Loaded", description: "Your project has been loaded successfully." });
@@ -354,9 +370,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       }
       
       const validatedData = draftoProjectSchema.parse(data);
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const fd = validatedData.advocate?.filingDate ? new Date(validatedData.advocate.filingDate) : null;
-      if (fd && fd < today) { (validatedData as any).advocate = { ...validatedData.advocate, filingDate: today }; }
+      bumpStaleAdvocateDates(validatedData);
       form.reset(validatedData);
       // Release lock on any previously open file
       if (currentFilePath && window.electron?.deleteLockFile) {
@@ -398,9 +412,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       const data = JSON.parse(content);
       if (window.electron.readFileByPath) await restoreFilesFromPaths(data);
       const validatedData = draftoProjectSchema.parse(data);
-      const today = new Date(); today.setHours(0, 0, 0, 0);
-      const fd = validatedData.advocate?.filingDate ? new Date(validatedData.advocate.filingDate) : null;
-      if (fd && fd < today) { (validatedData as any).advocate = { ...validatedData.advocate, filingDate: today }; }
+      bumpStaleAdvocateDates(validatedData);
       form.reset(validatedData);
       setCurrentFilePath(filePath);
       toast({ title: "Project Loaded", description: filePath.split(/[\\/]/).pop() });

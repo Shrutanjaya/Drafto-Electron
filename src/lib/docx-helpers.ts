@@ -366,7 +366,7 @@ const getFiledBySignature = (): { data: Uint8Array; widthPx: number; heightPx: n
 export const createFiledByTable = (
     filingDate: Date,
     aorName: string,
-    opts?: { fontSizePt?: number; lineSpacing?: number; paraSpacingPt?: number }
+    opts?: { fontSizePt?: number; lineSpacing?: number; paraSpacingPt?: number; includeSignature?: boolean }
 ) => {
     const formattedDate = filingDate ? format(new Date(filingDate), "dd.MM.yyyy") : "";
     const noBorders = {
@@ -391,7 +391,9 @@ export const createFiledByTable = (
     // behind the document text, so it overlays the page without displacing any
     // content (the line never gets pushed down). It is right-aligned to the cell
     // column and lifted above the baseline by its own height so it sits over the name.
-    const signature = getFiledBySignature();
+    // Only embedded when the caller opts in (the PDF path) — plain .docx exports must
+    // never carry the AoR signature, so drafts can be shared without it.
+    const signature = opts?.includeSignature ? getFiledBySignature() : null;
     const EMU_PER_PX = 9525;   // 914400 EMU/in ÷ 96 px/in
     const EMU_PER_PT = 12700;  // 914400 EMU/in ÷ 72 pt/in
     const SIGNATURE_OVERLAP_PT = 6; // signature dips this many pt into the "Filed by" line

@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/tooltip"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { pickFile } from "@/lib/utils/pick-file";
+import { FIND_REVEAL_EVENT, getPendingReveal } from "@/lib/find-reveal";
 
 interface AnnexureDialogProps {
   lodIndex: number;
@@ -56,7 +57,23 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
     name: `listOfDates.${lodIndex}.annexures`,
   });
   const isDark = useIsDark();
-  
+
+  // Controlled open state so Find & Replace can pop this dialog open to reveal a
+  // matching annexure field. Each List-of-Dates row has its own AnnexureDialog;
+  // on a Find reveal, the one whose row matches opens and the rest close. Checked
+  // both on the FIND_REVEAL_EVENT and on mount (the dialog may mount *after* the
+  // event fires, when the reveal first switches to the Petition tab/section).
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const applyPending = () => {
+      const p = getPendingReveal();
+      setOpen(p?.annexureLodIndex === lodIndex);
+    };
+    window.addEventListener(FIND_REVEAL_EVENT, applyPending);
+    applyPending();
+    return () => window.removeEventListener(FIND_REVEAL_EVENT, applyPending);
+  }, [lodIndex]);
+
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const typedFileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [cloneSelectValue, setCloneSelectValue] = useState("");
@@ -108,7 +125,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
   };
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent className="max-w-[90vw] w-full md:max-w-7xl p-0 shadow-none border-0 bg-transparent" side="bottom" align="end">
         <div className={cn(isDark ? 'force-light' : 'dark', 'p-2 rounded-md border-2 border-border/80 bg-background text-foreground shadow-2xl')}>

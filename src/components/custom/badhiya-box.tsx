@@ -245,6 +245,12 @@ export const BadhiyaBox = ({ value, onChange, disabled, onTab, onCtrlSpace, path
           }
         },
       }),
+      // Resizing stays OFF. Turning it on puts the table into ProseMirror's
+      // fixed-width mode where every column needs a stored colwidth; tables without
+      // one collapse each unsized column to cellMinWidth (one word per line) — and
+      // those broken widths get serialized into the HTML and faithfully reproduced
+      // in the docx. With resizing off, columns auto-distribute (table-layout:fixed
+      // + width:100%) and the docx exporter sizes columns from content instead.
       Table.configure({ resizable: false }),
       TableRow,
       TableHeader,

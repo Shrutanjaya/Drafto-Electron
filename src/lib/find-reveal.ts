@@ -14,6 +14,11 @@ export interface RevealTarget {
   isHtml: boolean;
   query: string;
   caseSensitive: boolean;
+  // For matches that live inside the per-row Annexure popover (which is not
+  // mounted until opened): the List-of-Dates row index whose Annexure dialog must
+  // be opened so the field can be revealed. Undefined for all other matches, which
+  // also signals open annexure dialogs to close when navigating away.
+  annexureLodIndex?: number;
 }
 
 export const FIND_REVEAL_EVENT = 'drafto-find-reveal';
@@ -21,6 +26,14 @@ export const FIND_REVEAL_EVENT = 'drafto-find-reveal';
 let pending: RevealTarget | null = null;
 export const setPendingReveal = (t: RevealTarget | null) => { pending = t; };
 export const getPendingReveal = (): RevealTarget | null => pending;
+
+// Annexure title/customText fields are edited only inside the Annexure popover,
+// one per List-of-Dates row. Extract that row index from a field path like
+// "listOfDates.3.annexures.0.title" so the right popover can be opened on reveal.
+export function getAnnexureLodIndex(path: string): number | undefined {
+  const m = path.match(/^listOfDates\.(\d+)\.annexures\./);
+  return m ? Number(m[1]) : undefined;
+}
 
 // Locate a plain text input/textarea by its react-hook-form name (= the path),
 // scroll it into view and select the requested occurrence. Returns true if the
