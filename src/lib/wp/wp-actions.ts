@@ -489,57 +489,54 @@ export async function generateWpVakalatnama(project: DraftoProject) {
 
 // ── CM Applications ─────────────────────────────────────────────────────────
 
+// Frozen opening/closing paragraphs shared by every CM (like the SLP IAs). The
+// opening para references the writ petition's opening prayer verbatim.
+const CM_PARA1 = "The accompanying writ petition has been filed praying that this Hon’ble Court be pleased to grant the reliefs set out therein. The contents of the writ petition are not being repeated here for the sake of brevity and may kindly be treated as part and parcel of this application.";
+const CM_GOODFAITH = "This application is filed in good faith and in the interest of justice. No prejudice would be caused to the Respondent(s) if this application were allowed.";
+
 interface CmSpec {
   title: string;
-  body: string[];
-  prayers: string[];
-  grounds?: { particulars: string }[];
+  para2: string;        // "This application is being filed praying that…" (frozen std / editable custom)
+  middle: string[];     // editable middle paras the user may insert
+  prayers: string[];    // editable prayers; last = residuary placeholder
 }
 
 function activeCms(project: DraftoProject): CmSpec[] {
   const cms: CmSpec[] = [];
-  if (project.wp.isIoWrit && project.wp.cms.stay.active) {
+  const c = project.wp.cms;
+  const mid = (arr: { particulars: string }[] | undefined) => (arr || []).map(b => b.particulars).filter(htmlHasText);
+
+  if (project.wp.isIoWrit && c.stay.active) {
     cms.push({
       title: "Application under Order XXXIX Rules 1 and 2 read with Section 151 of the Code of Civil Procedure, 1908 seeking stay of the operation of the Impugned Order",
-      body: (project.wp.cms.stay.body || []).map(b => b.particulars).filter(htmlHasText),
-      grounds: project.wp.cms.stay.grounds?.filter(g => g.particulars?.trim()),
-      prayers: [
-        "Stay the operation of the Impugned Order during the pendency of the present writ petition; and",
-        "Pass any such other order(s) as this Hon’ble Court may deem fit in the facts and circumstances of this case.",
-      ],
+      para2: "This application is being filed praying that this Hon’ble Court be pleased to stay the operation of the Impugned Order during the pendency of the writ petition.",
+      middle: mid(c.stay.body),
+      prayers: mid(c.stay.prayers),
     });
   }
-  if (project.wp.cms.lengthySynopsis.active) {
+  if (c.lengthySynopsis.active) {
     cms.push({
       title: "Application under Section 151 of the Code of Civil Procedure, 1908 seeking permission to file a lengthy Synopsis and List of Dates",
-      body: (project.wp.cms.lengthySynopsis.body || []).map(b => b.particulars).filter(htmlHasText),
-      prayers: [
-        "Exempt the Petitioner from complying with the applicable rules pertaining to filing a brief Synopsis and List of Dates and permit the filing of a lengthy Synopsis and List of Dates; and",
-        "Pass any such other order(s) as this Hon’ble Court may deem fit in the facts and circumstances of this case.",
-      ],
+      para2: "This application is being filed praying that this Hon’ble Court be pleased to permit the Petitioner to file a lengthy Synopsis and List of Dates.",
+      middle: mid(c.lengthySynopsis.body),
+      prayers: mid(c.lengthySynopsis.prayers),
     });
   }
-  if (project.wp.cms.exemptionCopies.active) {
+  if (c.exemptionCopies.active) {
     cms.push({
       title: "Application under Section 151 of the Code of Civil Procedure, 1908 for exemption from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition",
-      body: (project.wp.cms.exemptionCopies.body || []).map(b => b.particulars).filter(htmlHasText),
-      prayers: [
-        "Exempt the Petitioner from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition; and",
-        "Pass any such other order(s) as this Hon’ble Court may deem fit in the facts and circumstances of this case.",
-      ],
+      para2: "This application is being filed praying that this Hon’ble Court be pleased to exempt the Petitioner from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition.",
+      middle: mid(c.exemptionCopies.body),
+      prayers: mid(c.exemptionCopies.prayers),
     });
   }
-  // User-defined custom CMs (reusing the SLP custom-IA shape). Grounds and
-  // prayers are rich text (HTML); the body is the standard part-and-parcel line
-  // plus the optional para-2 free text.
+  // Custom CMs (SLP custom-IA shape): para2 + grounds (middle) + prayers are all
+  // user-editable.
   (project.wp.customCms || []).forEach(cm => {
     cms.push({
       title: cm.title || "Application",
-      body: [
-        "The contents of the accompanying writ petition may kindly be treated as part and parcel of this Application.",
-        ...(cm.para2?.trim() ? [cm.para2] : []),
-      ],
-      grounds: (cm.grounds || []).map(g => ({ particulars: g.particulars })).filter(g => htmlHasText(g.particulars)),
+      para2: cm.para2 || "",
+      middle: (cm.grounds || []).map(g => g.particulars).filter(htmlHasText),
       prayers: (cm.prayers || []).map(p => p.particulars).filter(htmlHasText),
     });
   });
@@ -557,30 +554,33 @@ export function wpCmTitle(cm: { title: string }): string {
   return `CM Appl. No. ____ of ${new Date().getFullYear()}: ${cm.title}`;
 }
 
-// Render one CM (header → body → grounds → prayer → filed-by → affidavit) into
-// the given numberer. Shared by the combined and single-CM generators.
+// Render one CM in the SLP-IA pattern: frozen opening para → "This application…"
+// → editable middle paras → frozen good-faith closing → PRAYERS lead-in →
+// editable lettered prayers → filed-by → affidavit. Shared by both generators.
 function renderCmChildren(project: DraftoProject, cm: CmSpec, petHeader: string, resHeader: string, nb: ReturnType<typeof numberer>, numbering: any[]): (Paragraph | Table)[] {
   const num = getWpNumbering();
   const mainRef = nb.decimal();
-  const children: (Paragraph | Table)[] = [
+  return [
     ...createWpHeader(project.caseType, { cm: true }),
     ...createWpPartiesHeader(petHeader, resHeader),
     new Paragraph({ spacing: { before: 240 }, alignment: AlignmentType.JUSTIFIED, indent: { left: 720, right: 720 }, children: [smartTextRun({ text: (cm.title || "").toUpperCase(), bold: true })] }),
     new Paragraph({ children: [smartTextRun("The Petitioner most respectfully submits that:")] }),
-    ...htmlListItems(mainRef, cm.body, numbering),
+    // 1. frozen opening (writ-petition reference)
+    listItem(mainRef, CM_PARA1, { before: 60 }),
+    // 2. "This application is being filed praying that…"
+    ...htmlListItems(mainRef, [cm.para2].filter(htmlHasText), numbering),
+    // 3..n editable middle paras
+    ...htmlListItems(mainRef, cm.middle, numbering),
+    // frozen good-faith / no-prejudice closing
+    listItem(mainRef, CM_GOODFAITH, { before: 60 }),
+    // PRAYERS lead-in + editable lettered prayers (last = residuary)
+    listItemRuns(mainRef, [smartTextRun({ text: "PRAYERS:", bold: true }), " In view of the foregoing averments, it is most respectfully prayed that this Hon’ble Court may be pleased to:"]),
+    ...htmlListItems(nb.styled(num.prayers), cm.prayers, numbering),
+    ...createWpFiledBy(project),
+    // CM affidavit
+    new Paragraph({ children: [new PageBreak()] }),
+    ...buildAffidavitChildren(project, "cm", petHeader, resHeader, numbering),
   ];
-  const groundStrings = (cm.grounds || []).map(g => g.particulars).filter(htmlHasText);
-  if (groundStrings.length) {
-    children.push(listItem(mainRef, "GROUNDS", { bold: true, before: 120 }));
-    children.push(...htmlListItems(nb.styled(num.grounds), groundStrings, numbering));
-  }
-  children.push(listItemRuns(mainRef, [smartTextRun({ text: "PRAYER:", bold: true }), " In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon’ble Court may be pleased to:"]));
-  children.push(...htmlListItems(nb.styled(num.prayers), cm.prayers, numbering));
-  children.push(...createWpFiledBy(project));
-  // CM affidavit
-  children.push(new Paragraph({ children: [new PageBreak()] }));
-  children.push(...buildAffidavitChildren(project, "cm", petHeader, resHeader, numbering));
-  return children;
 }
 
 export async function generateWpCms(project: DraftoProject) {

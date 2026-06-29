@@ -336,25 +336,30 @@ export function WpWorkspace() {
     )} />
   );
   const cmBody = (name: any) => (
-    <div><p className="mb-1 text-xs text-muted-foreground">Application paragraphs (editable — add or insert paras as needed)</p><AamTable name={name} /></div>
+    <div><p className="mb-1 text-xs text-muted-foreground">Application paragraphs — editable; insert paras as needed. The opening (writ-petition reference), the good-faith closing and the prayer lead-in are added automatically.</p><AamTable name={name} /></div>
+  );
+  const cmPrayers = (name: any) => (
+    <div><p className="mb-1 text-xs text-muted-foreground">Prayers — editable. The last is a residuary placeholder you can leave as-is.</p><AamTable name={name} /></div>
   );
   const stayContent = (
     <div className="space-y-3">
       {cmToggle("wp.cms.stay.active", "cm-stay", "Include a CM for Stay of the impugned order")}
       {cmBody("wp.cms.stay.body")}
-      <div><p className="mb-1 text-xs text-muted-foreground">Grounds for stay</p><AamTable name="wp.cms.stay.grounds" /></div>
+      {cmPrayers("wp.cms.stay.prayers")}
     </div>
   );
   const lengthyContent = (
     <div className="space-y-3">
       {cmToggle("wp.cms.lengthySynopsis.active", "cm-syn", "Include a CM seeking permission to file a lengthy Synopsis & List of Dates")}
       {cmBody("wp.cms.lengthySynopsis.body")}
+      {cmPrayers("wp.cms.lengthySynopsis.prayers")}
     </div>
   );
   const exemptionContent = (
     <div className="space-y-3">
       {cmToggle("wp.cms.exemptionCopies.active", "cm-exempt", "Include a CM for exemption from filing certified / legible / true-typed copies")}
       {cmBody("wp.cms.exemptionCopies.body")}
+      {cmPrayers("wp.cms.exemptionCopies.prayers")}
     </div>
   );
   const customContent = (
@@ -368,7 +373,7 @@ export function WpWorkspace() {
       {customCms.fields.length === 0
         ? <p className="text-xs text-muted-foreground">No custom applications. Add one for any CM beyond the three standard ones (each gets its own A-series annexures).</p>
         : <div className="space-y-2">{customCms.fields.map((f, i) => (
-            <CustomIaCard key={f.id} index={i} basePath={`wp.customCms.${i}`} onRemove={() => customCms.remove(i)} />
+            <CustomIaCard key={f.id} index={i} basePath={`wp.customCms.${i}`} para2Label="This application is being filed praying that…" onRemove={() => customCms.remove(i)} />
           ))}</div>}
     </div>
   );

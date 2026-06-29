@@ -373,30 +373,38 @@ export const draftoProjectSchema = z.object({
     // CM applications: three standard (each toggleable) + custom (A-series
     // annexures, reusing the SLP custom-IA shape).
     cms: z.object({
-      // Each standard CM's body paragraphs are editable (pre-seeded), so the user
-      // can edit them and insert paras in the middle (like the SLP IAs).
+      // Each standard CM follows the SLP-IA pattern: frozen opening + closing +
+      // prayer lead-in are generated; only the middle `body` paras and `prayers`
+      // are editable (pre-seeded). The user can edit them and insert paras in the
+      // middle. The last prayer is the residuary placeholder.
       stay: z.object({
         active: z.boolean().default(false), // IO writs: stay of the impugned order
         body: z.array(aamTableItemSchema).default([
-          aamTableItemSchema.parse({ particulars: "The contents of the accompanying writ petition may kindly be treated as part and parcel of this Application and are not being repeated herein for the sake of brevity." }),
           aamTableItemSchema.parse({ particulars: "The Petitioner has a strong prima facie case and the balance of convenience lies in favour of the Petitioner. Irreparable injury would be caused to the Petitioner if the operation of the Impugned Order is not stayed during the pendency of the writ petition." }),
         ]),
-        grounds: z.array(aamTableItemSchema).default([aamTableItemSchema.parse({})]),
+        prayers: z.array(aamTableItemSchema).default([
+          aamTableItemSchema.parse({ particulars: "Stay the operation of the Impugned Order during the pendency of the present writ petition; and" }),
+          aamTableItemSchema.parse({ particulars: "Pass any such other order(s) as this Hon’ble Court may deem fit in the facts and circumstances of this case." }),
+        ]),
       }).default({}),
       lengthySynopsis: z.object({
         active: z.boolean().default(false),
         body: z.array(aamTableItemSchema).default([
-          aamTableItemSchema.parse({ particulars: "The contents of the accompanying writ petition may kindly be treated as part and parcel of this Application." }),
-          aamTableItemSchema.parse({ particulars: "By way of the present Application, the Petitioner prays that he be permitted to file a lengthy Synopsis and List of Dates in view of the complex and intricate set of facts in this case. Only those facts essential to the present Petition have been detailed therein." }),
-          aamTableItemSchema.parse({ particulars: "No prejudice will be caused to the Respondents if the present Application is allowed. This Application is filed in good faith and in the interest of justice." }),
+          aamTableItemSchema.parse({ particulars: "Only those facts essential to the present Petition have been detailed in the Synopsis and List of Dates, which are nonetheless lengthy in view of the complex and intricate set of facts and circumstances of the present case." }),
+        ]),
+        prayers: z.array(aamTableItemSchema).default([
+          aamTableItemSchema.parse({ particulars: "Permit the Petitioner to file a lengthy Synopsis and List of Dates and exempt the Petitioner from complying with the applicable rules pertaining to filing a brief Synopsis and List of Dates; and" }),
+          aamTableItemSchema.parse({ particulars: "Pass any such other order(s) as this Hon’ble Court may deem fit in the facts and circumstances of this case." }),
         ]),
       }).default({}),
       exemptionCopies: z.object({
         active: z.boolean().default(false),
         body: z.array(aamTableItemSchema).default([
-          aamTableItemSchema.parse({ particulars: "The captioned writ petition is being filed on an urgent basis and in view of a lengthy and complex set of facts and circumstances." }),
-          aamTableItemSchema.parse({ particulars: "The Petitioner prays that this Hon’ble Court exempt the Petitioner from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition. The Petitioner undertakes to furnish clear/typed copies if directed by this Hon’ble Court." }),
-          aamTableItemSchema.parse({ particulars: "No prejudice will be caused to the Respondents if this Application is allowed. This Application has been made bona fide and in the interest of justice." }),
+          aamTableItemSchema.parse({ particulars: "The annexures to the writ petition are being filed on an urgent basis; some may not be legible or clear, or available as certified or true typed copies with the prescribed margins and spacing. The Petitioner undertakes to furnish clear/typed copies of the same if so directed by this Hon’ble Court." }),
+        ]),
+        prayers: z.array(aamTableItemSchema).default([
+          aamTableItemSchema.parse({ particulars: "Exempt the Petitioner from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition; and" }),
+          aamTableItemSchema.parse({ particulars: "Pass any such other order(s) as this Hon’ble Court may deem fit in the facts and circumstances of this case." }),
         ]),
       }).default({}),
     }).default({}),

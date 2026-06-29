@@ -21,9 +21,12 @@ interface CustomIaCardProps {
   // Field-array base path. Defaults to the SLP custom IAs; WP custom CMs pass
   // `wp.customCms.${index}`.
   basePath?: string;
+  // When set, shows an editable para-2 field with this label (WP custom CMs use
+  // it for the "This application is being filed praying that…" paragraph).
+  para2Label?: string;
 }
 
-export function CustomIaCard({ index, onRemove, basePath }: CustomIaCardProps) {
+export function CustomIaCard({ index, onRemove, basePath, para2Label }: CustomIaCardProps) {
   const form = useFormContext<DraftoProject>();
   const [isOpen, setIsOpen] = useState(true);
   const base = basePath ?? `customIas.${index}`;
@@ -72,8 +75,20 @@ export function CustomIaCard({ index, onRemove, basePath }: CustomIaCardProps) {
         </CardHeader>
         <CollapsibleContent>
           <CardContent className="p-1 pt-0 space-y-1">
+            {para2Label && (
+              <div>
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">{para2Label}</h4>
+                <FormField
+                  control={form.control}
+                  name={`${base}.para2` as any}
+                  render={({ field }) => (
+                    <FormItem><FormControl><Input {...field} className="text-xs" /></FormControl></FormItem>
+                  )}
+                />
+              </div>
+            )}
             <div>
-              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Grounds</h4>
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Grounds (middle paragraphs)</h4>
               <IaGroundTable name={`${base}.grounds` as any} />
             </div>
             <div>
