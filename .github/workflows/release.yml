@@ -132,11 +132,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run build && npx electron-builder --win --publish always
 
-  # electron-builder uploads assets to a *draft* release. Once BOTH platform
-  # builds have succeeded (so the release has every installer), un-draft it so it
-  # publishes automatically with no manual step.
+  # electron-builder uploads the .dmg/.exe assets to a *draft* GitHub release.
+  # Auto-publishing is intentionally DISABLED (if: false): every release now stays
+  # a draft until it is published by hand (gh release edit "<tag>" --draft=false
+  # --latest, or the "Publish release" button in the GitHub Releases UI). This adds
+  # a human gate to review the build before it goes live. Re-enable auto-publish by
+  # removing the `if: ${{ false }}` line below.
   publish:
     needs: [build-mac, build-windows]
+    if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
       - name: Publish (un-draft) the release
