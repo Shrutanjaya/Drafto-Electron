@@ -67,6 +67,18 @@ const VOID_ELEMENTS = new Set([
     'link', 'meta', 'param', 'source', 'track', 'wbr',
 ]);
 
+// Cell margins (a.k.a. cell padding) for exported table cells, matching MS Word's
+// default for a table inserted directly in Word: 0.08" (115 twips) left/right and
+// none top/bottom. Without this the docx library leaves cells with no inset, so
+// text sits flush against the borders — tighter than a Word-made table.
+const WORD_DEFAULT_CELL_MARGINS = { top: 0, bottom: 0, left: 115, right: 115 };
+
+// Approximate pixel width of the BadhiyaBox editor content area. Used only to
+// reconstruct how much room a *fluid* (undragged) table column occupies relative
+// to columns the user dragged to an explicit px width — the editor lays the table
+// out at this width, so a fluid column shows (width − sized columns) of space.
+const EDITOR_CONTENT_PX = 620;
+
 // Basic HTML parser to create a tree structure
 function htmlToTree(html: string): (SimpleNode | string)[] {
     const stack: SimpleNode[] = [];
@@ -174,19 +186,23 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                     return rows;
                 };
 
-                // Manual column widths the user set by dragging in the editor, read
-                // from the TipTap-emitted <colgroup><col style="width:Npx">. Returns
-                // one entry per column (0 = unspecified).
-                const parseColWidths = (ns: (SimpleNode | string)[]): number[] => {
-                    const cols: number[] = [];
+                // Per-column widths from the TipTap-emitted <colgroup>. A column the
+                // user actually dragged is serialized as `<col style="width:Npx">`; an
+                // untouched (fluid) column is `<col style="min-width:25px">` (the
+                // cellMinWidth placeholder, NOT a real width). We must read ONLY the
+                // real `width:` — matching `min-width` too made fluid columns collapse
+                // to 25px in the export. Returns the px width, or null when fluid.
+                const parseColWidths = (ns: (SimpleNode | string)[]): (number | null)[] => {
+                    const cols: (number | null)[] = [];
                     const visit = (arr: (SimpleNode | string)[]) => {
                         arr.forEach(n => {
                             if (typeof n === 'string') return;
                             if (n.tagName === 'col') {
                                 const style = n.attributes.style || '';
-                                const m = style.match(/(?:min-)?width:\s*([\d.]+)px/);
+                                // `width:` not preceded by `-` (so `min-width:` is excluded).
+                                const m = style.match(/(?<!-)\bwidth:\s*([\d.]+)px/);
                                 const attr = parseFloat(n.attributes.width || '');
-                                cols.push(m ? parseFloat(m[1]) : (isFinite(attr) ? attr : 0));
+                                cols.push(m ? parseFloat(m[1]) : (isFinite(attr) ? attr : null));
                             } else if (n.tagName === 'colgroup') {
                                 visit(n.children);
                             }
@@ -218,14 +234,24 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                     (mx, cells) => Math.max(mx, cells.reduce((s, c) => s + c.span, 0)), 0,
                 );
 
-                // Per-column weight: honour manual <col> widths if they cover every
-                // column; otherwise size each column by its heaviest content — the
-                // greater of (cell text length, longest single word) across rows — so
-                // the busiest column gets the most room and words never break mid-word.
+                // Per-column weight. If the user has dragged any column to an explicit
+                // width, honour those px and let the remaining (fluid) columns split
+                // the leftover of the editor's content width — mirroring how the editor
+                // renders them (sized columns keep their px; fluid ones fill the rest).
+                // Otherwise size each column by its heaviest content (longest of cell
+                // text / longest word) so the busiest column is widest and words never
+                // break mid-word.
                 const manualCols = parseColWidths(node.children);
                 const weights = new Array(columnCount).fill(0);
-                if (manualCols.length === columnCount && manualCols.every(w => w > 0)) {
-                    for (let i = 0; i < columnCount; i++) weights[i] = manualCols[i];
+                const sizedCount = manualCols.filter((w): w is number => w != null).length;
+                if (manualCols.length === columnCount && sizedCount > 0) {
+                    const sumSized = manualCols.reduce((s, w) => s + (w ?? 0), 0);
+                    const numFluid = columnCount - sizedCount;
+                    // Reference editor content width (≈ BadhiyaBox width). Fluid columns
+                    // share whatever px is left after the sized columns take their share.
+                    const remaining = Math.max(0, EDITOR_CONTENT_PX - sumSized);
+                    const fluidEach = numFluid > 0 ? Math.max(40, remaining / numFluid) : 0;
+                    for (let i = 0; i < columnCount; i++) weights[i] = manualCols[i] ?? fluidEach;
                 } else {
                     rowsData.forEach(cells => {
                         let col = 0;
@@ -264,6 +290,7 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                         return new TableCell({
                             children: cellChildren as any,
                             borders: allBorders,
+                            margins: WORD_DEFAULT_CELL_MARGINS,
                             width: { size: widthDxa || Math.round(TABLE_TOTAL_TWIPS / Math.max(1, columnCount)), type: WidthType.DXA },
                             ...(c.span > 1 ? { columnSpan: c.span } : {}),
                         });
