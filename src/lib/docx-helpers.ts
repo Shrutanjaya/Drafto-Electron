@@ -286,8 +286,18 @@ export const createPartiesHeader = (petHeader: string, resHeader: string) => {
   ];
 };
 
-export const createWithTable = (iaList: { prefix: string; title: string }[]) => {
-  if (iaList.length === 0) return [];
+export const createWithTable = (iaList: { prefix: string; title: string }[], withInterimRelief = false) => {
+  // Cover-page interim-relief notation, shown just above the "WITH:" list when the
+  // SLP includes a prayer for interim relief (bold, centred, all caps).
+  const interimReliefLine = withInterimRelief
+    ? [new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [smartTextRun({ text: "WITH PRAYER FOR INTERIM RELIEF", bold: true })],
+      })]
+    : [];
+
+  // No accompanying IAs → still emit the interim-relief line if applicable.
+  if (iaList.length === 0) return interimReliefLine;
 
   const noBorders = {
     top: { style: BorderStyle.NONE, size: 0, color: "auto" },
@@ -328,6 +338,7 @@ export const createWithTable = (iaList: { prefix: string; title: string }[]) => 
   });
 
   return [
+    ...interimReliefLine,
     new Paragraph({
       alignment: AlignmentType.JUSTIFIED,
       children: [smartTextRun("WITH: ")],

@@ -1,39 +1,33 @@
 
 type ChecklistValue = "Yes" | "No" | "NA";
 
-export const checklistQueries: { name: string; label: string; options: ChecklistValue[]; sub?: boolean }[] = [
-    { name: "q1_form28", label: "(i) Whether SLP (Civil) has been filed in Form No. 28 with certificate as per Notification dated 17.6.1997.", options: ["Yes", "No"] },
-    { name: "q1_courtFee", label: "(ii) Whether the prescribed court fee has been paid.", options: ["Yes", "No"], sub: true },
-    { name: "q2_paperBooks", label: "(i) Whether proper and required numbers of paper-books (1+3) have been filed?", options: ["Yes", "No"] },
-    { name: "q2_lod", label: "(ii) Whether brief list of dates/ events has been filed?", options: ["Yes", "No"], sub: true },
-    { name: "q2_numbering", label: "(iii) Whether paragraphs and pages of paper books have been numbered consecutively and correctly noted in Index?", options: ["Yes", "No"], sub: true },
-    { name: "q3_legible", label: "Whether the contents of the petition/appeal, applications and accompanying documents are clear, legible and typed in double space on one side of the paper.", options: ["Yes", "No"] },
-    { name: "q4_signatures", label: "Whether the petition and the application bear the signatures of the counsel/In-person.", options: ["Yes", "No"] },
-    { name: "q5_affidavit", label: "Whether an affidavit of the petitioner in support of the petition/appeal/application has been filed, properly attested and identified.", options: ["Yes", "No"] },
-    { name: "q6_vernacular", label: "If there are any vernacular documents/portions/lines and translation of such documents are not filed, whether application for exemption from filing Official Translation, with affidavit and court fee, has been filed.", options: ["Yes", "No", "NA"] },
-    { name: "q7_lrs", label: "If a party in the court below has died, whether application for bringing LRs on record indicating the date of death, relationship, age and addresses along with affidavit and court fee has been filed.", options: ["Yes", "No", "NA"] },
-    { name: "q8_vakalatnama", label: "(i) Whether the Vakalatnama has been properly executed by the Petitioners/ appellants and accepted and identified by the Advocate and Memo of Appearance filed.", options: ["Yes", "No"] },
-    { name: "q8_poa", label: "(ii) If a petitioner is represented through power of attorney, whether the original power of attorney in English/translated copy has been filed and whether application for permission to appear before the court has also been filed?", options: ["Yes", "No", "NA"], sub: true },
-    { name: "q8_registeredBody", label: "(iii) (a) Whether the petition is filed by a body registered, under any Act or Rules", options: ["Yes", "No"], sub: true },
-    { name: "q8_regCopy", label: "(b) If yes, is copy of the Registration filed?", options: ["Yes", "No", "NA"], sub: true },
-    { name: "q8_authority", label: "(iv) (a) Whether the person filing petition for such incorporated body has authority to file the petition?", options: ["Yes", "No", "NA"], sub: true },
-    { name: "q8_authorityProof", label: "(b) If yes, is proof of such authority filed", options: ["Yes", "No", "NA"], sub: true },
-    { name: "q9_statement", label: "Whether the petition/appeal contains a statement in terms of order XVI/XXI of Supreme Court Rules as to whether the petitioner has filed any petition against the impugned order / Judgment earlier, and if so, the result thereof stated in the petition.", options: ["Yes", "No"] },
-    { name: "q10_certifiedCopy", label: "Whether certified copy of the impugned judgment has been filed and if certified copy is not available, whether an application for exemption from filing certified copy has been filed.", options: ["Yes", "No"] },
-    { name: "q11_particularsUniform", label: "Whether the particulars of the impugned judgment passed by the Court(s) below are uniformly written in all the documents.", options: ["Yes", "No"] },
-    { name: "q12_addresses", label: "(i) Whether the addresses of the parties and their representation are complete and set out properly and whether detailed cause title has been mentioned in the impugned judgment and if not, whether the memo of parties has been filed, if required?", options: ["Yes", "No"] },
-    { name: "q12_causeTitle", label: "(ii) Whether the cause title of the petition/ appeal corresponds to that of the impugned judgment and names of parties therein?", options: ["Yes", "No"], sub: true },
-    { name: "q13_certificate", label: "Whether in case of appeal by certificate the appeal is accompanied by judgment and decree appealed from and order granting certificate.", options: ["Yes", "No", "NA"] },
-    { name: "q14_delay", label: "If the petition/appeal is time barred, whether application for condonation of delay mentioning the no. of days of delay, with affidavit and court fee has been filed.", options: ["Yes", "No", "NA"] },
-    { name: "q15_annexures", label: "Whether the Annexures referred to in the petition are true copies of the documents before the Court below and are filed in chronological order as per list of dates.", options: ["Yes", "No"] },
-    { name: "q16_pleadings", label: "(i) Whether the petition/appeal is confined only to the pleadings in the Court/Tribunal below", options: ["Yes", "No"] },
-    { name: "q16_additionalDocs", label: "(ii) If not whether application for taking additional grounds/ documents with affidavit and court fee has been filed", options: ["Yes", "No", "NA"], sub: true },
-    { name: "q17_secondAppeal", label: "(i) In SLP/Appeal against the order passed in Second Appeal whether copies of the orders passed by the Trial Court and First Appellate Court have been filed.", options: ["Yes", "No", "NA"] },
-    { name: "q17_undertaking", label: "(ii) If required copy of the judgment / order / notification / award etc. is not filed, whether letter of undertaking has been filed in civil matters?", options: ["Yes", "No", "NA"], sub: true },
-    { name: "q18_surrender", label: "(i) In matters involving conviction whether separate proof of surrender in respect of all convicts or application for exemption from surrendering has been filed:", options: ["Yes", "No", "NA"] },
-    { name: "q18_exemption", label: "(ii) Whether in case where proof of surrender/ separate certificate from the jail Authority has not been filed, an application for exemption from filing separate proof of surrender has been filed.", options: ["Yes", "No", "NA"], sub: true },
-    { name: "q19_firQuashing", label: "In case of quashing of FIR whether a copy of the petition filed before the High Court under section 482 of Cr.P.C. has been filed.", options: ["Yes", "No", "NA"] },
-    { name: "q20_anticipatoryBail", label: "In case of anticipatory bail whether a copy of FIR or translated copy has been filed.", options: ["Yes", "No", "NA"] },
-    { name: "q21_proforma", label: "(i) Whether the complete listing proforma has been filled in, signed and included in the paper-books?", options: ["Yes", "No"] },
-    { name: "q21_identicalMatter", label: "(ii) If any identical matter is pending/ disposed of by Supreme Court, whether complete particulars of such matters have been given?", options: ["Yes", "No", "NA"], sub: true },
+// The 15-point Advocate's Checklist. `sub` renders a row indented under the
+// current main number; `header` marks a display-only lead-in row (no answer, no
+// schema field) — used for point 13's PIL preamble above its (a)–(e) parts.
+// The main number shown next to a row is derived from its `q<N>_` name prefix.
+export const checklistQueries: { name: string; label: string; options: ChecklistValue[]; sub?: boolean; header?: boolean }[] = [
+    { name: "q1_form28", label: "SLP (C) has been filed in Form No. 28 with certificate.", options: ["Yes", "No"] },
+    { name: "q2_orderXV", label: "The Petition is as per the provisions of Order XV Rule 1.", options: ["Yes", "No"] },
+    { name: "q3_papersArranged", label: "The papers of SLP have been arranged as per Order XXI, Rule (3)(1)(f).", options: ["Yes", "No"] },
+    { name: "q4_lod", label: "Brief list of dates/events has been filed.", options: ["Yes", "No"] },
+    { name: "q5_numbering", label: "Paragraphs and pages of paper books have been numbered consecutively and correctly noted in Index.", options: ["Yes", "No"] },
+    { name: "q6_paperBooks", label: "Proper and required number of paper books (1+1) have been filed.", options: ["Yes", "No"] },
+    { name: "q7_particularsUniform", label: "The particulars of the impugned judgment passed by the court(s) below are uniformly written in all the documents.", options: ["Yes", "No"] },
+    { name: "q8_certificate", label: "In case of appeal by certificate, the appeal is accompanied by judgment and decree appealed from and order granting certificate.", options: ["Yes", "No", "NA"] },
+    { name: "q9_annexuresTrueCopies", label: "The Annexures referred to in the petition are true copies of the documents before the court(s) below and are filed in chronological order as per List of Dates.", options: ["Yes", "No"] },
+    { name: "q10_annexuresSeparate", label: "The annexures referred to in the petition are filed and indexed separately and not marked collectively.", options: ["Yes", "No"] },
+    { name: "q11_secondAppeal", label: "In SLP against the order passed in Second Appeal, copies of the orders passed by the Trial Court and First Appellate Court have been filed.", options: ["Yes", "No", "NA"] },
+    { name: "q12_proforma", label: "The complete listing proforma has been filled in, signed and included in the paper books.", options: ["Yes", "No"] },
+    { name: "q13_pil", label: "In a petition (PIL) filed under clause (d) of Rule 12(1) Order XXXVIII, the petitioner has disclosed:", options: [], header: true },
+    { name: "q13_a", label: "(a) Full name, complete postal address, e-mail address, phone number, proof regarding personal identification, occupation, annual income, PAN number, and National Unique Identity Card number (if any).", options: ["Yes", "No", "NA"], sub: true },
+    { name: "q13_b", label: "(b) The facts constituting the cause of action.", options: ["Yes", "No", "NA"], sub: true },
+    { name: "q13_c", label: "(c) The nature of injury caused or likely to be caused to the public.", options: ["Yes", "No", "NA"], sub: true },
+    { name: "q13_d", label: "(d) The nature and extent of personal interest, if any, of the petitioner(s).", options: ["Yes", "No", "NA"], sub: true },
+    { name: "q13_e", label: "(e) Details regarding any civil, criminal or revenue litigation involving the petitioner(s) which has/could have a legal nexus with the PIL issue(s).", options: ["Yes", "No", "NA"], sub: true },
+    { name: "q14_aft", label: "In case of appeals under Armed Forces Tribunal Act, 2007, the petitioner/appellant has moved before the Armed Forces Tribunal for granting certificate for leave to appeal to the Supreme Court.", options: ["Yes", "No", "NA"] },
+    { name: "q15_paperbooksCured", label: "All the paperbooks to be filed after curing the defects shall be in order.", options: ["Yes", "No"] },
 ];
+
+// The attestation the advocate ticks at the top of the checklist before filing.
+export const CHECKLIST_DECLARATION =
+    "I have personally verified that the petition and its contents conform with the Supreme Court Rules, 2013, all checklist requirements are met, and all necessary documents for the hearing are filed.";

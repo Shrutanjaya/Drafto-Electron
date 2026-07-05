@@ -72,6 +72,11 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
         warnings.push("Filing Date is different from today's date. This might affect the calculation of number of days of delay, if any.");
     }
 
+    // Advocate's Checklist declaration attestation
+    if (!data.checklist?.declarationVerified) {
+        warnings.push("Advocate's Checklist: the Declaration has not been ticked. Please verify the checklist and tick the declaration before filing.");
+    }
+
     // Basic Info
     const basicIssues: string[] = [];
     (data.impugnedOrders || []).forEach((order, i) => {
@@ -127,8 +132,7 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
         ['Similar disposed of matter (6a)', g?.similarDisposed],
         ['Similar pending matter (6b)', g?.similarPending],
         ['Litigation on same point (12)', g?.litigationOnSamePoint],
-        ['FIR No.', sc?.firNo],
-        ['FIR Date', sc?.firDate],
+        ['FIR No. and Date', sc?.firNoAndDate],
         ['Police Station', sc?.policeStation],
         ['Sentence Awarded', sc?.sentenceAwarded],
         ['Sentence Undergone', sc?.sentenceUndergone],

@@ -7,7 +7,7 @@ import { differenceInDays, format } from "date-fns";
 import { standardIaList } from "@/lib/ia-list";
 import { createListingProforma } from "@/lib/proforma-helpers";
 import { parseHtml } from "@/lib/html-to-docx";
-import { checklistQueries } from "@/lib/checklist-queries";
+import { checklistQueries, CHECKLIST_DECLARATION } from "@/lib/checklist-queries";
 import { PDFDocument, rgb, StandardFonts, PDFName, PDFDict, PDFArray, PDFRef, PDFString, PDFNumber, PDFRawStream, decodePDFRawStream, degrees } from 'pdf-lib';
 import { convertDocxToPdf as ipcConvertDocxToPdf } from "@/lib/ipc/pdf";
 
@@ -818,7 +818,7 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
           ...createSlpHeader(projectData.caseType, ioText),
           ...createPartiesHeader(petHeader, resHeader),
           // IA table only for Volume I (or single-volume mode)
-          ...(!vo || vo.volumeNum === 1 ? createWithTable(iaList) : []),
+          ...(!vo || vo.volumeNum === 1 ? createWithTable(iaList, projectData.wantsInterimRelief) : []),
           beforePaperbook,
           new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: 'PAPERBOOK', bold: true })] }),
           new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: '[For Index, please see inside]', italics: true })] }),
@@ -2594,7 +2594,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
 }
 
 // Derive the main serial number (1, 2, 3…) from a checklist item's `name`
-// (e.g. "q8_poa" → 8). Mirrors the on-screen Advocate's Checklist tab so the
+// (e.g. "q13_a" → 13). Mirrors the on-screen Advocate's Checklist tab so the
 // printed paperbook shows the same numbering.
 const getChecklistMainNumber = (name: string): number | null => {
     const match = name.match(/^q(\d+)_/);
@@ -2692,7 +2692,8 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject, 
     };
 
     const rows = checklistQueries.map((item, index) => {
-        const answer = checklist[item.name as keyof typeof checklist];
+        // Display-only lead-in rows (e.g. the PIL preamble) have no answer field.
+        const answer = item.header ? "" : String(checklist[item.name as keyof typeof checklist] ?? "");
         // The visible sub-label like "(i)" / "(a)" (if any) and the question body.
         const questionLabel = item.label.replace(/^\(\w+\)\s*/, '');
         const subMatch = item.label.match(/^\((.*?)\)/);
@@ -2789,6 +2790,19 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject, 
                         ...rows,
                     ],
                 }),
+                // Declaration, immediately after the 15-point table (text only).
+                // Only printed when the advocate has ticked the attestation in the app.
+                ...(checklist.declarationVerified ? [
+                    new Paragraph({ text: "" }),
+                    new Paragraph({
+                        alignment: AlignmentType.JUSTIFIED,
+                        spacing: checklistCellSpacing,
+                        children: [
+                            smartTextRun({ text: "Declaration: ", bold: true }),
+                            smartTextRun(convertToSmartQuotes(CHECKLIST_DECLARATION)),
+                        ],
+                    }),
+                ] : []),
                 // Two blank lines to leave room for the signature image above the
                 // "Filed by" name (the signature is a floating overlay).
                 new Paragraph({ text: "" }),
