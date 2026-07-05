@@ -34,6 +34,7 @@ import { generateCiDocx, generateOrDocx, generateCiorDocx, generateLpDocx, gener
 import { useToast } from "@/hooks/use-toast";
 import { draftoProjectSchema } from "@/lib/schema";
 import { PdfGenerationDialog } from "./dialogs/pdf-generation-dialog";
+import { ImportChangesDialog } from "./dialogs/import-changes-dialog";
 import { LoadProjectDialog } from "./dialogs/load-project-dialog";
 import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
 import { newBlankProject } from "@/lib/project-defaults";
@@ -804,6 +805,8 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
               </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <ImportChangesDialog />
 
         <PdfGenerationDialog>
           <Button variant="ghost" size="icon" title="Export PDF Paperbook" disabled={isPending}>
