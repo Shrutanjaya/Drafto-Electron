@@ -2,7 +2,7 @@
 import { Packer } from "docx";
 import { createSlpHeader, createPartiesHeader, createWithTable, getPartyHeader, createAnnexureText, createIaAnnexureText, createFiledByTable, createIaHeader, base64ToBuffer, convertToSmartQuotes, smartTextRun } from "@/lib/docx-helpers";
 import type { DraftoProject, Annexure } from "@/lib/schema";
-import { Document, AlignmentType, Paragraph, TextRun, PageBreak, Table, TableCell, TableRow, WidthType, VerticalAlign, Header, Footer, PageNumber, SectionType, ISectionOptions, BorderStyle, CheckBox } from "docx";
+import { Document, AlignmentType, Paragraph, TextRun, PageBreak, Table, TableCell, TableRow, WidthType, VerticalAlign, Header, Footer, PageNumber, SectionType, ISectionOptions, BorderStyle, CheckBox, FrameAnchorType, HorizontalPositionAlign, VerticalPositionAlign } from "docx";
 import { differenceInDays, format } from "date-fns";
 import { standardIaList } from "@/lib/ia-list";
 import { createListingProforma } from "@/lib/proforma-helpers";
@@ -822,7 +822,20 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
           beforePaperbook,
           new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: 'PAPERBOOK', bold: true })] }),
           new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: '[For Index, please see inside]', italics: true })] }),
-          new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: `Advocate for the Petitioner(s): ${aorName}`, bold: true })] }),
+          // Pin the "Advocate for the Petitioner(s)" line to the very bottom of the
+          // cover page via a paragraph frame (framePr vAnchor=margin, yAlign=bottom),
+          // so it sits at the foot of page 1 regardless of how much is above it.
+          new Paragraph({
+            frame: {
+              type: "alignment",
+              alignment: { x: HorizontalPositionAlign.CENTER, y: VerticalPositionAlign.BOTTOM },
+              anchor: { horizontal: FrameAnchorType.MARGIN, vertical: FrameAnchorType.MARGIN },
+              width: 8000,
+              height: 400,
+            },
+            alignment: AlignmentType.CENTER,
+            children: [smartTextRun({ text: `Advocate for the Petitioner(s): ${aorName}`, bold: true })],
+          }),
           new Paragraph({ children: [new PageBreak()] }),
           ...indexChildren,
         ],
