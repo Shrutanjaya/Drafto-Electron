@@ -73,6 +73,8 @@ interface ElectronAPI {
   aiRun: (opts: AiRunOptions) => Promise<AiRunResult>;
   aiCancel: () => Promise<{ ok: boolean }>;
   aiScanFolder: (folderPath: string) => Promise<AiFolderScan>;
+  aiSelectSourceFiles: () => Promise<string[]>;
+  aiScanFiles: (filePaths: string[]) => Promise<AiFolderScan>;
   aiSplitDocuments: (opts: {
     projectPath?: string | null;
     documents: { id: string; sourcePath: string; startPage: number; endPage: number; title: string }[];

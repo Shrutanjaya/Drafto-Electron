@@ -1,10 +1,10 @@
-// ── PDF text extraction for the AI plugin ────────────────────────────────────
-// Extracts the text layer from every PDF in a folder using pdf.js (pure JS, no
-// native deps), writes the text to plain .txt files in a temp "context" folder,
-// and reports which pages are scanned (image-only) plus an approximate token
-// estimate. The assistant is then pointed at the cheap text; scanned pages are
-// only read as images after the user confirms the cost. Source PDFs are never
-// modified.
+// ── Source-document text extraction for the AI plugin ────────────────────────
+// Extracts the text layer from every source document (PDF via pdf.js, DOCX via
+// jszip) in a folder or from an explicit file list, writes the text to plain
+// .txt files in a temp "context" folder, and reports which pages are scanned
+// (image-only) plus an approximate token estimate. The assistant is then pointed
+// at the cheap text; scanned pages are only read as images after the user
+// confirms the cost. Source files are never modified.
 
 const fs = require("fs");
 const path = require("path");
@@ -24,8 +24,6 @@ let pdfjsLib = null;
 function getPdfjs() {
   if (!pdfjsLib) {
     pdfjsLib = require("pdfjs-dist/legacy/build/pdf.js");
-    // Point the (fake, main-thread) worker at its module so Node doesn't warn;
-    // if this fails pdf.js still falls back gracefully.
     try {
       pdfjsLib.GlobalWorkerOptions.workerSrc = require.resolve("pdfjs-dist/legacy/build/pdf.worker.js");
     } catch { /* fake worker fallback */ }
@@ -54,18 +52,29 @@ async function extractPdfPages(pdfPath) {
   return pages;
 }
 
-// Scan a folder of PDFs. Returns:
-//   { ok, contextDir, files:[{name, originalPath, pageCount, scannedPages, txtName, error?}],
-//     textTokens, scannedPageCount, imageTokens }
-async function scanFolder(folderPath) {
-  let entries;
-  try {
-    entries = fs.readdirSync(folderPath).filter((f) => f.toLowerCase().endsWith(".pdf"));
-  } catch (e) {
-    return { ok: false, error: `Couldn't read that folder: ${e.message}` };
-  }
-  if (entries.length === 0) return { ok: false, error: "No PDF files found in that folder." };
+// Extract readable text from a .docx (a zip of XML). Word has no fixed pages, so
+// the whole document is returned as one text blob; paragraph/tab/line breaks are
+// preserved, then all XML tags are stripped (text lives only inside <w:t>).
+async function extractDocxText(docxPath) {
+  const JSZip = require("jszip");
+  const zip = await JSZip.loadAsync(fs.readFileSync(docxPath));
+  const entry = zip.file("word/document.xml");
+  if (!entry) return "";
+  let xml = await entry.async("string");
+  xml = xml
+    .replace(/<w:tab\b[^>]*\/?>/g, "\t")
+    .replace(/<w:br\b[^>]*\/?>/g, "\n")
+    .replace(/<\/w:p>/g, "\n");
+  return xml
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'")
+    .replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
 
+// Shared processor. `sources` is a list of { name, full }. Returns the same shape
+// as before: { ok, contextDir, files, textTokens, scannedPageCount, imageTokens }.
+async function processSources(sources) {
   const contextDir = path.join(os.tmpdir(), `drafto-ai-${crypto.randomBytes(6).toString("hex")}`);
   fs.mkdirSync(contextDir, { recursive: true });
 
@@ -75,44 +84,58 @@ async function scanFolder(folderPath) {
   let extractedAny = false;
   let lastError = null;
 
-  for (const name of entries) {
-    const full = path.join(folderPath, name);
-    let pages;
+  // Keep txt names unique even if two sources share a base name.
+  const usedTxt = new Set();
+  const uniqueTxt = (base) => {
+    let t = `${base}.txt`;
+    let n = 1;
+    while (usedTxt.has(t)) t = `${base}-${n++}.txt`;
+    usedTxt.add(t);
+    return t;
+  };
+
+  for (const { name, full } of sources) {
+    const isDocx = /\.docx$/i.test(name);
     try {
-      pages = await extractPdfPages(full);
-      extractedAny = true;
+      if (isDocx) {
+        const text = await extractDocxText(full);
+        extractedAny = true;
+        textTokens += estTextTokens(text);
+        const txtName = uniqueTxt(name.replace(/\.docx$/i, ""));
+        fs.writeFileSync(path.join(contextDir, txtName), `Source document: ${name}\n\n[Page 1]\n${text}\n`, "utf8");
+        // Word has no fixed pages; report as a single page, never "scanned".
+        files.push({ name, originalPath: full, pageCount: 1, scannedPages: [], txtName });
+      } else {
+        const pages = await extractPdfPages(full);
+        extractedAny = true;
+        const scannedPages = [];
+        const lines = [];
+        pages.forEach((t, idx) => {
+          const pno = idx + 1;
+          if (t.length < SCANNED_TEXT_THRESHOLD) {
+            scannedPages.push(pno);
+            lines.push(`[Page ${pno}: scanned image — no extractable text]`);
+          } else {
+            textTokens += estTextTokens(t);
+            lines.push(`[Page ${pno}]\n${t}`);
+          }
+        });
+        scannedPageCount += scannedPages.length;
+        const txtName = uniqueTxt(name.replace(/\.pdf$/i, ""));
+        try {
+          fs.writeFileSync(path.join(contextDir, txtName), `Source document: ${name}\n\n${lines.join("\n\n")}\n`, "utf8");
+        } catch { /* ignore individual write failures */ }
+        files.push({ name, originalPath: full, pageCount: pages.length, scannedPages, txtName });
+      }
     } catch (e) {
       lastError = e.message;
       files.push({ name, originalPath: full, pageCount: 0, scannedPages: [], error: e.message });
-      continue;
     }
-
-    const scannedPages = [];
-    const lines = [];
-    pages.forEach((t, idx) => {
-      const pno = idx + 1;
-      if (t.length < SCANNED_TEXT_THRESHOLD) {
-        scannedPages.push(pno);
-        lines.push(`[Page ${pno}: scanned image — no extractable text]`);
-      } else {
-        textTokens += estTextTokens(t);
-        lines.push(`[Page ${pno}]\n${t}`);
-      }
-    });
-    scannedPageCount += scannedPages.length;
-
-    const txtName = name.replace(/\.pdf$/i, "") + ".txt";
-    try {
-      fs.writeFileSync(path.join(contextDir, txtName), `Source document: ${name}\n\n${lines.join("\n\n")}\n`, "utf8");
-    } catch { /* ignore individual write failures */ }
-    files.push({ name, originalPath: full, pageCount: pages.length, scannedPages, txtName });
   }
 
-  // If not a single PDF could be read, don't hand Claude an empty folder —
-  // surface the failure so the user sees a clear message.
   if (!extractedAny) {
     try { fs.rmSync(contextDir, { recursive: true, force: true }); } catch {}
-    return { ok: false, error: `Couldn't read any text from the PDFs${lastError ? ` (${lastError})` : ""}.` };
+    return { ok: false, error: `Couldn't read any text from the documents${lastError ? ` (${lastError})` : ""}.` };
   }
 
   return {
@@ -125,4 +148,23 @@ async function scanFolder(folderPath) {
   };
 }
 
-module.exports = { scanFolder };
+// Scan a folder of source documents (PDF + DOCX).
+async function scanFolder(folderPath) {
+  let entries;
+  try {
+    entries = fs.readdirSync(folderPath).filter((f) => /\.(pdf|docx)$/i.test(f));
+  } catch (e) {
+    return { ok: false, error: `Couldn't read that folder: ${e.message}` };
+  }
+  if (entries.length === 0) return { ok: false, error: "No PDF or Word files found in that folder." };
+  return processSources(entries.map((name) => ({ name, full: path.join(folderPath, name) })));
+}
+
+// Scan an explicit list of picked files (PDF + DOCX).
+async function scanFiles(filePaths) {
+  const list = (filePaths || []).filter((p) => /\.(pdf|docx)$/i.test(p));
+  if (list.length === 0) return { ok: false, error: "No PDF or Word files selected." };
+  return processSources(list.map((full) => ({ name: path.basename(full), full })));
+}
+
+module.exports = { scanFolder, scanFiles };

@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld("electron", {
   aiRun: (opts) => ipcRenderer.invoke("ai-run", opts),
   aiCancel: () => ipcRenderer.invoke("ai-cancel"),
   aiScanFolder: (folderPath) => ipcRenderer.invoke("ai-scan-folder", folderPath),
+  aiSelectSourceFiles: () => ipcRenderer.invoke("ai-select-source-files"),
+  aiScanFiles: (filePaths) => ipcRenderer.invoke("ai-scan-files", filePaths),
   aiSplitDocuments: (opts) => ipcRenderer.invoke("ai-split-documents", opts),
   aiLogin: (opts) => ipcRenderer.invoke("ai-login", opts),
   aiInstallClaude: () => ipcRenderer.invoke("ai-install-claude"),

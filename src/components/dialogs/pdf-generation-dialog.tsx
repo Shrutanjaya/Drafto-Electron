@@ -1304,6 +1304,14 @@ export function PdfGenerationDialog({ children }: { children: React.ReactNode })
         }
     };
 
+    // Let Mayur (the AI assistant) open the paperbook compiler from its readiness
+    // strip — same entry point as clicking the toolbar's Export PDF button.
+    useEffect(() => {
+        const openFromAssistant = () => handleTriggerClick();
+        window.addEventListener("drafto-open-paperbook", openFromAssistant);
+        return () => window.removeEventListener("drafto-open-paperbook", openFromAssistant);
+    });
+
     const handleProceedAnyway = () => {
         setPreCheckOpen(false);
         setIsOpen(true);
