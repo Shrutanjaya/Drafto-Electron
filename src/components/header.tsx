@@ -39,6 +39,7 @@ import { ModeSelectDialog } from "./dialogs/mode-select-dialog";
 import { generateWpIndex, generateWpNoticeOfMotion, generateWpUrgencyApplication, generateWpMemoOfParties, generateWpSynopsisAndLod, generateWpPetition, generateWpVakalatnama, generateWpCms } from "@/lib/wp/wp-actions";
 import { generateWpPdf } from "@/lib/wp/wp-pdf";
 import { WpPdfGenerationDialog } from "./dialogs/wp-pdf-generation-dialog";
+import { WP_ENABLED } from "@/lib/wp/wp-enabled";
 import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
 import { newBlankProject } from "@/lib/project-defaults";
 import { getIaList } from "@/lib/ia-list-utils";
@@ -113,8 +114,10 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   // launch; 'new' fires from the New Project action. null = closed.
   const [modeDialog, setModeDialog] = useState<null | "startup" | "new">(null);
 
-  // Prompt for the draft type on app launch.
-  useEffect(() => { setModeDialog("startup"); }, []);
+  // Prompt for the draft type on app launch — dev only. In production the WP
+  // mode is hidden, so there is no prompt and the app opens straight into the
+  // SLP interface (unchanged customer experience).
+  useEffect(() => { if (WP_ENABLED) setModeDialog("startup"); }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -566,7 +569,15 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   };
 
   // New Project now asks the user which document type to start.
-  const handleNew = () => { setModeDialog("new"); };
+  const handleNew = () => {
+    if (WP_ENABLED) { setModeDialog("new"); return; }
+    // Production (WP hidden): New Project creates a blank SLP directly.
+    form.reset(newBlankProject("SLP"));
+    setCurrentFilePath(null);
+    const defaultView = getSettings().slpTabView ?? 'splitter';
+    window.dispatchEvent(new CustomEvent('drafto-new-project', { detail: { mode: defaultView } }));
+    toast({ title: "New Project", description: "A new blank project has been created." });
+  };
 
   // Apply the chosen draft type. On startup, if the user keeps SLP the launch
   // project already matches, so we leave it untouched; otherwise we reset to a
