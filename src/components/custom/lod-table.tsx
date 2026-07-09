@@ -19,7 +19,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { PlusCircle, Trash2, FileText, GripVertical, Info } from "lucide-react"
 import { AnnexureDialog } from "../dialogs/annexure-dialog"
-import { Input } from "../ui/input"
 import { BadhiyaBox } from "./badhiya-box"
 import {
   DndContext,
@@ -83,6 +82,52 @@ const ClientSideDnd = ({ children }: { children: React.ReactNode }) => {
   return isClient ? <>{children}</> : null;
 };
 
+// Date cell editor. The Date column is pinned to the width of a single
+// "dd.mm.yyyy" (see dateColWidth), so a longer entry — e.g. a date range like
+// "dd.mm.yyyy and dd.mm.yyyy" — must wrap onto further lines within that fixed
+// width rather than widening the column. A textarea (not an <input>) is used so
+// the text wraps; it auto-grows in height to keep every line visible, and Enter
+// is suppressed so a date stays one logical line (wrapping is purely visual).
+// `name` is preserved so Find & Replace can still locate the field by path.
+const DateCellInput = ({
+  value,
+  onChange,
+  onBlur,
+  name,
+  onInsertRow,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onBlur?: () => void;
+  name?: string;
+  onInsertRow: () => void;
+}) => {
+  const ref = React.useRef<HTMLTextAreaElement | null>(null);
+  const autosize = () => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+  useEffect(autosize, [value]);
+  return (
+    <textarea
+      ref={ref}
+      name={name}
+      value={value ?? ''}
+      rows={1}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={onBlur}
+      onInput={autosize}
+      onKeyDown={(e) => {
+        if (e.ctrlKey && e.code === 'Space') { e.preventDefault(); onInsertRow(); return; }
+        if (e.key === 'Enter') { e.preventDefault(); }
+      }}
+      className="min-h-7 w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent p-1 text-xs leading-tight border-0 focus-visible:outline-none focus-visible:ring-0"
+    />
+  );
+};
+
 export function LoDTable() {
   const form = useFormContext<DraftoProject>()
   const { fields, append, remove, move, insert } = useFieldArray({
@@ -102,14 +147,11 @@ export function LoDTable() {
     const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
     const textXsPx = 0.75 * rootPx;
     ctx.font = `${textXsPx}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
-    let maxWidth = 0;
-    (allLods || []).forEach(lod => {
-      if (lod.date) {
-        const w = ctx.measureText(lod.date).width;
-        if (w > maxWidth) maxWidth = w;
-      }
-    });
-    setDateColWidth(Math.max(75, Math.ceil(maxWidth) + 20));
+    // Pin the column to exactly one "dd.mm.yyyy" (plus the cell's horizontal
+    // padding). Longer entries wrap inside this fixed width instead of widening
+    // the column; the width tracks the current font-size setting.
+    const oneDateWidth = ctx.measureText('00.00.0000').width;
+    setDateColWidth(Math.ceil(oneDateWidth) + 16);
   }, [allLods]);
   
   const annexureNumberingMap = useMemo(() => {
@@ -234,7 +276,13 @@ export function LoDTable() {
                             render={({ field }) => (
                               <FormItem>
                                 <FormControl>
-                                  <Input {...field} className="h-7 p-1 text-xs border-0 focus-visible:ring-0" onKeyDown={(e) => { if (e.ctrlKey && e.code === 'Space') { e.preventDefault(); insert(index + 1, { id: `lod_${Date.now()}`, date: "", event: "", annexures: [] }); } }}/>
+                                  <DateCellInput
+                                    name={field.name}
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    onBlur={field.onBlur}
+                                    onInsertRow={() => insert(index + 1, { id: `lod_${Date.now()}`, date: "", event: "", annexures: [] })}
+                                  />
                                 </FormControl>
                               </FormItem>
                             )}

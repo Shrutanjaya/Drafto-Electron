@@ -245,7 +245,14 @@ export const BadhiyaBox = ({ value, onChange, disabled, onTab, onCtrlSpace, path
           }
         },
       }),
-      Table.configure({ resizable: false }),
+      // Column resizing on. ProseMirror runs the table in fixed-layout mode and the
+      // drag handles are styled in globals.css (.column-resize-handle /
+      // .resize-cursor). Columns without a stored colwidth fall back to equal
+      // distribution via CSS (table-layout:fixed + width:100%); resized widths
+      // serialize into the HTML and the docx exporter honours them.
+      // lastColumnResizable:false freezes the table's right edge (like the left),
+      // so dragging an inner border redistributes width between adjacent columns.
+      Table.configure({ resizable: true, cellMinWidth: 25, lastColumnResizable: false }),
       TableRow,
       TableHeader,
       TableCell,

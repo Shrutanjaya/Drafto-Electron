@@ -286,8 +286,18 @@ export const createPartiesHeader = (petHeader: string, resHeader: string) => {
   ];
 };
 
-export const createWithTable = (iaList: { prefix: string; title: string }[]) => {
-  if (iaList.length === 0) return [];
+export const createWithTable = (iaList: { prefix: string; title: string }[], withInterimRelief = false) => {
+  // Cover-page interim-relief notation, shown just above the "WITH:" list when the
+  // SLP includes a prayer for interim relief (bold, centred, all caps).
+  const interimReliefLine = withInterimRelief
+    ? [new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [smartTextRun({ text: "WITH PRAYER FOR INTERIM RELIEF", bold: true })],
+      })]
+    : [];
+
+  // No accompanying IAs → still emit the interim-relief line if applicable.
+  if (iaList.length === 0) return interimReliefLine;
 
   const noBorders = {
     top: { style: BorderStyle.NONE, size: 0, color: "auto" },
@@ -328,6 +338,7 @@ export const createWithTable = (iaList: { prefix: string; title: string }[]) => 
   });
 
   return [
+    ...interimReliefLine,
     new Paragraph({
       alignment: AlignmentType.JUSTIFIED,
       children: [smartTextRun("WITH: ")],
@@ -366,7 +377,7 @@ const getFiledBySignature = (): { data: Uint8Array; widthPx: number; heightPx: n
 export const createFiledByTable = (
     filingDate: Date,
     aorName: string,
-    opts?: { fontSizePt?: number; lineSpacing?: number; paraSpacingPt?: number }
+    opts?: { fontSizePt?: number; lineSpacing?: number; paraSpacingPt?: number; includeSignature?: boolean }
 ) => {
     const formattedDate = filingDate ? format(new Date(filingDate), "dd.MM.yyyy") : "";
     const noBorders = {
@@ -391,7 +402,9 @@ export const createFiledByTable = (
     // behind the document text, so it overlays the page without displacing any
     // content (the line never gets pushed down). It is right-aligned to the cell
     // column and lifted above the baseline by its own height so it sits over the name.
-    const signature = getFiledBySignature();
+    // Only embedded when the caller opts in (the PDF path) — plain .docx exports must
+    // never carry the AoR signature, so drafts can be shared without it.
+    const signature = opts?.includeSignature ? getFiledBySignature() : null;
     const EMU_PER_PX = 9525;   // 914400 EMU/in ÷ 96 px/in
     const EMU_PER_PT = 12700;  // 914400 EMU/in ÷ 72 pt/in
     const SIGNATURE_OVERLAP_PT = 6; // signature dips this many pt into the "Filed by" line

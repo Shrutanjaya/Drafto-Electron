@@ -18,6 +18,7 @@ import {
   FIND_REVEAL_EVENT,
   setPendingReveal,
   revealPlainInput,
+  getAnnexureLodIndex,
 } from "@/lib/find-reveal";
 import { useFieldReveal } from "./field-reveal-provider";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
@@ -111,6 +112,7 @@ export function FindReplaceBar() {
       isHtml: m.isHtml,
       query,
       caseSensitive,
+      annexureLodIndex: getAnnexureLodIndex(m.path),
     });
     window.dispatchEvent(new CustomEvent(FIND_REVEAL_EVENT));
 

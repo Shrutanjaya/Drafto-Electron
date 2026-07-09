@@ -540,8 +540,7 @@ const BASE_CATALOG: CatalogEntry[] = [
     kind: "enum",
     enumValues: ["N.A.", "Has Surrendered", "Has Not Surrendered"],
   },
-  { path: "listingProforma.specialCategories.firNo", tab: "Listing Proforma", label: "FIR number", description: "Else N.A.", isList: false, kind: "text" },
-  { path: "listingProforma.specialCategories.firDate", tab: "Listing Proforma", label: "FIR date", description: "Else N.A.", isList: false, kind: "text" },
+  { path: "listingProforma.specialCategories.firNoAndDate", tab: "Listing Proforma", label: "FIR number and date", description: "Else N.A.", isList: false, kind: "text" },
   { path: "listingProforma.specialCategories.policeStation", tab: "Listing Proforma", label: "Police station", description: "Else N.A.", isList: false, kind: "text" },
   { path: "listingProforma.specialCategories.sentenceAwarded", tab: "Listing Proforma", label: "Sentence awarded", description: "Else N.A.", isList: false, kind: "text" },
   { path: "listingProforma.specialCategories.sentenceUndergone", tab: "Listing Proforma", label: "Sentence undergone", description: "Else N.A.", isList: false, kind: "text" },
@@ -570,12 +569,10 @@ const BASE_CATALOG: CatalogEntry[] = [
 ];
 
 // ── Checklist tab ─────────────────────────────────────────────────────────────
-// Generated from the canonical checklist question list so the labels stay in
-// sync with the UI. Note: a handful of these (q6_vernacular, q14_delay,
-// q16_pleadings, q16_additionalDocs, q18_surrender, q18_exemption) are
-// auto-derived by Drafto from other fields and may be overwritten after the
-// assistant sets them — they are included for completeness.
-const CHECKLIST_ENTRIES: CatalogEntry[] = checklistQueries.map((q) => ({
+// Generated from the canonical 15-point checklist so the labels stay in sync with
+// the UI. Display-only lead-in rows (e.g. the PIL preamble) carry no answer field
+// and are excluded.
+const CHECKLIST_ENTRIES: CatalogEntry[] = checklistQueries.filter((q) => !q.header).map((q) => ({
   path: `checklist.${q.name}`,
   tab: "Checklist",
   label: q.label,

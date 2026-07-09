@@ -7,7 +7,7 @@ const { execFile, exec, spawn } = require("child_process");
 const { promisify } = require("util");
 const execAsync = promisify(exec);
 const { autoUpdater } = require("electron-updater");
-const { scanFolder } = require("./ipc/pdf-extract");
+const { scanFolder, scanFiles } = require("./ipc/pdf-extract");
 const { splitDocuments } = require("./ipc/pdf-split");
 
 // ── Environment ─────────────────────────────────────────────────────────────
@@ -905,6 +905,25 @@ ipcMain.handle("ai-cancel", () => {
 ipcMain.handle("ai-scan-folder", async (_event, folderPath) => {
   try {
     return await scanFolder(String(folderPath));
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// Let the user pick specific source files (PDF or Word) instead of a folder.
+ipcMain.handle("ai-select-source-files", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Choose source documents",
+    properties: ["openFile", "multiSelections"],
+    filters: [{ name: "Case documents", extensions: ["pdf", "docx"] }],
+  });
+  return result.canceled ? [] : (result.filePaths || []);
+});
+
+// Extract text from an explicit list of picked files (PDF + DOCX).
+ipcMain.handle("ai-scan-files", async (_event, filePaths) => {
+  try {
+    return await scanFiles(Array.isArray(filePaths) ? filePaths.map(String) : []);
   } catch (e) {
     return { ok: false, error: e.message };
   }

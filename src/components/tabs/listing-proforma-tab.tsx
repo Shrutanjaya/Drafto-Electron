@@ -83,14 +83,14 @@ export function ListingProformaTab() {
   const similarDisposed = useWatch({ control: form.control, name: "listingProforma.general.similarDisposed" });
   const similarPending = useWatch({ control: form.control, name: "listingProforma.general.similarPending" });
   const litigationSame = useWatch({ control: form.control, name: "listingProforma.general.litigationOnSamePoint" });
-  const firNo = useWatch({ control: form.control, name: "listingProforma.specialCategories.firNo" });
+  const firNoAndDate = useWatch({ control: form.control, name: "listingProforma.specialCategories.firNoAndDate" });
   const taxEffect = useWatch({ control: form.control, name: "listingProforma.specialCategories.taxEffect" });
   const landS4 = useWatch({ control: form.control, name: "listingProforma.specialCategories.landAcqS4" });
 
   const basicInfoActive = !!(petPhone || petEmail || resPhone || resEmail || mainCat || notBefore || judgesPassed);
   const legalProvisionsActive = fields.length > 0 && fields.some((f: any) => f.act?.trim());
   const linkedMattersActive = !!(similarDisposed || similarPending || litigationSame);
-  const optionalActive = !!(firNo || taxEffect || landS4);
+  const optionalActive = !!(firNoAndDate || taxEffect || landS4);
 
   const [selectedSection, setSelectedSection] = useState<LpSection>('basicInfo');
 
@@ -282,8 +282,7 @@ export function ListingProformaTab() {
                       </Select>
                     </FormItem>
                   )} />
-                  <FormField control={form.control} name="listingProforma.specialCategories.firNo" render={({ field }) => (<FormItem><FormLabel className="text-xs">FIR No.</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
-                  <FormField control={form.control} name="listingProforma.specialCategories.firDate" render={({ field }) => (<FormItem><FormLabel className="text-xs">FIR Date</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
+                  <FormField control={form.control} name="listingProforma.specialCategories.firNoAndDate" render={({ field }) => (<FormItem><FormLabel className="text-xs">FIR No. and Date</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
                   <FormField control={form.control} name="listingProforma.specialCategories.policeStation" render={({ field }) => (<FormItem><FormLabel className="text-xs">Police Station</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>)} />
                 </div>
                 <div className="grid grid-cols-2 gap-2">

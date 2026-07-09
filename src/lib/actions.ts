@@ -2,12 +2,12 @@
 import { Packer } from "docx";
 import { createSlpHeader, createPartiesHeader, createWithTable, getPartyHeader, createAnnexureText, createIaAnnexureText, createFiledByTable, createIaHeader, base64ToBuffer, convertToSmartQuotes, smartTextRun } from "@/lib/docx-helpers";
 import type { DraftoProject, Annexure } from "@/lib/schema";
-import { Document, AlignmentType, Paragraph, TextRun, PageBreak, Table, TableCell, TableRow, WidthType, VerticalAlign, Header, Footer, PageNumber, SectionType, ISectionOptions, BorderStyle, CheckBox } from "docx";
+import { Document, AlignmentType, Paragraph, TextRun, PageBreak, Table, TableCell, TableRow, WidthType, VerticalAlign, Header, Footer, PageNumber, SectionType, ISectionOptions, BorderStyle, CheckBox, FrameAnchorType, HorizontalPositionAlign, VerticalPositionAlign } from "docx";
 import { differenceInDays, format } from "date-fns";
 import { standardIaList } from "@/lib/ia-list";
 import { createListingProforma } from "@/lib/proforma-helpers";
 import { parseHtml } from "@/lib/html-to-docx";
-import { checklistQueries } from "@/lib/checklist-queries";
+import { checklistQueries, CHECKLIST_DECLARATION } from "@/lib/checklist-queries";
 import { PDFDocument, rgb, StandardFonts, PDFName, PDFDict, PDFArray, PDFRef, PDFString, PDFNumber, PDFRawStream, decodePDFRawStream, degrees } from 'pdf-lib';
 import { convertDocxToPdf as ipcConvertDocxToPdf } from "@/lib/ipc/pdf";
 
@@ -26,6 +26,42 @@ const calculateIoText = (projectData: DraftoProject) => {
         return `the Impugned ${order.type} dated ${orderDate} passed by the ${courtName || '[Court]'} in ${order.caseNumber || '[Case No.]'}`;
       })
       .join(' and ');
+}
+
+// Para 1's "appeal against …" clause pairs EACH impugned order with its own
+// "by which <effect>" action, so multiple orders read correctly —
+// "…in X by which A; and …in Y by which B." — rather than clubbing all the order
+// descriptions first and all the effects at the end (which produced an
+// ungrammatical "…and …, by which A; B"). A single order keeps the original
+// ", by which" comma; multiple orders drop it so each clause reads as one unit.
+// Each effect's own trailing sentence punctuation is stripped so clauses are
+// joined by a semicolon (not a stray mid-sentence full stop) and the whole para
+// is closed by exactly one full stop. Orders are date-sorted to match
+// calculateIoText() used elsewhere. Returns '' when there are no orders.
+const calculateIoActionText = (projectData: DraftoProject) => {
+    const orders = projectData.impugnedOrders;
+    if (!orders || orders.length === 0) {
+      return '';
+    }
+
+    const sortedOrders = [...orders].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const byWhich = sortedOrders.length === 1 ? ', by which ' : ' by which ';
+
+    const clauses = sortedOrders.map(order => {
+        const courtName = order.court === 'Other' ? order.customCourt : order.court;
+        const orderDate = order.date ? format(new Date(order.date), "dd.MM.yyyy") : '[date]';
+        const desc = `the Impugned ${order.type} dated ${orderDate} passed by the ${courtName || '[Court]'} in ${order.caseNumber || '[Case No.]'}`;
+        const effect = (order.effect || '').trim().replace(/[.;,]+$/, '');
+        return `${desc}${byWhich}${effect}`;
+    });
+
+    // One order: "<clause>." Multiple: "<c1>; <c2>; and <cN>." — semicolon-separated
+    // so the long paired clauses don't run together, with a serial "; and" before
+    // the last and a single closing full stop.
+    const body = clauses.length === 1
+        ? clauses[0]
+        : `${clauses.slice(0, -1).join('; ')}; and ${clauses[clauses.length - 1]}`;
+    return `${body}.`;
 }
 
 const getIaList = (projectData: DraftoProject) => {
@@ -782,11 +818,24 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
           ...createSlpHeader(projectData.caseType, ioText),
           ...createPartiesHeader(petHeader, resHeader),
           // IA table only for Volume I (or single-volume mode)
-          ...(!vo || vo.volumeNum === 1 ? createWithTable(iaList) : []),
+          ...(!vo || vo.volumeNum === 1 ? createWithTable(iaList, projectData.wantsInterimRelief) : []),
           beforePaperbook,
           new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: 'PAPERBOOK', bold: true })] }),
           new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: '[For Index, please see inside]', italics: true })] }),
-          new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: `Advocate for the Petitioner(s): ${aorName}`, bold: true })] }),
+          // Pin the "Advocate for the Petitioner(s)" line to the very bottom of the
+          // cover page via a paragraph frame (framePr vAnchor=margin, yAlign=bottom),
+          // so it sits at the foot of page 1 regardless of how much is above it.
+          new Paragraph({
+            frame: {
+              type: "alignment",
+              alignment: { x: HorizontalPositionAlign.CENTER, y: VerticalPositionAlign.BOTTOM },
+              anchor: { horizontal: FrameAnchorType.MARGIN, vertical: FrameAnchorType.MARGIN },
+              width: 8000,
+              height: 400,
+            },
+            alignment: AlignmentType.CENTER,
+            children: [smartTextRun({ text: `Advocate for the Petitioner(s): ${aorName}`, bold: true })],
+          }),
           new Paragraph({ children: [new PageBreak()] }),
           ...indexChildren,
         ],
@@ -798,7 +847,7 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
   return { success: true, docx: b64string, fileName: `CI.docx` };
 }
 
-export async function generateOrDocx(projectData: DraftoProject) {
+export async function generateOrDocx(projectData: DraftoProject, includeSignature = false) {
   const ioText = ` ${calculateIoText(projectData)}`;
   const effectivePetitioners = (projectData.isCommonOrder && (projectData.commonOrderParties?.length ?? 0) > 0)
     ? projectData.commonOrderParties[0].petitioners
@@ -836,7 +885,7 @@ export async function generateOrDocx(projectData: DraftoProject) {
           new Paragraph({ children: [smartTextRun("3. There is delay of __ days in re-filing the petition and petition for condonation of __ days delay in re-filing has been/not been filed.")] }),
           new Paragraph({ alignment: AlignmentType.RIGHT, children: [ smartTextRun({ text: "BRANCH OFFICER", bold: true }) ] }),
           new Paragraph({}),
-          ...createFiledByTable(projectData.advocate.filingDate, aorName),
+          ...createFiledByTable(projectData.advocate.filingDate, aorName, { includeSignature }),
         ],
       },
     ],
@@ -1051,7 +1100,7 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
     return { success: true, docx: b64string, fileName: `SLoD.docx` };
 }
 
-export async function generateSlpDocx(projectData: DraftoProject) {
+export async function generateSlpDocx(projectData: DraftoProject, includeSignature = false) {
     const ioText = ` ${calculateIoText(projectData)}`;
 
     // For common order, use first group's parties for the header/AOR certificate
@@ -1200,7 +1249,7 @@ export async function generateSlpDocx(projectData: DraftoProject) {
         );
     }
 
-    const hcAction = projectData.impugnedOrders.map(o => o.effect).join('; ');
+    const ioActionText = calculateIoActionText(projectData);
     const allAnnexures: Annexure[] = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
     const nonAdAnnexures = allAnnexures.filter(annex => !annex.isAdditionalDocument);
     const lastNonAdPNumber = nonAdAnnexures.length;
@@ -1533,7 +1582,7 @@ export async function generateSlpDocx(projectData: DraftoProject) {
                 children: [ smartTextRun({ text: "It is most respectfully submitted that:", bold: true }) ]
             }),
             new Paragraph({
-                text: convertToSmartQuotes(`By this Special Leave Petition, leave is sought under Article 136 of the Constitution of India to appeal against${ioText}, by which ${hcAction}${hcAction && hcAction.match(/[.!?]$/) ? '' : '.'}`),
+                text: convertToSmartQuotes(`By this Special Leave Petition, leave is sought under Article 136 of the Constitution of India to appeal against ${ioActionText}${ioActionText && ioActionText.match(/[.!?]$/) ? '' : '.'}`),
                 numbering: { reference: "slp-intro-list", level: 0 },
             }),
             para1A,
@@ -1584,7 +1633,7 @@ export async function generateSlpDocx(projectData: DraftoProject) {
             }),
             new Paragraph(""),
             ...(advocateDetailsTable ? [advocateDetailsTable, new Paragraph("")] : []),
-            ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]"),
+            ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature }),
             new Paragraph({ children: [new PageBreak()] }),
             ...createSlpHeader(projectData.caseType, ioText),
             ...createPartiesHeader(petHeader, resHeader),
@@ -1599,7 +1648,7 @@ export async function generateSlpDocx(projectData: DraftoProject) {
                 alignment: AlignmentType.JUSTIFIED,
             }),
             new Paragraph(""), // Spacer
-            ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]"),
+            ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature }),
         ]
     }];
 
@@ -1666,6 +1715,7 @@ export async function generateIaDocx(
     iaIdentifier: string,
     customText?: string,
     iaAnnexurePageRanges?: Map<string, {start: number, end: number}>,
+    includeSignature = false,
 ) {
     const ioText = ` ${calculateIoText(projectData)}`;
     const petHeader = getPartyHeader(projectData.petitioners);
@@ -2207,7 +2257,7 @@ export async function generateIaDocx(
                     children: [smartTextRun({ text: "And for this act of kindness, the humble Petitioner(s) shall ever pray.", italics: true })]
                 }),
                 new Paragraph(""),
-                ...createFiledByTable(advocate.filingDate, advocate.aorName || "[AoR Name]"),
+                ...createFiledByTable(advocate.filingDate, advocate.aorName || "[AoR Name]", { includeSignature }),
             ]
         }]
     });
@@ -2217,7 +2267,7 @@ export async function generateIaDocx(
     return { success: true, docx: b64string, fileName: fileName };
 }
 
-export async function generateFilingMemoDocx(projectData: DraftoProject) {
+export async function generateFilingMemoDocx(projectData: DraftoProject, includeSignature = false) {
     const petHeader = getPartyHeader(projectData.petitioners);
     const resHeader = getPartyHeader(projectData.respondents);
     const iaList = getIaList(projectData);
@@ -2287,7 +2337,7 @@ export async function generateFilingMemoDocx(projectData: DraftoProject) {
                     ]
                 }),
                 new Paragraph(""),
-                ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]"),
+                ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature }),
             ],
         }]
     });
@@ -2557,7 +2607,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
 }
 
 // Derive the main serial number (1, 2, 3…) from a checklist item's `name`
-// (e.g. "q8_poa" → 8). Mirrors the on-screen Advocate's Checklist tab so the
+// (e.g. "q13_a" → 13). Mirrors the on-screen Advocate's Checklist tab so the
 // printed paperbook shows the same numbering.
 const getChecklistMainNumber = (name: string): number | null => {
     const match = name.match(/^q(\d+)_/);
@@ -2626,7 +2676,7 @@ const trimTrailingBlankPages = (pdf: PDFDocument): number => {
     return removed;
 };
 
-export async function generateAdvocateChecklistDocx(projectData: DraftoProject) {
+export async function generateAdvocateChecklistDocx(projectData: DraftoProject, includeSignature = false) {
     const { checklist } = projectData;
 
     // Checklist-specific formatting (font size / line spacing / paragraph spacing)
@@ -2655,7 +2705,8 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject) 
     };
 
     const rows = checklistQueries.map((item, index) => {
-        const answer = checklist[item.name as keyof typeof checklist];
+        // Display-only lead-in rows (e.g. the PIL preamble) have no answer field.
+        const answer = item.header ? "" : String(checklist[item.name as keyof typeof checklist] ?? "");
         // The visible sub-label like "(i)" / "(a)" (if any) and the question body.
         const questionLabel = item.label.replace(/^\(\w+\)\s*/, '');
         const subMatch = item.label.match(/^\((.*?)\)/);
@@ -2752,6 +2803,19 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject) 
                         ...rows,
                     ],
                 }),
+                // Declaration, immediately after the 15-point table (text only).
+                // Only printed when the advocate has ticked the attestation in the app.
+                ...(checklist.declarationVerified ? [
+                    new Paragraph({ text: "" }),
+                    new Paragraph({
+                        alignment: AlignmentType.JUSTIFIED,
+                        spacing: checklistCellSpacing,
+                        children: [
+                            smartTextRun({ text: "Declaration: ", bold: true }),
+                            smartTextRun(convertToSmartQuotes(CHECKLIST_DECLARATION)),
+                        ],
+                    }),
+                ] : []),
                 // Two blank lines to leave room for the signature image above the
                 // "Filed by" name (the signature is a floating overlay).
                 new Paragraph({ text: "" }),
@@ -2761,7 +2825,7 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject) 
                 ...createFiledByTable(
                     projectData.advocate.filingDate,
                     projectData.advocate.aorName || "[AoR Name]",
-                    { fontSizePt: cf.sizePt, lineSpacing: cf.lineSpacing, paraSpacingPt: cf.paraSpacingPt }
+                    { fontSizePt: cf.sizePt, lineSpacing: cf.lineSpacing, paraSpacingPt: cf.paraSpacingPt, includeSignature }
                 ),
             ],
         }],
@@ -3441,7 +3505,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 if (meta.id === 'ci') {
                     result = await generateCiDocx(projectData, undefined, undefined, optionalDocIds);
                 } else if (meta.id === 'or') {
-                    result = await generateOrDocx(projectData);
+                    result = await generateOrDocx(projectData, true);
                 } else if (meta.id === 'cior') {
                     // Legacy support - generate CI only
                     result = await generateCiDocx(projectData, undefined, undefined, optionalDocIds);
@@ -3449,13 +3513,13 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                     switch (meta.id) {
                         case 'lp': result = await generateLpDocx(projectData); break;
                         case 'slod': result = await generateSlodDocx(projectData); break;
-                        case 'slp': result = await generateSlpDocx(projectData); break;
+                        case 'slp': result = await generateSlpDocx(projectData, true); break;
                         case 'appendix': result = await generateAppendixDocx(projectData); break;
-                        case 'filingMemo': result = await generateFilingMemoDocx(projectData); break;
-                        case 'advocateChecklist': result = await generateAdvocateChecklistDocx(projectData); break;
+                        case 'filingMemo': result = await generateFilingMemoDocx(projectData, true); break;
+                        case 'advocateChecklist': result = await generateAdvocateChecklistDocx(projectData, true); break;
                         default:
                             if (iaIdentifier && !meta.id.startsWith('ia_affidavit_')) {
-                                result = await generateIaDocx(projectData, iaIdentifier);
+                                result = await generateIaDocx(projectData, iaIdentifier, undefined, undefined, true);
                             }
                             break;
                     }
@@ -3863,24 +3927,24 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                         result = await generateCiDocx(projectData, indexPageRanges, undefined, optionalDocIds);
                         break;
                     case 'or':
-                        result = await generateOrDocx(projectData);
+                        result = await generateOrDocx(projectData, true);
                         break;
                     case 'cior':
                         // Legacy support - generate CI with page ranges
                         result = await generateCiDocx(projectData, indexPageRanges, undefined, optionalDocIds);
                         break;
                     case 'lp': result = await generateLpDocx(projectData); break;
-                    case 'slod': 
+                    case 'slod':
                         // Regenerate SLOD with calculated annexure page ranges
-                        result = await generateSlodDocx(projectData, annexurePageRanges); 
+                        result = await generateSlodDocx(projectData, annexurePageRanges);
                         break;
-                    case 'slp': result = await generateSlpDocx(projectData); break;
+                    case 'slp': result = await generateSlpDocx(projectData, true); break;
                     case 'appendix': result = await generateAppendixDocx(projectData); break;
-                    case 'filingMemo': result = await generateFilingMemoDocx(projectData); break;
-                    case 'advocateChecklist': result = await generateAdvocateChecklistDocx(projectData); break;
+                    case 'filingMemo': result = await generateFilingMemoDocx(projectData, true); break;
+                    case 'advocateChecklist': result = await generateAdvocateChecklistDocx(projectData, true); break;
                     default:
                         if (iaIdentifier && !meta.id.startsWith('ia_affidavit_')) {
-                            result = await generateIaDocx(projectData, iaIdentifier, undefined, annexurePageRanges);
+                            result = await generateIaDocx(projectData, iaIdentifier, undefined, annexurePageRanges, true);
                         }
                         break;
                 }

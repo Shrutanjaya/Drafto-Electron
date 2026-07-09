@@ -132,19 +132,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run build && npx electron-builder --win --publish always
 
-  # electron-builder uploads assets to a *draft* release. Once BOTH platform
-  # builds have succeeded (so the release has every installer), un-draft it so it
-  # publishes automatically with no manual step.
-  publish:
-    needs: [build-mac, build-windows]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Publish (un-draft) the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if [[ "${{ github.ref_name }}" == *-* ]]; then
-            gh release edit "${{ github.ref_name }}" --draft=false --prerelease --repo "${{ github.repository }}"
-          else
-            gh release edit "${{ github.ref_name }}" --draft=false --latest --repo "${{ github.repository }}"
-          fi
+  # Auto-publish is DISABLED. electron-builder uploads the .dmg/.exe assets to a
+  # *draft* GitHub release; the release is left as a draft so it never reaches
+  # customers automatically. Review and publish it manually from the GitHub
+  # Releases page when it is ready to ship.
+  #
+  # (To re-enable auto-publishing later, restore a `publish` job that runs
+  #  `gh release edit "$TAG" --draft=false --latest`.)

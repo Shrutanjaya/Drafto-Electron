@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useFormContext } from "react-hook-form";
-import { Sparkles, X, Minus, FolderOpen, Send, Loader2, AlertCircle, CheckCircle, Wand2, Maximize2, Minimize2, RotateCcw } from "lucide-react";
+import { useFormContext, useWatch } from "react-hook-form";
+import { Sparkles, X, Minus, FolderOpen, Send, Loader2, AlertCircle, CheckCircle, Wand2, Maximize2, Minimize2, RotateCcw, ChevronDown, ChevronRight, Settings2, Circle, FileStack, ArrowRight } from "lucide-react";
 import { PRESETS } from "@/lib/ai/presets";
+import { computeReadiness } from "@/lib/ai/readiness";
 import { estimateLabel, formatElapsed, type Effort } from "@/lib/ai/estimate";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 import { Button } from "@/components/ui/button";
@@ -129,7 +130,12 @@ export function AiChatPanel() {
   const [pending, setPending] = useState<PendingSuggestion | null>(null);
   const [pendingDocMap, setPendingDocMap] = useState<PendingDocMap | null>(null);
   const [docSplitting, setDocSplitting] = useState(false);
-  const [showPresets, setShowPresets] = useState(true);
+  // Granular per-step tasks are tucked away by default (Phase 1: one doorway).
+  const [showPresets, setShowPresets] = useState(false);
+  // Power-user knobs (model) live behind an Advanced toggle, off by default.
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  // Filing-readiness strip: expanded on demand.
+  const [readinessOpen, setReadinessOpen] = useState(false);
   // List of Dates task: pending annexure-handling choice (shown as two buttons).
   const [lodPending, setLodPending] = useState<{ prompt: string; effort: Effort; model?: string } | null>(null);
   // Panel display: docked (bottom-right), popped-out (centred dialog), or full
@@ -142,6 +148,9 @@ export function AiChatPanel() {
   const [pendingConfirm, setPendingConfirm] = useState<{ text: string; effort: Effort; model?: string } | null>(null);
 
   const form = useFormContext();
+  // Live filing-readiness, derived from the current form values (Phase 2).
+  const watchedValues = useWatch({ control: form.control });
+  const readiness = computeReadiness(watchedValues);
   const { toast } = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -239,6 +248,33 @@ export function AiChatPanel() {
     }
   };
 
+  // Pick specific files (PDF or Word) instead of a whole folder. Mirrors
+  // handlePickFolder's context reset; the parent dir stands in for `folder` so
+  // image-mode reading of any scanned pages still has a directory to open.
+  const handlePickFiles = async () => {
+    if (!window.electron?.aiSelectSourceFiles || !window.electron?.aiScanFiles) return;
+    const paths = await window.electron.aiSelectSourceFiles();
+    if (!paths || paths.length === 0) return;
+    setFolderScan(null);
+    setPendingDocMap(null);
+    setCostAcknowledged(false);
+    setImageModePref("text");
+    setLastTurn(null);
+    setSessionId(null);
+    setShowPresets(true);
+    setFolder(paths[0].replace(/[\\/][^\\/]*$/, "") || paths[0]);
+    setScanning(true);
+    try {
+      const scan = await window.electron.aiScanFiles(paths);
+      if (scan.ok) setFolderScan(scan);
+      else addMessage("system", scan.error || "Couldn't read the selected files.");
+    } catch (err) {
+      addMessage("system", err instanceof Error ? err.message : String(err));
+    } finally {
+      setScanning(false);
+    }
+  };
+
   const clearFolder = () => {
     setFolder("");
     setFolderScan(null);
@@ -287,6 +323,57 @@ export function AiChatPanel() {
       return;
     }
     runPreset(p.prompt, p.effort, p.model);
+  };
+
+  // The single doorway: draft the whole SLP from the source documents, in
+  // dependency order, asking only the few human-only facts up front. Leans on the
+  // "draft a full SLP from a folder" behaviour already in the master instructions.
+  const DRAFT_EVERYTHING =
+    "Draft the COMPLETE Special Leave Petition from the source documents. Work through the whole petition in dependency order: " +
+    "(1) Preliminary — the Impugned Order(s), the parties / Memo of Parties, and the Deponent; " +
+    "(2) Petition — the List of Dates & Events, the Grounds, the Questions of Law, the Synopsis, and Interim Relief only if the user wants it; " +
+    "(3) the Listing Proforma general details. Fill every field via the JSON proposal — do not write the draft out in chat. " +
+    "For the List of Dates annexures, record each annexure's details in its own row's annexure entry (title, date, copy type, AD flag); do NOT split or attach any PDFs unless the user explicitly asks. " +
+    "Ask the few human-only facts you cannot determine from the documents — who the SLP Petitioners were in the court below and their position there; whether an intra-court appeal lies for a single-judge order; whether interim relief is wanted and what; and the batch scope — together, in one short message up front, then proceed. Complete the whole job; never hand work back.";
+  const runDraftEverything = () => runPreset(DRAFT_EVERYTHING, "large", "sonnet");
+
+  // Run the preset that best advances the first still-missing section.
+  const runNextStep = () => {
+    const p = PRESETS.find((x) => x.id === readiness.next?.presetId);
+    if (p) handlePreset(p);
+    else runDraftEverything();
+  };
+
+  // Phase 3: hand off to the paperbook compiler (opens the PDF paperbook dialog).
+  const openPaperbook = () => window.dispatchEvent(new CustomEvent("drafto-open-paperbook"));
+
+  // Intake pre-flight (recommendation #2): a cheap, read-only pass that inventories
+  // the folder and flags whether the key documents are present — before spending a
+  // full drafting turn. Reports in prose; proposes no field changes.
+  const INTAKE_PROMPT =
+    "Inventory the source documents ONLY — do not draft anything and do not propose any field changes. " +
+    "First, list each document you can identify, with its type, its date, and a short label. " +
+    "Then give a short PRESENT / MISSING checklist for these key items: the impugned judgment/order under challenge; the complete High Court paperbook or petition (with its annexures); the memo/list of parties; and any executed affidavit or vakalatnama. " +
+    "If any key item is missing, or you can't tell which file it is, say so plainly and ask the user to add it to the folder or point you to it. Keep it brief.";
+  const runIntakeCheck = () => runPreset(INTAKE_PROMPT, "small", "haiku");
+
+  // Soft-gate (recommendation #1): the one-doorway draft needs source documents.
+  // With no folder chosen, first open the folder picker rather than run empty.
+  const hasSources = !!folder && !!folderScan?.ok;
+  const handlePrimaryDraft = () => {
+    if (!hasSources) { handlePickFolder(); return; }
+    (readiness.doneCount > 0 ? runNextStep : runDraftEverything)();
+  };
+
+  // Import affordance: place the user's OWN existing draft text into the matching
+  // Drafto fields verbatim — a transcription task, not a drafting task.
+  const IMPORT_PROMPT =
+    "This is an IMPORT / transcription task, NOT a drafting task. I have existing draft text in the source documents that I want placed into Drafto's fields as I wrote it. " +
+    "For each source file that is a finished draft of an SLP section, transcribe its text into the matching Drafto field via the JSON proposal, preserving my wording (only adjust obvious formatting to fit the field). Map by content: a memo / list of parties → Parties; a chronological list of dates → List of Dates; grounds → Grounds; questions of law → Questions of Law; a synopsis → Synopsis; interim-relief grounds/prayers → Interim Relief. " +
+    "Do NOT redraft, rephrase or 'improve' the text, and do NOT invent content. If you're unsure which section a file maps to, or which file to import, ask me first.";
+  const runImportDraft = () => {
+    if (!hasSources) { handlePickFiles(); return; }
+    runPreset(IMPORT_PROMPT, "medium", "haiku");
   };
 
   // Reset the conversation: clear context and start a fresh Mayur session. Keeps
@@ -600,19 +687,10 @@ export function AiChatPanel() {
         <Sparkles className="h-4 w-4 text-primary" />
         <span className="text-xs font-semibold">Mayur</span>
         <span className="text-[8px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Beta</span>
-        <select
-          value={model}
-          onChange={(e) => changeModel(e.target.value)}
-          disabled={thinking}
-          title="Model used by the assistant"
-          className="ml-auto h-6 rounded border border-border bg-background text-[10px] px-1 text-muted-foreground focus:outline-none disabled:opacity-50"
-        >
-          <option value="default">Default</option>
-          <option value="haiku">Haiku</option>
-          <option value="sonnet">Sonnet</option>
-          <option value="opus">Opus</option>
-        </select>
-        <div className="flex items-center gap-0.5">
+        <div className="ml-auto flex items-center gap-0.5">
+          <button type="button" onClick={() => setShowAdvanced((v) => !v)} className={cn("p-1 rounded hover:bg-muted", showAdvanced ? "text-primary" : "text-muted-foreground")} aria-label="Advanced settings" title="Advanced settings">
+            <Settings2 className="h-3.5 w-3.5" />
+          </button>
           <button type="button" onClick={resetChat} disabled={thinking} className="p-1 rounded hover:bg-muted text-muted-foreground disabled:opacity-40" aria-label="New chat" title="New chat — clear context and start fresh">
             <RotateCcw className="h-3.5 w-3.5" />
           </button>
@@ -639,6 +717,26 @@ export function AiChatPanel() {
         </div>
       </div>
 
+      {/* Advanced knobs — hidden by default (Phase 1: no clutter) */}
+      {showAdvanced && (
+        <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 border-b bg-muted/20 text-[10px] text-muted-foreground">
+          <span>Model</span>
+          <select
+            value={model}
+            onChange={(e) => changeModel(e.target.value)}
+            disabled={thinking}
+            title="Model used by the assistant"
+            className="h-6 rounded border border-border bg-background text-[10px] px-1 focus:outline-none disabled:opacity-50"
+          >
+            <option value="default">Default (auto)</option>
+            <option value="haiku">Haiku</option>
+            <option value="sonnet">Sonnet</option>
+            <option value="opus">Opus</option>
+          </select>
+          <span className="ml-auto opacity-70">runs on your local Claude Code</span>
+        </div>
+      )}
+
       {/* Prerequisite banner */}
       {prereqOk === false && (
         <div className="shrink-0 flex items-start gap-1.5 px-3 py-2 text-[11px] bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 border-b border-amber-200 dark:border-amber-800/50">
@@ -654,30 +752,136 @@ export function AiChatPanel() {
         </div>
       )}
 
+      {/* Filing readiness (Phase 2) — a live view of what's drafted and what's next */}
+      <div className="shrink-0 border-b">
+        <button
+          type="button"
+          onClick={() => setReadinessOpen((v) => !v)}
+          className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted/30"
+          title="What's drafted so far"
+        >
+          {readinessOpen ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />}
+          <span className="text-[10px] font-medium text-foreground shrink-0">Filing readiness</span>
+          <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+            <div className="h-full bg-primary transition-all" style={{ width: `${readiness.percent}%` }} />
+          </div>
+          <span className="text-[10px] tabular-nums text-muted-foreground shrink-0">{readiness.doneCount}/{readiness.total}</span>
+        </button>
+        {readinessOpen && (
+          <div className="px-3 pb-2 space-y-1.5">
+            <div className="space-y-1">
+              {readiness.sections.map((s) => (
+                <div key={s.id} className="flex items-start gap-1.5 text-[10px] leading-snug">
+                  {s.done
+                    ? <CheckCircle className="h-3 w-3 shrink-0 text-green-600 dark:text-green-400 mt-px" />
+                    : <Circle className="h-3 w-3 shrink-0 text-muted-foreground/40 mt-px" />}
+                  <span className={cn("shrink-0", s.done ? "text-muted-foreground" : "text-foreground")}>{s.label}</span>
+                  {!s.done && s.missing.length > 0 && (
+                    <span className="text-muted-foreground truncate">· needs {s.missing.slice(0, 2).join(", ")}{s.missing.length > 2 ? "…" : ""}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5 pt-0.5">
+              {readiness.next ? (
+                <Button type="button" size="sm" className="h-7 text-[11px] flex-1 gap-1" onClick={runNextStep} disabled={prereqOk === false || thinking || scanning || !!pendingConfirm}>
+                  <ArrowRight className="h-3.5 w-3.5" /> Draft {readiness.next.label.toLowerCase()}
+                </Button>
+              ) : (
+                <span className="flex-1 text-[10px] text-green-700 dark:text-green-400 inline-flex items-center gap-1"><CheckCircle className="h-3.5 w-3.5" /> All sections drafted</span>
+              )}
+              <Button type="button" size="sm" variant="outline" className="h-7 text-[11px] gap-1" onClick={openPaperbook} title="Open the paperbook compiler">
+                <FileStack className="h-3.5 w-3.5" /> Compile
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Transcript */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5">
         {messages.length === 0 && (
-          <div className="text-center text-muted-foreground mt-4 space-y-1.5 px-2">
-            <Sparkles className="h-6 w-6 mx-auto opacity-40" />
-            <p className="text-xs font-medium">Mayur — your drafting assistant</p>
-            <p className="text-[11px] leading-relaxed">
-              Pick a task below (or just tell me what to do) and I'll propose it straight into Drafto's fields for you to review and apply. Nothing is saved without your say-so.
-            </p>
-            <p className="text-[10px] leading-relaxed italic">
-              Mayur works best with <span className="font-medium">text-based or OCR-enabled PDFs</span>, and uses your <span className="font-medium">Claude plan's credits</span> as you go.
-            </p>
-            <div className="text-left text-[10px] bg-muted/40 rounded-md p-2 space-y-1 mt-1">
-              <p className="font-semibold text-foreground">For the best results, your prompt / folder should include:</p>
-              <ul className="list-disc pl-3.5 space-y-0.5">
-                <li>The <span className="font-medium">Impugned Judgment/Order</span> and the <span className="font-medium">full paperbook</span> filed in the court below (text-based or OCR'd PDFs).</li>
-                <li>Who the <span className="font-medium">SLP Petitioners</span> are and their <span className="font-medium">position in the court below</span> (e.g. "all the appellants", "Petitioner No. 1 &amp; 2").</li>
-                <li>Your <span className="font-medium">petition/case number</span> in the court below (especially for a batch matter, and whether the SLP covers all or only some petitions).</li>
-                <li>For a single-judge order: whether an <span className="font-medium">intra-court appeal lies</span> — and, if it lies but you're bypassing it, why.</li>
-                <li>Whether you want <span className="font-medium">interim relief</span>, and what (a stay or a custom relief).</li>
-                <li>Any <span className="font-medium">deponent</span> details not in the paperbook (father's/husband's name; signing place).</li>
-                <li>Any documents to annex that were <span className="font-medium">not before the court below</span> (additional documents).</li>
-              </ul>
+          <div className="mt-2 space-y-3 px-1">
+            <div className="text-center space-y-1">
+              <Sparkles className="h-6 w-6 mx-auto text-primary/60" />
+              <p className="text-xs font-semibold text-foreground">Draft your SLP with Mayur</p>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Point me at your paperbook and I'll draft the whole petition into Drafto's fields for you to review. Nothing is saved without your say-so.
+              </p>
             </div>
+
+            {!hasSources && (
+              <div className="space-y-1">
+                <Button type="button" variant="outline" className="w-full h-9 text-[11px] gap-2" onClick={handlePickFolder} disabled={checking || scanning}>
+                  <FolderOpen className="h-4 w-4" /> Choose your case documents
+                </Button>
+                <button type="button" onClick={handlePickFiles} disabled={checking || scanning} className="w-full text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-50">
+                  or pick specific files (PDF or Word)
+                </button>
+              </div>
+            )}
+
+            {/* What Mayur ingested (recommendation #3) + intake check (recommendation #2) */}
+            {hasSources && (
+              <div className="rounded-md border bg-muted/30 p-2 space-y-1.5">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="font-medium text-foreground inline-flex items-center gap-1">
+                    <FolderOpen className="h-3 w-3" /> {folderScan!.files?.length ?? 0} document{(folderScan!.files?.length ?? 0) === 1 ? "" : "s"} ready
+                  </span>
+                  <button type="button" onClick={handlePickFolder} disabled={scanning} className="text-muted-foreground hover:text-foreground disabled:opacity-50">change</button>
+                </div>
+                <ul className="space-y-0.5 max-h-24 overflow-y-auto text-[10px] text-muted-foreground">
+                  {(folderScan!.files ?? []).map((f) => (
+                    <li key={f.name} className="flex items-center justify-between gap-2">
+                      <span className="truncate" title={f.name}>{f.name}</span>
+                      <span className="shrink-0 tabular-nums">{f.pageCount}p{f.scannedPages.length > 0 ? " · scanned" : ""}</span>
+                    </li>
+                  ))}
+                </ul>
+                <Button type="button" variant="outline" size="sm" className="w-full h-7 text-[10px] gap-1.5" onClick={runIntakeCheck} disabled={prereqOk === false || thinking || scanning || !!pendingConfirm}>
+                  <CheckCircle className="h-3.5 w-3.5" /> Check these documents first
+                </Button>
+              </div>
+            )}
+
+            <Button
+              type="button"
+              className="w-full h-10 text-[12px] gap-2"
+              onClick={handlePrimaryDraft}
+              disabled={prereqOk === false || thinking || scanning || !!pendingConfirm}
+              title={!hasSources ? "Choose your case documents first" : undefined}
+            >
+              <Wand2 className="h-4 w-4" />
+              {readiness.doneCount > 0 && readiness.next ? `Continue — draft ${readiness.next.label.toLowerCase()}` : "Draft my SLP"}
+            </Button>
+            {readiness.doneCount > 0 && (
+              <button type="button" onClick={runDraftEverything} disabled={prereqOk === false || thinking || scanning} className="w-full text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-50">
+                or re-draft everything from the documents
+              </button>
+            )}
+
+            <div className="flex items-center justify-center gap-4 text-[10px] text-muted-foreground">
+              <button type="button" onClick={() => setShowPresets((v) => !v)} className="hover:text-foreground inline-flex items-center gap-0.5">
+                a specific step {showPresets ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              </button>
+              <button type="button" onClick={runImportDraft} disabled={prereqOk === false || thinking || scanning || !!pendingConfirm} className="hover:text-foreground disabled:opacity-50">
+                import an existing draft
+              </button>
+            </div>
+
+            <details className="text-[10px] text-muted-foreground">
+              <summary className="cursor-pointer hover:text-foreground text-center list-none">what to include for the best draft</summary>
+              <div className="text-left bg-muted/40 rounded-md p-2 space-y-1 mt-1.5">
+                <ul className="list-disc pl-3.5 space-y-0.5">
+                  <li>The <span className="font-medium">impugned judgment/order</span> and the <span className="font-medium">full paperbook</span> filed below (text-based or OCR'd PDFs).</li>
+                  <li>Who the <span className="font-medium">SLP petitioners</span> are and their <span className="font-medium">position in the court below</span>.</li>
+                  <li>Your <span className="font-medium">petition/case number</span> below (and, for a batch, whether the SLP covers all or some).</li>
+                  <li>For a single-judge order: whether an <span className="font-medium">intra-court appeal lies</span> (and why you're bypassing it).</li>
+                  <li>Whether you want <span className="font-medium">interim relief</span>, and what.</li>
+                  <li>Any <span className="font-medium">deponent</span> details or <span className="font-medium">additional documents</span> not in the paperbook.</li>
+                </ul>
+              </div>
+            </details>
           </div>
         )}
         {messages.map((m) => (
@@ -920,9 +1124,16 @@ export function AiChatPanel() {
         </div>
       )}
 
-      {/* Quick-action presets */}
+      {/* Quick-action presets — the assistant's step-by-step playbook, tucked away */}
       {showPresets && (
-        <div className="shrink-0 border-t p-2 max-h-48 overflow-y-auto space-y-2">
+        <div className="shrink-0 border-t p-2 max-h-52 overflow-y-auto space-y-2">
+          <Button type="button" className="w-full h-8 text-[11px] gap-1.5" onClick={() => (hasSources ? runDraftEverything() : handlePickFolder())} disabled={prereqOk === false || thinking || scanning || !!pendingConfirm}>
+            <Wand2 className="h-3.5 w-3.5" /> Draft my SLP — everything
+          </Button>
+          <Button type="button" variant="outline" className="w-full h-7 text-[10px] gap-1.5" onClick={runImportDraft} disabled={prereqOk === false || thinking || scanning || !!pendingConfirm}>
+            <FolderOpen className="h-3.5 w-3.5" /> Import an existing draft into fields
+          </Button>
+          <p className="text-[9px] text-muted-foreground text-center">or run one step at a time:</p>
           {(["Tasks", "More"] as const).map((group) => {
             const items = PRESETS.filter((p) => p.group === group);
             if (items.length === 0) return null;
@@ -996,13 +1207,9 @@ export function AiChatPanel() {
             {thinking || checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
           </Button>
         </div>
-        {usage && !thinking ? (
+        {usage && !thinking && (
           <p className="text-[9px] text-muted-foreground text-center tabular-nums">
-            Last turn: ↑ {fmtNum(usage.input)} in · ↓ {fmtNum(usage.output)} out tokens
-          </p>
-        ) : (
-          <p className="text-[9px] text-muted-foreground text-center">
-            Mayur · Beta · runs on your local Claude Code · Always review before saving.
+            ↑ {fmtNum(usage.input)} in · ↓ {fmtNum(usage.output)} out
           </p>
         )}
       </div>
