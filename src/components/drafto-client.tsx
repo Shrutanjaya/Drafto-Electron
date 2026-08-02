@@ -11,11 +11,23 @@ import { Header } from "@/components/header";
 import { Workspace } from "@/components/workspace";
 import { FindReplaceBar } from "@/components/custom/find-replace-bar";
 import { AiChatPanel } from "@/components/custom/ai-chat-panel";
+import { BriefingNotePrompt } from "@/components/dialogs/briefing-note-prompt";
 import { FieldRevealProvider } from "@/components/custom/field-reveal-provider";
+import { EntitlementProvider, useEntitlement } from "@/providers/entitlement-provider";
+import { EntitlementBanner } from "@/components/custom/entitlement-banner";
+import { ReadOnlyLock } from "@/components/custom/read-only-lock";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { useToast } from "@/hooks/use-toast";
 
 export function DraftoClient() {
+  return (
+    <EntitlementProvider>
+      <DraftoClientInner />
+    </EntitlementProvider>
+  );
+}
+
+function DraftoClientInner() {
   const form = useForm<DraftoProject>({
     resolver: zodResolver(draftoProjectSchema),
     defaultValues: newBlankProject(),
@@ -24,6 +36,8 @@ export function DraftoClient() {
 
   const { undo, redo, canUndo, canRedo } = useUndoRedo(form);
   const { toast } = useToast();
+  const { entitlement } = useEntitlement();
+  const readOnly = entitlement.access === "readonly";
 
   // Listen for background OCR dependency setup
   useEffect(() => {
@@ -46,13 +60,20 @@ export function DraftoClient() {
     <FormProvider {...form}>
       <FieldRevealProvider>
         <Card className="border-2 shadow-xl">
+          <EntitlementBanner />
           <Header undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo} />
           <main>
-            <Workspace />
+            {/* Read-only lapse enforcement: lock editing across both the SC and
+                HC interfaces while still allowing reading, selecting, scrolling,
+                and tab/section navigation. Nothing is disabled or blurred. */}
+            <ReadOnlyLock active={readOnly}>
+              <Workspace />
+            </ReadOnlyLock>
           </main>
         </Card>
         <FindReplaceBar />
         <AiChatPanel />
+        <BriefingNotePrompt />
       </FieldRevealProvider>
     </FormProvider>
   );

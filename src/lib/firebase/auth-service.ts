@@ -109,7 +109,6 @@ export class AuthService {
    * Sign in with Google via IPC-obtained tokens (PKCE desktop flow)
    */
   async signInWithGoogleCredential(idToken: string, accessToken: string): Promise<User> {
-    const deviceId = generateDeviceId();
     const credential = GoogleAuthProvider.credential(idToken, accessToken);
     const userCredential = await signInWithCredential(auth, credential);
     const user = userCredential.user;
@@ -125,21 +124,7 @@ export class AuthService {
       });
     }
 
-    // Session bookkeeping (same as email/password flow)
-    const ipAddress = await getIpAddress();
-    await setDoc(doc(db, 'sessions', user.uid), {
-      deviceId,
-      deviceInfo: getDeviceInfo(),
-      ipAddress,
-      loginTime: serverTimestamp(),
-      lastHeartbeat: serverTimestamp(),
-      isActive: true,
-    });
-
-    this.startHeartbeat(user.uid);
-    this.listenToSessionChanges(user.uid, deviceId);
-    this.startPeriodicValidation();
-
+    // Device-seat registration + lifecycle are handled by the auth hook.
     return user;
   }
 
@@ -148,49 +133,11 @@ export class AuthService {
    * Enforces single-device login
    */
   async signIn(email: string, password: string): Promise<{ user: User; wasForceLogout: boolean }> {
-    const deviceId = generateDeviceId();
-    
-    // First, authenticate the user
+    // Authenticate only. Device-seat registration and lifecycle (heartbeat,
+    // real-time enforcement, token validation) are handled by the auth hook once
+    // the auth state resolves — so they also run on app reload, not just here.
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-
-    // Check for existing active session
-    const sessionRef = doc(db, 'sessions', user.uid);
-    const sessionSnap = await getDoc(sessionRef);
-    
-    let wasForceLogout = false;
-
-    if (sessionSnap.exists()) {
-      const existingSession = sessionSnap.data() as UserSession;
-      
-      // If different device, force logout the other session
-      if (existingSession.deviceId !== deviceId && existingSession.isActive) {
-        wasForceLogout = true;
-        // The other device will be automatically logged out via session listener
-      }
-    }
-
-    // Create or update session for this device
-    const ipAddress = await getIpAddress();
-    await setDoc(sessionRef, {
-      deviceId,
-      deviceInfo: getDeviceInfo(),
-      ipAddress,
-      loginTime: serverTimestamp(),
-      lastHeartbeat: serverTimestamp(),
-      isActive: true,
-    });
-
-    // Start heartbeat
-    this.startHeartbeat(user.uid);
-
-    // Listen for session changes (force logout from another device)
-    this.listenToSessionChanges(user.uid, deviceId);
-
-    // Start periodic token validation (every 5 minutes)
-    this.startPeriodicValidation();
-
-    return { user, wasForceLogout };
+    return { user: userCredential.user, wasForceLogout: false };
   }
 
   /**
@@ -212,8 +159,8 @@ export class AuthService {
       this.sessionUnsubscribe = null;
     }
 
-    // Delete session from Firestore
-    await deleteDoc(doc(db, 'sessions', user.uid));
+    // Note: the current device's seat is released by the auth hook (which knows
+    // the device id) before this is called.
 
     // Sign out from Firebase Auth
     await firebaseSignOut(auth);

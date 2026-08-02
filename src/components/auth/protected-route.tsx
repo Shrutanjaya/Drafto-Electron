@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthContext } from '@/providers/auth-provider';
+import { DeviceLimitScreen } from '@/components/auth/device-limit-screen';
 import { Loader2 } from 'lucide-react';
 
 interface ProtectedRouteProps {
@@ -9,7 +10,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, requireAuth = true }: ProtectedRouteProps) {
-  const { user, loading } = useAuthContext();
+  const { user, loading, deviceStatus } = useAuthContext();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -41,6 +42,23 @@ export function ProtectedRoute({ children, requireAuth = true }: ProtectedRouteP
 
   if (!requireAuth && user) {
     return null;
+  }
+
+  // Authenticated, but resolving / enforcing the device-seat limit.
+  if (requireAuth && user) {
+    if (deviceStatus === 'checking') {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+          <div className="text-center space-y-4">
+            <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary" />
+            <p className="text-muted-foreground">Checking your devices…</p>
+          </div>
+        </div>
+      );
+    }
+    if (deviceStatus === 'limit-reached') {
+      return <DeviceLimitScreen />;
+    }
   }
 
   return <>{children}</>;

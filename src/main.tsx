@@ -4,6 +4,7 @@ import { HashRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/providers/auth-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { ProtectedRoute } from "@/components/auth/protected-route";
+import { DevSimPanel } from "@/components/dev/dev-sim-panel";
 import "./globals.css";
 
 // Lazy-load heavy pages to keep startup fast
@@ -28,6 +29,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         } />
       </Routes>
       <Toaster />
+      <DevSimPanel />
     </AuthProvider>
   </HashRouter>
 );

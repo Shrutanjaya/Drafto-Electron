@@ -1,8 +1,9 @@
 
 import { createContext, useContext, ReactNode } from 'react';
-import { useAuth } from '@/hooks/use-auth';
+import { useAuth, type DeviceStatus } from '@/hooks/use-auth';
 import { User } from 'firebase/auth';
 import { Loader2 } from 'lucide-react';
+import type { DeviceRecord } from '@/lib/firebase/device-service';
 
 interface AuthContextType {
   user: User | null;
@@ -14,6 +15,12 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   isAuthenticated: boolean;
+  // device seats
+  deviceStatus: DeviceStatus;
+  devices: DeviceRecord[];
+  deviceLimit: number;
+  currentDeviceId: string;
+  signOutDevice: (deviceId: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
