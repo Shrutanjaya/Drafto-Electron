@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useFormContext } from "react-hook-form";
 import { Search, X, ChevronDown, Check, ArrowUp, ArrowDown, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useCanEdit } from "@/providers/entitlement-provider";
 import {
   SEARCH_GROUPS,
   buildMatchList,
@@ -34,6 +35,7 @@ const EDGE_CASE_TOOLTIP =
 export function FindReplaceBar() {
   const form = useFormContext();
   const { toast } = useToast();
+  const canEdit = useCanEdit();
   const fieldReveal = useFieldReveal();
 
   const [open, setOpen] = useState(false);
@@ -138,6 +140,7 @@ export function FindReplaceBar() {
   };
 
   const handleReplaceCurrent = () => {
+    if (!canEdit) return;
     if (current < 0 || !matches[current]) return;
     const m = matches[current];
     const v = form.getValues(m.path as any);
@@ -152,6 +155,7 @@ export function FindReplaceBar() {
   };
 
   const handleReplaceAll = () => {
+    if (!canEdit) return;
     if (!query) return;
     const n = replaceAllInForm(
       form.getValues(), query, replacement, { caseSensitive }, groupsFilter,

@@ -22,11 +22,49 @@ import {
   ArrowRightToLine,
   ArrowUpToLine,
   ArrowDownToLine,
+  ChevronsUp,
+  ChevronsDown,
+  TableCellsMerge,
+  TableCellsSplit,
 } from 'lucide-react'
+import { TextSelection } from '@tiptap/pm/state'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useContext, useState, useRef, useEffect } from 'react';
 import { EditorContext } from './editor-provider';
+
+// Move the table row containing the cursor up or down by one, preserving cell
+// content (TipTap ships no moveRow command). Deletes the row node and reinserts
+// it past its sibling; positions are recomputed relative to the post-delete doc.
+function moveTableRow(editor: Editor, dir: -1 | 1): boolean {
+  const { state } = editor;
+  const { $from } = state.selection;
+  let rowDepth = -1;
+  for (let d = $from.depth; d > 0; d--) {
+    if ($from.node(d).type.name === 'tableRow') { rowDepth = d; break; }
+  }
+  if (rowDepth < 0) return false;
+  const tableNode = $from.node(rowDepth - 1);
+  const rowIndex = $from.index(rowDepth - 1);
+  const target = rowIndex + dir;
+  if (target < 0 || target >= tableNode.childCount) return false;
+
+  const rowStart = $from.before(rowDepth);
+  const rowEnd = $from.after(rowDepth);
+  const rowSlice = state.doc.slice(rowStart, rowEnd);
+  const siblingSize = tableNode.child(target).nodeSize;
+  // After deleting the row, the sibling occupies the freed space; insert past it.
+  const insertPos = dir < 0 ? rowStart - siblingSize : rowStart + siblingSize;
+
+  const tr = state.tr;
+  tr.delete(rowStart, rowEnd);
+  tr.insert(insertPos, rowSlice.content);
+  tr.setSelection(TextSelection.near(tr.doc.resolve(insertPos + 1)));
+  tr.scrollIntoView();
+  editor.view.dispatch(tr);
+  editor.view.focus();
+  return true;
+}
 
 const HIGHLIGHT_COLORS = [
   { label: 'Yellow',  color: '#fef08a' },
@@ -210,6 +248,38 @@ export const EditorToolbar = () => {
               onClick={() => { editor?.chain().focus().addRowAfter().run(); setShowTableMenu(false); }}
             >
               <ArrowDownToLine className="h-3 w-3" /> Add row below
+            </button>
+            <div className="border-t my-1" />
+            {/* Reorder the current row */}
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
+              disabled={!editor?.isActive('table')}
+              onClick={() => { if (editor) moveTableRow(editor, -1); setShowTableMenu(false); }}
+            >
+              <ChevronsUp className="h-3 w-3" /> Move row up
+            </button>
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
+              disabled={!editor?.isActive('table')}
+              onClick={() => { if (editor) moveTableRow(editor, 1); setShowTableMenu(false); }}
+            >
+              <ChevronsDown className="h-3 w-3" /> Move row down
+            </button>
+            <div className="border-t my-1" />
+            {/* Merge / split cells */}
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
+              disabled={!editor?.can().mergeCells()}
+              onClick={() => { editor?.chain().focus().mergeCells().run(); setShowTableMenu(false); }}
+            >
+              <TableCellsMerge className="h-3 w-3" /> Merge selected cells
+            </button>
+            <button
+              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
+              disabled={!editor?.can().splitCell()}
+              onClick={() => { editor?.chain().focus().splitCell().run(); setShowTableMenu(false); }}
+            >
+              <TableCellsSplit className="h-3 w-3" /> Split cell
             </button>
             <div className="border-t my-1" />
             <button

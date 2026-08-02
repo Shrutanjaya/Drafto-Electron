@@ -11,10 +11,15 @@ import {
   WidthType,
   BorderStyle,
   VerticalAlign,
+  ImageRun,
+  HorizontalPositionRelativeFrom,
+  VerticalPositionRelativeFrom,
+  TextWrappingType,
 } from "docx";
 import { format } from "date-fns";
 import { smartTextRun } from "@/lib/docx-helpers";
 import type { DraftoProject } from "@/lib/schema";
+import { getWpFiledBySignature, getWpMarginsIn, getWpOutputFormatting, getWpFiledByLeftPct, getWpFiledByLayout, wpFiledByLines, type WpFiledByLayoutItem } from "./wp-settings";
 
 export const NO_BORDERS = {
   top: { style: BorderStyle.NONE, size: 0, color: "auto" },
@@ -25,18 +30,32 @@ export const NO_BORDERS = {
   insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
 };
 
-// Page margins — match the SLP defaults; the top margin leaves room for the
+// Page margins — user-configurable (Settings → Writ Petition); historical
+// defaults 1.5" top/left, 1" bottom/right. The top margin leaves room for the
 // top-right page number stamped at PDF-generation time.
-export const wpMargins = {
-  top: 1.5 * 1440,
-  right: 1 * 1440,
-  bottom: 1 * 1440,
-  left: 1.5 * 1440,
-};
+export function getWpMargins() {
+  const m = getWpMarginsIn();
+  return {
+    top: Math.round(m.top * 1440),
+    right: Math.round(m.right * 1440),
+    bottom: Math.round(m.bottom * 1440),
+    left: Math.round(m.left * 1440),
+  };
+}
 
-// Output paragraph styling. Historical defaults (Times New Roman, 14pt, 1.5
-// line, 12pt after, justified); settings-driven overrides arrive in Phase 6.
+// A4 width in twips; content width = page − left/right margins. Shared by the
+// Filed-by signature anchor so it tracks the configured margins.
+const A4_WIDTH_TWIPS = 11906;
+export function wpContentWidthTwips(): number {
+  const m = getWpMargins();
+  return A4_WIDTH_TWIPS - m.left - m.right;
+}
+
+// Output paragraph styling — user-configurable (Settings → Writ Petition);
+// historical defaults: Times New Roman, 14pt, 1.5 line, 0pt before / 12pt
+// after, justified.
 export function getWpStyles() {
+  const f = getWpOutputFormatting();
   return {
     paragraphStyles: [
       {
@@ -45,9 +64,13 @@ export function getWpStyles() {
         basedOn: "Normal",
         next: "Normal",
         quickFormat: true,
-        run: { font: "Times New Roman", size: 28 }, // 14pt
+        run: { font: f.font, size: Math.round(f.sizePt * 2) }, // half-points
         paragraph: {
-          spacing: { line: 360, after: 240, before: 0 }, // 1.5 line, 12pt after
+          spacing: {
+            line: Math.round(f.lineSpacing * 240),  // multiplier of single (240)
+            after: Math.round(f.afterPt * 20),      // twips (1pt = 20 twips)
+            before: Math.round(f.beforePt * 20),
+          },
           alignment: AlignmentType.JUSTIFIED,
         },
       },
@@ -70,10 +93,11 @@ export function createWpHeader(
 ) {
   const year = new Date().getFullYear();
   const label = PETITION_LABEL[caseType];
+  const headerSize = Math.round(getWpOutputFormatting().sizePt * 2); // follows the configured font size
   const centerBold = (text: string, italics = false) => new Paragraph({
     alignment: AlignmentType.CENTER,
     spacing: { line: 240, after: 240 },
-    children: [smartTextRun({ text, bold: !italics, italics, size: 28 })],
+    children: [smartTextRun({ text, bold: !italics, italics, size: headerSize })],
   });
 
   const lines: Paragraph[] = [
@@ -84,7 +108,7 @@ export function createWpHeader(
     // CM Appl. No. ____ of <year> / in / Writ Petition (…) No. ____ of <year>
     lines.push(
       centerBold(`CM Appl. No. _____ of ${year}`),
-      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { line: 240, after: 240 }, children: [smartTextRun({ text: "in", italics: true, size: 28 })] }),
+      new Paragraph({ alignment: AlignmentType.CENTER, spacing: { line: 240, after: 240 }, children: [smartTextRun({ text: "in", italics: true, size: headerSize })] }),
       centerBold(`Writ Petition (${label}) No. _____ of ${year}`),
     );
   } else {
@@ -144,28 +168,101 @@ export function createWpPartiesHeader(petHeader: string, resHeader: string) {
 // details. Left-aligned, single line spacing.
 const filedByCellMargins = { top: 0, bottom: 0, left: 0, right: 115 };
 
-export function createWpFiledBy(project: DraftoProject): (Paragraph | Table)[] {
-  const adv = project.wp.advocate;
+export function createWpFiledBy(
+  project: DraftoProject,
+  opts?: {
+    includeSignature?: boolean;
+    showDrawnOn?: boolean;
+    advocate?: DraftoProject["wp"]["advocate"];
+    // Other document types (the CAT OA) supply their own layout / column split /
+    // signature so their Filed-by block is configured independently of the WP one.
+    layout?: WpFiledByLayoutItem[];
+    leftPct?: number;
+    signature?: { data: Uint8Array; widthPx: number; heightPx: number } | null;
+  },
+): (Paragraph | Table)[] {
+  // Advocate data defaults to the WP block; other document types (e.g. the CAT
+  // OA, whose Filed-by is identical to the WP one) pass their own advocate.
+  const adv = opts?.advocate ?? project.wp.advocate;
   const filingDate = project.advocate.filingDate ? format(new Date(project.advocate.filingDate), "dd.MM.yyyy") : "__.__.____";
   const place = project.advocate.filingPlace || "New Delhi";
   const single = { line: 240, before: 0, after: 0 };
   const L = (text: string, bold = false) =>
     new Paragraph({ spacing: single, alignment: AlignmentType.LEFT, children: [smartTextRun(bold ? { text, bold: true } : text)] });
 
-  const leftCell: Paragraph[] = [L(`Filed on: ${filingDate}`), L(`Place: ${place}`)];
+  // The advocate's signature (Settings → Writ Petition) floats above the name,
+  // drawn behind the text so nothing is displaced — mirroring the SLP AoR
+  // signature. Embedded only when the caller opts in (the PDF path); plain
+  // .docx exports never carry it.
+  const signature = opts?.includeSignature ? (opts?.signature !== undefined ? opts.signature : getWpFiledBySignature()) : null;
+  const EMU_PER_PX = 9525;   // 914400 EMU/in ÷ 96 px/in
+  const EMU_PER_PT = 12700;  // 914400 EMU/in ÷ 72 pt/in
+  const SIGNATURE_OVERLAP_PT = 6; // signature dips this many pt into the name line
+  // The right cell starts after the configured left-column share of the content
+  // width (both Settings → Writ Petition); the image is anchored there so it
+  // sits over the left-aligned advocate name.
+  const leftPct = opts?.leftPct ?? getWpFiledByLeftPct();
+  const RIGHT_CELL_OFFSET_EMU = Math.round((leftPct / 100) * (wpContentWidthTwips() / 1440) * 914400);
+  const signatureRuns = signature
+    ? [
+        new ImageRun({
+          data: signature.data,
+          transformation: { width: signature.widthPx, height: signature.heightPx },
+          floating: {
+            horizontalPosition: { relative: HorizontalPositionRelativeFrom.COLUMN, offset: RIGHT_CELL_OFFSET_EMU },
+            verticalPosition: { relative: VerticalPositionRelativeFrom.PARAGRAPH, offset: -(signature.heightPx * EMU_PER_PX - SIGNATURE_OVERLAP_PT * EMU_PER_PT) },
+            behindDocument: true,
+            allowOverlap: true,
+            wrap: { type: TextWrappingType.NONE },
+          },
+        }),
+      ]
+    : [];
+
+  const leftCell: Paragraph[] = [];
+  // "Drawn on" appears only where the caller asks for it (the petition body's
+  // Filed-by block) and only when the user has set the date.
+  if (opts?.showDrawnOn && project.wp.drawnOnDate) {
+    leftCell.push(L(`Drawn on: ${format(new Date(project.wp.drawnOnDate), "dd.MM.yyyy")}`));
+  }
+  leftCell.push(L(`Filed on: ${filingDate}`), L(`Place: ${place}`));
 
   const rightCell: Paragraph[] = [L("Filed by:")];
-  if (adv.name) rightCell.push(new Paragraph({ spacing: { line: 240, before: 240, after: 0 }, alignment: AlignmentType.LEFT, children: [smartTextRun({ text: adv.name, bold: true })] }));
-  if (adv.firm) rightCell.push(L(adv.firm));
-  if (adv.address) rightCell.push(L(adv.address));
-  const idContact = [adv.enrolmentNo ? `Enrl. No.: ${adv.enrolmentNo}` : "", [adv.email, adv.phone].filter(Boolean).join(" | ")].filter(Boolean).join(" | ");
-  if (idContact) rightCell.push(L(idContact));
+  if (adv.name) {
+    rightCell.push(new Paragraph({ spacing: { line: 240, before: 240, after: 0 }, alignment: AlignmentType.LEFT, children: [...signatureRuns, smartTextRun({ text: adv.name, bold: true })] }));
+  } else if (signatureRuns.length) {
+    // No name entered — anchor the signature to the "Filed by:" line instead.
+    rightCell[0] = new Paragraph({ spacing: single, alignment: AlignmentType.LEFT, children: [...signatureRuns, smartTextRun("Filed by:")] });
+  }
+  // Advocate-details lines follow the user-designed layout (order, " | " joins,
+  // per-item bold/italics/underline/caps) from Settings → Writ Petition.
+  const fbValues = {
+    firm: adv.firm || "",
+    address: adv.address || "",
+    enrolmentNo: adv.enrolmentNo ? `Enrl. No.: ${adv.enrolmentNo}` : "",
+    email: adv.email || "",
+    phone: adv.phone || "",
+  };
+  for (const line of wpFiledByLines(opts?.layout ?? getWpFiledByLayout(), fbValues)) {
+    const runs = line.flatMap((part, i) => [
+      ...(i > 0 ? [smartTextRun(" | ")] : []),
+      smartTextRun({
+        text: part.text,
+        ...(part.item.bold ? { bold: true } : {}),
+        ...(part.item.italics ? { italics: true } : {}),
+        ...(part.item.underline ? { underline: {} } : {}),
+        ...(part.item.caps === "allCaps" ? { allCaps: true } : {}),
+        ...(part.item.caps === "smallCaps" ? { smallCaps: true } : {}),
+      }),
+    ]);
+    rightCell.push(new Paragraph({ spacing: single, alignment: AlignmentType.LEFT, children: runs }));
+  }
 
   return [
     new Paragraph({ spacing: { before: 240 }, children: [] }),
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
-      columnWidths: [4000, 6000],
+      columnWidths: [Math.round(leftPct * 100), Math.round((100 - leftPct) * 100)],
       borders: NO_BORDERS,
       rows: [
         new TableRow({

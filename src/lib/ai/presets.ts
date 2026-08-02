@@ -9,6 +9,7 @@
 // the six core "Task" buttons, then "More" extras.
 
 import type { Effort } from "./estimate";
+import type { DraftMode } from "./field-catalog";
 
 export interface Preset {
   id: string;
@@ -147,3 +148,127 @@ export const PRESETS: Preset[] = [
       "Identify every document in the source PDFs that should be annexed with this SLP (each document that formed part of the High Court record), and produce the documents map — for each, its source file, page range, a short title and its date — so Drafto can split and attach them. Mark anything not part of the High Court record as an Additional Document. Do not assign annexure numbers. (Note: this splits and attaches PDFs and so consumes many more tokens.)",
   },
 ];
+
+// ── Writ Petition (Delhi HC) presets ─────────────────────────────────────────
+export const WP_PRESETS: Preset[] = [
+  {
+    id: "memo",
+    model: "haiku",
+    label: "Parties & Details",
+    group: "Tasks",
+    effort: "medium",
+    needsFolder: true,
+    prompt:
+      "Fill Preliminary → Parties and Petition Details from the source documents.\n" +
+      "- Petitioners: the party/parties filing this writ petition, in order, Name (Title Case) + full address. If the user hasn't said who the petitioners are and it isn't evident, ask before proceeding.\n" +
+      "- Respondents: every authority/party against whom relief is sought, in order. Government respondents get their \"through\" service designation in the through field (e.g. \"Through the Secretary, Ministry of …\", \"Through its Standing Counsel\") — never inside the name or address.\n" +
+      "- Petition type (caseType): Criminal only if the writ concerns the criminal-law machinery (FIR, investigation, bail, custody, sentence); otherwise Civil.\n" +
+      "- Constitutional basis (wp.articleBasis): 226 read with 227 when a court/tribunal order is challenged; 226 for other state action; 227 alone only for pure supervisory challenges.\n" +
+      "- wp.isIoWrit: true if the writ challenges a specific impugned order.",
+  },
+  {
+    id: "deponent",
+    model: "haiku",
+    label: "Deponent",
+    group: "Tasks",
+    effort: "small",
+    needsFolder: true,
+    prompt:
+      "Fill Preliminary → Deponent from the source documents.\n" +
+      "- Use the FIRST Petitioner as the deponent by default (no need to confirm), unless the user specified someone else.\n" +
+      "- For a company/organisation petitioner, the deponent is a natural person — set deponent.role to the matching representative capacity (e.g. Authorised Representative of the Petitioner).\n" +
+      "- Find name, relationship, father's/spouse's name, address and age from the documents; ask for whatever is genuinely missing.",
+  },
+  {
+    id: "lod",
+    model: "haiku",
+    label: "List of Dates",
+    group: "Tasks",
+    effort: "large",
+    needsFolder: true,
+    prompt:
+      "Draft Petition → List of Dates from the source documents.\n" +
+      "- MOST IMPORTANT: the List of Dates is NOT a mechanical narration — written well, a reader should finish it convinced the Petitioners have suffered injustice. Narrate the story to that effect. NEVER use strong language against any court or judge — attack the order/action, never its author.\n" +
+      "- Fill each row's Date and Particulars. The Particulars describe the EVENT only — in a writ petition the annexure sentences are printed in the FACTS section, so NEVER describe an annexure in the Particulars.\n" +
+      "- For EVERY date that has a corresponding document in the sources, record that document in THAT ROW'S ANNEXURE ENTRY (title, date, copy type). In an impugned-order writ, mark the impugned order's annexure entry isImpugnedOrder true (it becomes Annexure P-1).\n" +
+      "- After the List of Dates is settled, the user can generate the Facts section from it (or ask you to draft/refine wp.facts).",
+  },
+  {
+    id: "grounds",
+    model: "sonnet",
+    label: "Grounds",
+    group: "Tasks",
+    effort: "large",
+    needsFolder: true,
+    prompt:
+      "Draft Petition → Grounds from the source documents. These tell the Court why the impugned order/action is illegal, arbitrary or perverse and must be interfered with under Articles 226/227.\n" +
+      "- Cover jurisdictional error, violation of natural justice, arbitrariness/Article 14, perversity, and the specific legal errors the sources disclose — grounded in the record, not boilerplate.\n" +
+      "- Frame every ground around the impugned order/action, never the court or officer. Do not number the grounds.",
+  },
+  {
+    id: "reliefs",
+    model: "sonnet",
+    label: "Reliefs",
+    group: "Tasks",
+    effort: "medium",
+    needsFolder: true,
+    prompt:
+      "Draft Petition → Reliefs (wp.reliefs) — the single source of truth for the reliefs block and the PRAYERS paragraph.\n" +
+      "- One relief per row, plain prose, no lettering. Precise, executable writ language (certiorari/mandamus substance without needing the Latin): quash-and-set-aside, direct the respondent to …, declare ….\n" +
+      "- In an impugned-order writ, the FIRST relief must seek to quash and set aside the impugned order, citing its annexure — e.g. \"Quash and set aside the Order dated 01.01.2020 [Annexure P-1]\".\n" +
+      "- Keep the residuary prayer (\"Pass any such other order(s) as this Hon'ble Court may deem fit in the facts and circumstances of this case.\") as the LAST row.\n" +
+      "- If a stay of the impugned order is wanted, that is the separate Stay CM (wp.cms.stay) — set it active and tailor its body paragraphs; do NOT add a stay prayer to the reliefs.",
+  },
+  {
+    id: "facts",
+    model: "sonnet",
+    label: "Facts (from List of Dates)",
+    group: "Tasks",
+    effort: "medium",
+    needsFolder: false,
+    prompt:
+      "Draft/refine Petition → Facts (wp.facts) from the CURRENT List of Dates in the form (read the field values I've described; ask me to paste the List of Dates only if you cannot see it).\n" +
+      "- Produce an HTML ordered list — <ol><li>…</li></ol> — with ONE <li> per List-of-Dates row, in order. Each <li> is flowing prose (\"On 12.03.2021, the Petitioner …\") ending with that row's annexure sentence(s): \"Annexure P-N is a true copy of … dated ….\" (the impugned order is P-1, other annexures P-2 onwards in row order).\n" +
+      "- EXCEPTION: do NOT write an annexure sentence for the impugned order itself — its sentence prints in Para 1 automatically. Facts only carries the sentences for the other annexures (P-2 onwards).\n" +
+      "- Improve connectives, flow and persuasion; do not change the facts, the row order, or the annexure sentences' substance.",
+  },
+
+  // ── More (extras) ──
+  {
+    id: "synopsis",
+    model: "sonnet",
+    label: "Synopsis",
+    group: "More",
+    effort: "large",
+    needsFolder: true,
+    prompt: "Draft the Synopsis for this writ petition based on the source documents, written to persuade this Hon'ble Court that the impugned order/action is unsustainable.",
+  },
+  {
+    id: "cms",
+    model: "sonnet",
+    label: "CM Applications",
+    group: "More",
+    effort: "medium",
+    needsFolder: false,
+    prompt:
+      "Set up Applications (CMs) for this writ petition.\n" +
+      "- Stay CM (impugned-order writs): if the user wants a stay, set wp.cms.stay.active true and tailor its body paragraphs (prima facie case, balance of convenience, irreparable injury) to this case; keep the residuary prayer last.\n" +
+      "- Lengthy Synopsis CM: activate only if the Synopsis & List of Dates are genuinely lengthy.\n" +
+      "- Exemption-from-copies CM: activate when annexures include illegible/uncertified copies.\n" +
+      "- Any other application goes in wp.customCms (title + \"praying that\" para + grounds + prayers). Ask the user which CMs they want if it isn't evident.",
+  },
+  {
+    id: "annexures",
+    model: "haiku",
+    label: "Split & attach Annexures",
+    group: "More",
+    effort: "medium",
+    needsFolder: true,
+    prompt:
+      "Identify every document in the source PDFs that should be annexed with this writ petition, and produce the documents map — for each, its source file, page range, a short title and its date — so Drafto can split and attach them. In an impugned-order writ the impugned order IS an annexure (it becomes Annexure P-1): map it as type \"annexure\" and mark its List-of-Dates annexure entry isImpugnedOrder true. Do not assign annexure numbers. (Note: this splits and attaches PDFs and so consumes many more tokens.)",
+  },
+];
+
+export function getPresets(mode: DraftMode): Preset[] {
+  return mode === "WritPetitionDHC" ? WP_PRESETS : PRESETS;
+}

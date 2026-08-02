@@ -1,7 +1,7 @@
 
 "use client"
 
-import { useFormContext } from "react-hook-form"
+import { useFormContext, useWatch } from "react-hook-form"
 import type { DraftoProject } from "@/lib/schema"
 import { Button } from "@/components/ui/button"
 import {
@@ -16,10 +16,12 @@ import {
 import { FormControl, FormField, FormItem, FormLabel } from "../ui/form"
 import { Checkbox } from "../ui/checkbox"
 
-const declarationItems = [
-    { name: "declarations.noOtherSLPFiled", label: "No other SLP has been filed by the Petitioner against the same impugned judgment/order. [Rule 3(2)]" },
-    { name: "declarations.annexuresTrueCopies", label: "The annexures along with the SLP are true copies of the pleadings/documents forming part of the record of the earlier court. [Rule 5]" },
-] as const;
+// The Declaration rule numbers depend on the SLP type: Criminal SLPs cite
+// Rule 2(2) & Rule 4 (Order XXII); Civil cite Rule 3(2) & Rule 5 (Order XXI).
+const declarationItemsFor = (isCriminal: boolean) => [
+    { name: "declarations.noOtherSLPFiled" as const, label: `No other SLP has been filed by the Petitioner against the same impugned judgment/order. [Rule ${isCriminal ? "2(2)" : "3(2)"}]` },
+    { name: "declarations.annexuresTrueCopies" as const, label: `The annexures along with the SLP are true copies of the pleadings/documents forming part of the record of the earlier court. [Rule ${isCriminal ? "4" : "5"}]` },
+];
 
 const certificateItems = [
     { name: "aorCertificate.confinedToPleadings", label: "The SLP is confined to the pleadings and documents which were before the earlier court. No additional facts, documents or grounds are taken in the SLP, except those in respect of which an application seeking permission is filed." },
@@ -30,6 +32,8 @@ const certificateItems = [
 
 export function DeclarationsContent() {
   const form = useFormContext<DraftoProject>()
+  const caseType = useWatch({ control: form.control, name: "caseType" })
+  const declarationItems = declarationItemsFor(caseType === "Criminal")
   return (
     <div className="space-y-2 py-1">
       <div>

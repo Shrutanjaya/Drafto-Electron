@@ -6,6 +6,10 @@
 //   →      "On 01.01.2006, the Petitioner was appointed… Annexure P-1 is a true
 //           copy of … dated …."
 //
+// Inline formatting in the LoD event (bold/italic case citations etc.) is
+// PRESERVED — only block structure is flattened, so each row still becomes one
+// flowing numbered paragraph.
+//
 // The AI assistant ("Mayur") can later refine this prose, but this deterministic
 // pass is the dependable default and offline fallback.
 
@@ -28,6 +32,18 @@ function stripHtml(html: string): string {
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Flatten block structure to a single flowing inline-HTML string, keeping
+// inline formatting tags (<b>/<strong>/<i>/<em>/<u>/…) intact. Also used by
+// the petition generator to run the reliefs together inside Para 1.
+export function inlineHtml(html: string): string {
+  return (html || "")
+    .replace(/<\s*br\s*\/?\s*>/gi, " ")
+    .replace(/<\/?(?:p|div|ol|ul|li|h[1-6]|blockquote|table|thead|tbody|tr|td|th)\b[^>]*>/gi, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 // First words that read naturally lowercased after a leading date phrase
@@ -67,6 +83,7 @@ export function datePhrase(date: string): string {
   return `On ${d}, `;
 }
 
+// Plain-text transposition (kept for tests and non-HTML callers).
 export function transposeEvent(date: string, eventText: string): string {
   const phrase = datePhrase(date);
   let body = (eventText || "").trim();
@@ -79,37 +96,122 @@ export function transposeEvent(date: string, eventText: string): string {
   return (phrase + body).trim();
 }
 
-// Facts-style annexure sentence (not the colon Index style).
-export function factsAnnexureSentence(pNumber: number, annex: Annexure): string {
-  const label = annexLabel(pNumber, annex);
-  const dated = annex.date ? ` dated ${annex.date}` : "";
-  if (annex.isColly) {
-    return `${label} are true copies of ${annex.title || "[description]"}${dated}.`;
+// HTML-preserving transposition: prepends the date phrase and lowercases the
+// first visible word (which may sit inside inline tags like <b>The</b>).
+export function transposeEventHtml(date: string, eventHtml: string): string {
+  const phrase = datePhrase(date);
+  let body = inlineHtml(eventHtml);
+  if (phrase && body) {
+    const m = body.match(/^((?:<[^>]+>|\s)*)([A-Za-z]+)/);
+    if (m && LEAD_LOWERCASE.has(m[2])) {
+      body =
+        body.slice(0, m[1].length) +
+        m[2].charAt(0).toLowerCase() + m[2].slice(1) +
+        body.slice(m[1].length + m[2].length);
+    }
   }
-  const copy = annex.copyType || "true copy";
-  return `${label} is a ${copy} of ${annex.title || "[description]"}${dated}.`;
+  return (escapeHtml(phrase) + body).trim();
+}
+
+// Facts-style annexure sentence (not the colon Index style), split into the
+// "Annexure P-N" label and the rest so renderers can bold the label.
+export function factsAnnexureSentenceParts(pNumber: number, annex: Annexure, prefix: string = "P"): { label: string; rest: string } {
+  const label = annexLabel(pNumber, annex, prefix);
+  const dated = annex.date ? ` dated ${annex.date}` : "";
+  const rest = annex.isColly
+    ? ` are true copies of ${annex.title || "[description]"}${dated}.`
+    : ` is a ${annex.copyType || "true copy"} of ${annex.title || "[description]"}${dated}.`;
+  return { label, rest };
+}
+
+export function factsAnnexureSentence(pNumber: number, annex: Annexure, prefix: string = "P"): string {
+  const { label, rest } = factsAnnexureSentenceParts(pNumber, annex, prefix);
+  return label + rest;
+}
+
+// HTML form with the label in bold, for the generated Facts paragraphs.
+export function factsAnnexureSentenceHtml(pNumber: number, annex: Annexure, prefix: string = "P"): string {
+  const { label, rest } = factsAnnexureSentenceParts(pNumber, annex, prefix);
+  return `<b>${escapeHtml(label)}</b>${escapeHtml(rest)}`;
+}
+
+// One transposed <li> (inner HTML) for a LoD row, or null when the row is empty.
+function factsItem(project: DraftoProject, lod: DraftoProject["listOfDates"][number], pMap: Map<string, { annex: Annexure; pNumber: number }>, prefix: string = "P"): string | null {
+  // The impugned order's annexure sentence prints in Para 1 of the petition,
+  // NOT in Facts — only the other annexures get their sentence here. (The IO
+  // still holds P-1, so the remaining sentences cite P-2 onwards.)
+  const annexes = (lod.annexures || []).filter(a => !a.isImpugnedOrder);
+  let sentence = transposeEventHtml(lod.date || "", lod.event || "");
+  if (!sentence && annexes.length === 0) return null;
+  for (const annex of annexes) {
+    const entry = pMap.get(annex.id);
+    if (!entry) continue;
+    sentence = `${sentence} ${factsAnnexureSentenceHtml(entry.pNumber, annex, prefix)}`.trim();
+  }
+  return sentence || null;
+}
+
+function pMapOf(project: DraftoProject) {
+  return new Map(wpAnnexureOrder(project).map(e => [e.annex.id, e]));
+}
+
+// Ids of the LoD rows that would produce a Facts paragraph right now.
+export function transposableLodIds(project: DraftoProject): string[] {
+  const pMap = pMapOf(project);
+  return (project.listOfDates || [])
+    .filter(lod => factsItem(project, lod, pMap) !== null)
+    .map(lod => lod.id);
+}
+
+// Fingerprint of everything the transposition reads from the LoD — used to
+// detect Facts gone stale after later LoD edits (dates, text, annexures).
+export function lodFingerprint(project: DraftoProject): string {
+  const pMap = pMapOf(project);
+  return (project.listOfDates || [])
+    .map(lod => {
+      const annexes = (lod.annexures || [])
+        .map(a => `${a.id}|${pMap.get(a.id)?.pNumber ?? "?"}|${a.title}|${a.date}|${a.copyType}|${a.isColly ? 1 : 0}`)
+        .join("^");
+      return `${lod.id}|${lod.date}|${stripHtml(lod.event || "")}|${annexes}`;
+    })
+    .join("~");
 }
 
 // Build the Facts section HTML (an ordered list, one item per LoD row) from the
 // project's List of Dates and the annexures attached to each row.
-export function transposeLodToFacts(project: DraftoProject): string {
-  const pMap = new Map(wpAnnexureOrder(project).map(e => [e.annex.id, e]));
+export function transposeLodToFacts(project: DraftoProject, prefix: string = "P"): string {
+  const pMap = pMapOf(project);
   const items: string[] = [];
-
   for (const lod of project.listOfDates || []) {
-    const text = stripHtml(lod.event || "");
-    const annexes = lod.annexures || [];
-    if (!text && annexes.length === 0) continue;
-
-    let sentence = transposeEvent(lod.date || "", text);
-    for (const annex of annexes) {
-      const entry = pMap.get(annex.id);
-      if (!entry) continue;
-      sentence = `${sentence} ${factsAnnexureSentence(entry.pNumber, annex)}`.trim();
-    }
-    items.push(escapeHtml(sentence));
+    const item = factsItem(project, lod, pMap, prefix);
+    if (item !== null) items.push(item);
   }
-
   if (items.length === 0) return "";
   return `<ol>${items.map(i => `<li>${i}</li>`).join("")}</ol>`;
+}
+
+// Append-only transposition: paragraphs for LoD rows NOT in `doneIds` are added
+// to the end of the existing (possibly hand-edited) Facts HTML, inside its
+// trailing list when one exists. Returns the new HTML and the appended row ids.
+export function appendNewLodRowsToFacts(
+  project: DraftoProject,
+  factsHtml: string,
+  doneIds: string[],
+  prefix: string = "P",
+): { html: string; appendedIds: string[] } {
+  const done = new Set(doneIds || []);
+  const pMap = pMapOf(project);
+  const additions: { id: string; item: string }[] = [];
+  for (const lod of project.listOfDates || []) {
+    if (done.has(lod.id)) continue;
+    const item = factsItem(project, lod, pMap, prefix);
+    if (item !== null) additions.push({ id: lod.id, item });
+  }
+  if (additions.length === 0) return { html: factsHtml, appendedIds: [] };
+
+  const lis = additions.map(a => `<li>${a.item}</li>`).join("");
+  const html = (factsHtml || "").trim();
+  const m = html.match(/^([\s\S]*)(<\/ol>\s*)$/i);
+  const merged = m ? `${m[1]}${lis}${m[2]}` : html ? `${html}<ol>${lis}</ol>` : `<ol>${lis}</ol>`;
+  return { html: merged, appendedIds: additions.map(a => a.id) };
 }

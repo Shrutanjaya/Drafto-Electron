@@ -220,11 +220,30 @@ const getConstrainedStyles = () => {
     };
 };
 
-const defaultMargins = {
-    top: 1.5 * 1440,
-    right: 1 * 1440,
-    bottom: 1 * 1440,
-    left: 1.5 * 1440,
+// Page margins for every SLP document — user-configurable (Settings →
+// Formatting); historical defaults 1.5" top/left, 1" bottom/right. Read from
+// drafto-settings at export time, in the renderer.
+const getSlpMargins = () => {
+    const d = { top: 1.5, right: 1, bottom: 1, left: 1.5 };
+    if (typeof window !== 'undefined') {
+        try {
+            const s = JSON.parse(window.localStorage.getItem('drafto-settings') || '{}');
+            const clamp = (v: unknown, dv: number) => {
+                const n = typeof v === 'number' ? v : parseFloat(String(v));
+                return isFinite(n) ? Math.min(3, Math.max(0.2, n)) : dv;
+            };
+            d.top = clamp(s.slpMarginTopIn, d.top);
+            d.right = clamp(s.slpMarginRightIn, d.right);
+            d.bottom = clamp(s.slpMarginBottomIn, d.bottom);
+            d.left = clamp(s.slpMarginLeftIn, d.left);
+        } catch { /* ignore */ }
+    }
+    return {
+        top: Math.round(d.top * 1440),
+        right: Math.round(d.right * 1440),
+        bottom: Math.round(d.bottom * 1440),
+        left: Math.round(d.left * 1440),
+    };
 };
 
 // Default cell margins matching MS Word (0.08 inches = 115 twips)
@@ -811,7 +830,7 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
     styles: getConstrainedStyles(),
     sections: [
       { // Cover Page & Index
-        properties: { page: { margin: defaultMargins } },
+        properties: { page: { margin: getSlpMargins() } },
         headers: { default: new Header({ children: [] }) },
         footers:  { default: new Footer({ children: [] }) },
         children: [
@@ -864,7 +883,7 @@ export async function generateOrDocx(projectData: DraftoProject, includeSignatur
     sections: [
       { // Office Report
         properties: { 
-          page: { margin: defaultMargins }
+          page: { margin: getSlpMargins() }
         },
         headers: {
             default: new Header({
@@ -932,7 +951,7 @@ export async function generateLpDocx(projectData: DraftoProject) {
         styles: lpStyles,
         sections: [{
             properties: { 
-                page: { margin: defaultMargins },
+                page: { margin: getSlpMargins() },
                 type: SectionType.NEXT_PAGE,
                 pageNumberStart: 1,
             },
@@ -1085,7 +1104,7 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
         },
         styles: getDefaultStyles(),
         sections: [{
-            properties: { page: { margin: defaultMargins } },
+            properties: { page: { margin: getSlpMargins() } },
             children: [
                 new Paragraph({ children: [smartTextRun({ text: "SYNOPSIS", bold: true })], alignment: AlignmentType.CENTER, style: "Normal" }),
                 ...synopsisResult.paragraphs,
@@ -1562,7 +1581,7 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
     }
 
     const sections: ISectionOptions[] = [{
-        properties: { page: { margin: defaultMargins } },
+        properties: { page: { margin: getSlpMargins() } },
         children: [
             ...betweenBlocks,
             new Paragraph({
@@ -1597,14 +1616,16 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
             ...(questionsOfLawTable ? [questionsOfLawTable] : []),
              new Paragraph({
                 children: [
-                    smartTextRun({ text: "DECLARATION IN TERMS OF RULE 3(2): ", bold: true }),
+                    // Criminal SLPs are governed by Order XXII (Rules 2(2) & 4);
+                    // Civil by Order XXI (Rules 3(2) & 5).
+                    smartTextRun({ text: `DECLARATION IN TERMS OF RULE ${projectData.caseType === 'Criminal' ? '2(2)' : '3(2)'}: `, bold: true }),
                     smartTextRun(`No other petition seeking Special Leave to Appeal against${ioText} has been filed by the Petitioner(s).`)
                 ],
                 numbering: { reference: "slp-intro-list-3", level: 0 },
             }),
             new Paragraph({
                 children: [
-                    smartTextRun({ text: "DECLARATION IN TERMS OF RULE 5: ", bold: true }),
+                    smartTextRun({ text: `DECLARATION IN TERMS OF RULE ${projectData.caseType === 'Criminal' ? '4' : '5'}: `, bold: true }),
                     smartTextRun(`Annexures P-1 to P-${lastNonAdPNumber} produced along with the Special Leave Petition are true copies of the pleadings/documents which formed part of the Courts below.`)
                 ],
                 numbering: { reference: "slp-intro-list-3", level: 0 },
@@ -1680,7 +1701,7 @@ export async function generateAppendixDocx(projectData: DraftoProject) {
         },
         styles: getDefaultStyles(),
         sections: [{
-            properties: { page: { margin: defaultMargins } },
+            properties: { page: { margin: getSlpMargins() } },
             children: [
                 new Paragraph({
                     children: [smartTextRun({ text: `APPENDIX: RELEVANT PROVISIONS OF THE ${(projectData.appendixDescription || '').toUpperCase()}`, bold: true })],
@@ -2207,7 +2228,7 @@ export async function generateIaDocx(
         },
         styles: getDefaultStyles(),
         sections: [{
-            properties: { page: { margin: defaultMargins } },
+            properties: { page: { margin: getSlpMargins() } },
             children: [
                 ...createIaHeader(projectData.caseType),
                 ...createPartiesHeader(petHeader, resHeader),
@@ -2312,7 +2333,7 @@ export async function generateFilingMemoDocx(projectData: DraftoProject, include
     const doc = new Document({
         styles: getDefaultStyles(),
         sections: [{
-            properties: { page: { margin: defaultMargins } },
+            properties: { page: { margin: getSlpMargins() } },
             children: [
                 ...createSlpHeader(projectData.caseType, ` ${calculateIoText(projectData)}`),
                 ...createPartiesHeader(petHeader, resHeader),
@@ -2360,6 +2381,25 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
         return { success: false, message: "No petitioners found to generate Vakalatnama." };
     }
 
+    // The deponent may execute on behalf of a petitioner in a representative
+    // capacity (Authorised Representative / Pairokar / Legal Guardian / PoA
+    // Holder). deponent.role names the petitioner it attaches to ("… of the
+    // Petitioner" / "… of Petitioner No. 1") — both resolve to the first
+    // petitioner's vakalatnama; the others are executed by the petitioners
+    // themselves. When the role is plainly "Petitioner"/"Petitioner No. 1", the
+    // petitioner signs directly (unchanged behaviour).
+    const depRole = projectData.deponent?.role || '';
+    const depName = projectData.deponent?.name?.trim() || '';
+    const isRepRole = !!depRole && depRole !== 'Petitioner' && depRole !== 'Petitioner No. 1';
+    // Executant for a given petitioner index: name + descriptor used both in the
+    // opening ("I, <name>, <descriptor> …") and the signature block.
+    const executantFor = (index: number, petitionerName: string, petitionerPosition: string) => {
+        if (index === 0 && isRepRole && depName) {
+            return { name: depName, descriptor: depRole, onBehalf: petitionerName };
+        }
+        return { name: petitionerName, descriptor: `${petitionerPosition} in this Special Leave Petition`, onBehalf: '' };
+    };
+
     const vakalatnamaStyles = {
         paragraphStyles: [{
             id: "VakaNormal",
@@ -2384,6 +2424,17 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
 
     validPetitioners.forEach((petitioner, index) => {
         const petitionerPosition = validPetitioners.length === 1 ? "Petitioner" : `Petitioner No. ${index + 1}`;
+        const executant = executantFor(index, petitioner.name, petitionerPosition);
+        // Opening clause. A representative executant reads "I, <rep name>, <the
+        // Authorised Representative of the Petitioner…>, hereby appoint…"; a
+        // petitioner reads "I, <name>, Petitioner No. N in this SLP, hereby…".
+        const openingIntro = `I, ${executant.name}, ${executant.descriptor}, hereby appoint and retain `;
+        const openingClose = `, Advocate on Record of the Supreme Court, to act and appear for me in this petition and, on my behalf, to conduct and prosecute the same and all proceedings that may be taken in respect of any application connected with the same or any decree/order passed therein, including proceedings in taxation and application for review, to file and obtain return of documents, and to deposit and receive money on my behalf in the said petition and in any application for review, and to represent me and to take all necessary steps on my behalf in the above matter. I agree to ratify all acts done by the aforesaid Advocate in pursuance of this authority.`;
+        // Signature label: representative shows "<rep name> (<capacity>)"; a
+        // petitioner shows "<name> (Petitioner No. N)".
+        const signatureLabel = executant.onBehalf
+            ? `${executant.name} (${executant.descriptor})`
+            : `${petitioner.name} (${petitionerPosition})`;
         const children: (Paragraph | Table)[] = [
             new Paragraph({ text: "IN THE SUPREME COURT OF INDIA", alignment: AlignmentType.CENTER, style: "VakaNormal" }),
             new Paragraph({ text: `${caseType} Appellate Jurisdiction`, alignment: AlignmentType.CENTER, style: "VakaNormal" }),
@@ -2408,9 +2459,9 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
             new Paragraph({ children: [smartTextRun({ text: "VAKALATNAMA", bold: true })], alignment: AlignmentType.CENTER, style: "VakaNormal" }),
             new Paragraph({
                 children: [
-                    smartTextRun({ text: convertToSmartQuotes(`I, ${petitioner.name}, ${petitionerPosition} in this Special Leave Petition, hereby appoint and retain `) }),
+                    smartTextRun({ text: convertToSmartQuotes(openingIntro) }),
                     smartTextRun({ text: aorName, bold: true }),
-                    smartTextRun({ text: convertToSmartQuotes(`, Advocate on Record of the Supreme Court, to act and appear for me in this petition and, on my behalf, to conduct and prosecute the same and all proceedings that may be taken in respect of any application connected with the same or any decree/order passed therein, including proceedings in taxation and application for review, to file and obtain return of documents, and to deposit and receive money on my behalf in the said petition and in any application for review, and to represent me and to take all necessary steps on my behalf in the above matter. I agree to ratify all acts done by the aforesaid Advocate in pursuance of this authority.`) }),
+                    smartTextRun({ text: convertToSmartQuotes(openingClose) }),
                 ],
                 style: "VakaNormal",
                 alignment: AlignmentType.JUSTIFIED,
@@ -2423,15 +2474,15 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
                 rows: [new TableRow({
                     children: [
                         new TableCell({ children: [new Paragraph({ text: `Date: ${currentDate}`, style: "VakaNormal" })], borders: noBorders }),
-                        new TableCell({ 
+                        new TableCell({
                             children: [
-                                new Paragraph({ 
-                                    children: [smartTextRun({ text: `${petitioner.name} (${petitionerPosition})`, bold: true })], 
-                                    style: "VakaNormal", 
-                                    alignment: AlignmentType.RIGHT 
+                                new Paragraph({
+                                    children: [smartTextRun({ text: signatureLabel, bold: true })],
+                                    style: "VakaNormal",
+                                    alignment: AlignmentType.RIGHT
                                 })
-                            ], 
-                            borders: noBorders 
+                            ],
+                            borders: noBorders
                         }),
                     ],
                 })],
@@ -2484,7 +2535,7 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
         }
 
         sections.push({
-            properties: { page: { margin: defaultMargins } },
+            properties: { page: { margin: getSlpMargins() } },
             children,
         });
     });
@@ -2551,7 +2602,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
     const slpAffidavitDoc = new Document({
         styles: getDefaultStyles(),
         numbering: { config: [affidavitNumbering] },
-        sections: [{ properties: { page: { margin: defaultMargins } }, children: slpAffidavitChildren }]
+        sections: [{ properties: { page: { margin: getSlpMargins() } }, children: slpAffidavitChildren }]
     });
     docs.push({
         fileName: `Affidavit-SLP.docx`,
@@ -2588,7 +2639,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
         const iaAffidavitDoc = new Document({
             styles: getDefaultStyles(),
             numbering: { config: [affidavitNumbering] },
-            sections: [{ properties: { page: { margin: defaultMargins } }, children: iaAffidavitChildren }]
+            sections: [{ properties: { page: { margin: getSlpMargins() } }, children: iaAffidavitChildren }]
         });
         docs.push({
             fileName: `Affidavit-IA-${index + 1}.docx`,
@@ -2744,9 +2795,9 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject, 
     });
 
     // Checklist top/left margins are user-configurable (default 1", vs the 1.5"
-    // used elsewhere); right/bottom follow the shared defaults.
+    // used elsewhere); right/bottom follow the shared SLP margins.
     const checklistMargins = {
-        ...defaultMargins,
+        ...getSlpMargins(),
         top: Math.round(cf.marginTopInches * 1440),
         left: Math.round(cf.marginLeftInches * 1440),
     };
@@ -4459,10 +4510,10 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
 
             await applyBookmarksToPdf(consolidated, allEntries);
             const consolidatedBase64 = await pdfToBase64(consolidated);
-            return { success: true, pdf: consolidatedBase64, volumes: undefined };
+            return { success: true, pdf: consolidatedBase64, volumes: undefined, annexureFirstPages: firstPagesOf(annexurePageRanges) };
         }
 
-        return { success: true, volumes: volumeResults.map(({ bookmarkEntries: _, ...rest }) => rest) };
+        return { success: true, volumes: volumeResults.map(({ bookmarkEntries: _, ...rest }) => rest), annexureFirstPages: firstPagesOf(annexurePageRanges) };
     }
 
     const pdfBytes = await mergedPdf.save();
@@ -4471,7 +4522,14 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
     for (let i = 0; i < pdfBytes.byteLength; i++) binary += String.fromCharCode(pdfBytes[i]);
     const pdfBase64 = btoa(binary);
 
-    return { success: true, pdf: pdfBase64 };
+    return { success: true, pdf: pdfBase64, annexureFirstPages: firstPagesOf(annexurePageRanges) };
+}
+
+// Annexure-id → first paper-book page, for the quick briefing note.
+function firstPagesOf(ranges: Map<string, { start: number; end: number }>): Record<string, number> {
+    const out: Record<string, number> = {};
+    ranges.forEach((v, k) => { out[k] = v.start; });
+    return out;
 }
 
     

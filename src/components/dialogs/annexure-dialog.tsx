@@ -18,7 +18,8 @@ import {
   FormMessage,
 } from "../ui/form";
 import { Input } from "../ui/input";
-import { PlusCircle, Trash2, Paperclip, Copy, Upload } from "lucide-react";
+import { Textarea } from "../ui/textarea";
+import { PlusCircle, Trash2, Paperclip, Copy, Upload, GripHorizontal } from "lucide-react";
 import { Checkbox } from "../ui/checkbox";
 import { Card, CardContent } from "../ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
@@ -37,6 +38,26 @@ interface AnnexureDialogProps {
   children: React.ReactElement;
   annexureNumberingMap: Map<string, number>;
 }
+
+// Single-line-looking textarea that grows vertically as the text wraps, so long
+// annexure descriptions / custom text stay fully visible instead of scrolling
+// inside a fixed-width input.
+const AutoGrowField = React.forwardRef<
+  HTMLTextAreaElement,
+  React.TextareaHTMLAttributes<HTMLTextAreaElement>
+>(({ className, ...props }, ref) => (
+  <Textarea
+    {...props}
+    ref={(el) => {
+      if (typeof ref === "function") ref(el); else if (ref) (ref as any).current = el;
+      if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; }
+    }}
+    rows={1}
+    onInput={(e) => { const t = e.currentTarget; t.style.height = "auto"; t.style.height = `${t.scrollHeight}px`; }}
+    className={cn("min-h-0 resize-none overflow-hidden py-1 leading-snug", className)}
+  />
+));
+AutoGrowField.displayName = "AutoGrowField";
 
 function useIsDark() {
   const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
@@ -101,7 +122,15 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
   });
   const isDark = useIsDark();
   const isWp = form.watch("courtType") === "WritPetitionDHC";
+  const isOa = form.watch("courtType") === "OriginalApplicationCAT";
+  // HC (writ) and CAT (OA) both use the Impugned-Order + Colly controls and the
+  // "A-/P-" prefix, NOT the SC "Additional Document" checkbox.
+  const isIoDoctype = isWp || isOa;
+  const annexPrefix = isOa ? "A" : "P";
   const isIoWrit = form.watch("wp.isIoWrit");
+  // The IO checkbox is available on every CAT annexure; on the HC writ it is
+  // gated by the "challenges an Impugned Order" toggle.
+  const showIoCheckbox = isOa || (isWp && isIoWrit);
 
   // Controlled open state so Find & Replace can pop this dialog open to reveal a
   // matching annexure field. Each List-of-Dates row has its own AnnexureDialog;
@@ -118,6 +147,29 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
     applyPending();
     return () => window.removeEventListener(FIND_REVEAL_EVENT, applyPending);
   }, [lodIndex]);
+
+  // Drag-to-move: the popover opens anchored to its trigger, then the user can
+  // drag it around by its header bar. The offset is a translate applied on top
+  // of Radix's positioning; it resets each time the popover reopens.
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
+  useEffect(() => { if (open) setDragOffset({ x: 0, y: 0 }); }, [open]);
+  const onDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startY: e.clientY, baseX: dragOffset.x, baseY: dragOffset.y };
+    const onMove = (ev: MouseEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      setDragOffset({ x: d.baseX + (ev.clientX - d.startX), y: d.baseY + (ev.clientY - d.startY) });
+    };
+    const onUp = () => {
+      dragRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
 
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const typedFileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -172,10 +224,21 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent className="max-w-[90vw] w-full md:max-w-7xl p-0 shadow-none border-0 bg-transparent" side="bottom" align="end">
-        <div className={cn(isDark ? 'force-light' : 'dark', 'p-2 rounded-md border-2 border-border/80 bg-background text-foreground shadow-2xl')}>
+      <PopoverContent className="w-[min(92vw,760px)] p-0 shadow-none border-0 bg-transparent" side="bottom" align="end" sideOffset={6} collisionPadding={12}>
+        <div
+          className={cn(isDark ? 'force-light' : 'dark', 'rounded-xl border border-border/80 bg-background text-foreground shadow-2xl')}
+          style={{ transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)` }}
+        >
         <TooltipProvider>
-          <div className="flex flex-col h-full">
+          {/* Drag handle — grab here to move the bubble around. */}
+          <div
+            onMouseDown={onDragStart}
+            className="flex cursor-move select-none items-center gap-1.5 rounded-t-xl border-b bg-muted/50 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+          >
+            <GripHorizontal className="h-3.5 w-3.5" />
+            <span>Annexures — drag to move</span>
+          </div>
+          <div className="flex flex-col h-full p-2.5 pt-2">
               <div className="flex-grow overflow-y-auto pr-1 space-y-1 py-2 max-h-[60vh]">
               {fields.map((item, index) => {
                   const currentAnnexure = form.watch(`listOfDates.${lodIndex}.annexures.${index}`);
@@ -232,7 +295,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                               )}
                           />
                           
-                          {!isWp && (
+                          {!isIoDoctype && (
                           <FormField
                               control={form.control}
                               name={`listOfDates.${lodIndex}.annexures.${index}.isAdditionalDocument`}
@@ -256,7 +319,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                           />
                           )}
 
-                          {isWp && isIoWrit && (
+                          {showIoCheckbox && (
                           <FormField
                               control={form.control}
                               name={`listOfDates.${lodIndex}.annexures.${index}.isImpugnedOrder`}
@@ -267,7 +330,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                                         <TooltipTrigger asChild>
                                             <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                                         </TooltipTrigger>
-                                        <TooltipContent><p>Mark as an Impugned Order (sorts to P-1; relief (a) quashes it).</p></TooltipContent>
+                                        <TooltipContent><p>Mark as an Impugned Order (sorts to {annexPrefix}-1).</p></TooltipContent>
                                     </Tooltip>
                                   </FormControl>
                                   <span className="text-[10px] text-muted-foreground">IO</span>
@@ -276,7 +339,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                           />
                           )}
 
-                          {isWp && (
+                          {isIoDoctype && (
                           <FormField
                               control={form.control}
                               name={`listOfDates.${lodIndex}.annexures.${index}.isColly`}
@@ -287,7 +350,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                                         <TooltipTrigger asChild>
                                             <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                                         </TooltipTrigger>
-                                        <TooltipContent><p>Colly (collectively): clubs several documents under one P-number, each bookmarked separately.</p></TooltipContent>
+                                        <TooltipContent><p>Colly (collectively): clubs several documents under one {annexPrefix}-number, each bookmarked separately.</p></TooltipContent>
                                     </Tooltip>
                                   </FormControl>
                                   <span className="text-[10px] text-muted-foreground">Colly</span>
@@ -296,7 +359,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                           />
                           )}
 
-                          <p className="font-medium text-xs whitespace-nowrap self-center">Annexure P-{pNumber !== undefined && pNumber}</p>
+                          <p className="font-medium text-xs whitespace-nowrap self-center">Annexure {annexPrefix}-{pNumber !== undefined && pNumber}</p>
                           <p className="font-medium text-xs whitespace-nowrap self-center">is a</p>
 
                           <FormField
@@ -373,7 +436,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                             render={({ field }) => (
                               <FormItem className="flex-grow min-w-[150px]">
                                 <FormControl>
-                                  <Input {...field} placeholder="Description" className="h-7 text-xs"/>
+                                  <AutoGrowField {...field} placeholder="Description" className="text-xs"/>
                                 </FormControl>
                               </FormItem>
                             )}
@@ -399,7 +462,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                             render={({ field }) => (
                               <FormItem className="flex-grow min-w-[100px]">
                                 <FormControl>
-                                  <Input {...field} placeholder="Custom text" className="h-7 text-xs"/>
+                                  <AutoGrowField {...field} placeholder="Custom text" className="text-xs"/>
                                 </FormControl>
                               </FormItem>
                             )}
@@ -430,7 +493,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                             </AlertDialogContent>
                           </AlertDialog>
                         </div>
-                        {isWp && currentAnnexure.isColly && (
+                        {isIoDoctype && currentAnnexure.isColly && (
                           <CollyConstituents lodIndex={lodIndex} annexIndex={index} />
                         )}
                       </CardContent>
@@ -459,7 +522,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                 <SelectContent>
                   {cloneOptions.map(opt => (
                     <SelectItem key={opt.id} value={opt.id} className="text-xs">
-                      P-{opt.pNumber}{opt.title ? ` — ${opt.title}` : ""}
+                      {annexPrefix}-{opt.pNumber}{opt.title ? ` — ${opt.title}` : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>

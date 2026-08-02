@@ -44,6 +44,9 @@ type AamTableName = "grounds" | "questionsOfLaw" | "interimReliefGrounds" | "int
   | "wp.cms.stay.body" | "wp.cms.lengthySynopsis.body" | "wp.cms.exemptionCopies.body"
   | "wp.cms.stay.prayers" | "wp.cms.lengthySynopsis.prayers" | "wp.cms.exemptionCopies.prayers"
   | `wp.customCms.${number}.grounds` | `wp.customCms.${number}.prayers`
+  // CAT Original Application paths
+  | "oa.reliefs" | "oa.interimReliefs"
+  | `oa.mas.${number}.body`
 
 interface AamTableProps {
     name: AamTableName;
@@ -105,6 +108,15 @@ export function AamTable({ name, defaultRows = 10, disabled = false, labelMode =
     name: name,
   })
 
+  // Id of a just-inserted row whose editor should grab focus. Cleared implicitly
+  // once matched (ids are unique, so it focuses exactly one row, once).
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const insertAfter = (index: number) => {
+    const id = `item_${Date.now()}`;
+    insert(index + 1, { id, particulars: "" });
+    setFocusId(id);
+  };
+
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
@@ -160,7 +172,8 @@ export function AamTable({ name, defaultRows = 10, disabled = false, labelMode =
                                     onChange={field.onChange}
                                     disabled={disabled}
                                     path={field.name}
-                                    onCtrlSpace={() => insert(index + 1, { id: `item_${Date.now()}`, particulars: "" })}
+                                    autoFocus={item.id === focusId}
+                                    onCtrlSpace={() => insertAfter(index)}
                                   />
                                 </FormControl>
                               </FormItem>

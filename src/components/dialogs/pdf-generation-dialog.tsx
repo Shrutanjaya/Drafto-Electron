@@ -39,6 +39,8 @@ import { ScrollArea } from "../ui/scroll-area";
 import type { DraftoProject, Annexure } from "@/lib/schema";
 import { getIaList } from "@/lib/ia-list-utils";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
+import { useEntitlement } from "@/providers/entitlement-provider";
 import { generatePdf } from "@/lib/actions";
 import { getSettings } from "./settings-dialog";
 import { incrementGenerationCount } from "@/lib/firebase/usage-service";
@@ -208,6 +210,7 @@ const annexDate = (date: string) => date ? ` dated ${date}` : '';
 function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: () => void; onGeneratingChange?: (v: boolean) => void }) {
     const mainForm = useFormContext<DraftoProject>();
     const { toast } = useToast();
+    const { entitlement, loading: entLoading, openManageSubscription } = useEntitlement();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [showCloseConfirm, setShowCloseConfirm] = useState(false);
@@ -686,6 +689,22 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
     };
 
     const onSubmit = async (data: PdfMergeForm) => {
+        // Entitlement gate: paper-book generation requires an active subscription.
+        if (entLoading || !entitlement.canExport) {
+            toast({
+                variant: "destructive",
+                title: "Subscription required",
+                description:
+                    "Paper-book generation is disabled because your subscription isn’t active. Renew to continue.",
+                action: (
+                    <ToastAction altText="Renew" onClick={openManageSubscription}>
+                        Renew
+                    </ToastAction>
+                ),
+            });
+            return;
+        }
+
         // Warn if optional docs (IA affidavits, custody/FIR) are missing, but allow proceeding
         const missingOptional = getMissingOptionalDocs(data);
         if (missingOptional.length > 0 && !pendingSubmitData.current) {
@@ -774,6 +793,10 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             if (result.success && result.pdf) {
                 setProgress(100);
 
+                // Offer the quick briefing note (List of Dates + page numbers)
+                // once the paper-book is saved/downloaded.
+                const offerBriefingNote = () => window.dispatchEvent(new CustomEvent("drafto-offer-briefing", { detail: { pageByAnnexId: (result as { annexureFirstPages?: Record<string, number> }).annexureFirstPages || {} } }));
+
                 // If OCR is enabled, process it
                 if (enableOcr && window.electron) {
                     setIsGenerating(false);
@@ -829,6 +852,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                             toast({ title: "PDF Generated", description: `Saved to ${savedPath}` });
                             const dir = savedPath.replace(/[\\/][^\\/]+$/, '');
                             window.electron.openFolderPath?.(dir);
+                            offerBriefingNote();
                             onClose();
                             return;
                         }
@@ -849,6 +873,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                 setProgress(100);
                 incrementGenerationCount('paperbook');
                 toast({ title: "PDF Generated", description: "Your paper book has been downloaded." });
+                offerBriefingNote();
             } else {
                  setErrorMessage(result.message || "An unknown error occurred.");
                  setErrorDialogOpen(true);

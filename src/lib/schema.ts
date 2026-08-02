@@ -60,6 +60,24 @@ export const aamTableItemSchema = z.object({
   particulars: z.string().default(""),
 });
 
+// A CAT Miscellaneous Application (or the Petition for Transfer). Auto MAs
+// (delay/joinder) and the PT are inserted/removed by the Applications tab when
+// their trigger fires; exemption + custom MAs are user-added. All live in one
+// user-orderable array (oa.mas).
+export const oaMaSchema = z.object({
+  id: z.string().default(() => `oama_${Math.random().toString(36).slice(2, 8)}`),
+  kind: z.enum(["delay", "joinder", "exemptCopies", "exemptTranslation", "custom", "pt"]).default("custom"),
+  provision: z.string().default(""),     // custom/PT: the "under <provision>" text
+  firstPrayer: z.string().default(""),   // custom: the first prayer (2nd is the fixed residuary)
+  body: z.array(aamTableItemSchema).default([]), // editable middle paragraphs
+  annexureList: z.string().default(""),  // exemption MAs: e.g. "A-1, A-3 and A-5"
+  delayWithoutPrejudice: z.boolean().default(false),
+  numbering: z.enum(["lower-roman", "upper-roman", "lower-alpha", "upper-alpha"]).default("lower-roman"),
+  // Signed/executed affidavit for THIS application; when uploaded it replaces
+  // the generated clean affidavit in the paper-book.
+  signedAffidavit: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
+});
+
 export const iaGroundItemSchema = z.object({
   id: z.string().default(() => `ia_ground_${Math.random()}`),
   particulars: z.string().default(""),
@@ -71,6 +89,9 @@ export const vaadiTableItemSchema = z.object({
   name: z.string().default(""),
   address: z.string().default(""),
   positionInEarlierCourt: z.string().default(""),
+  // Service designation shown in the WP Memo of Parties (e.g. "Through its
+  // Standing Counsel", "Through the Secretary, Ministry of …"). SLP ignores it.
+  through: z.string().default(""),
 });
 
 export const lodTableItemSchema = z.object({
@@ -140,7 +161,7 @@ export const draftoProjectSchema = z.object({
   // Top-level document-type discriminator. Existing saved projects predate this
   // field, so it defaults to "SLP" — they parse and behave exactly as before.
   // "WritPetitionDHC" selects the Delhi High Court writ-petition interface.
-  courtType: z.enum(["SLP", "WritPetitionDHC"]).default("SLP"),
+  courtType: z.enum(["SLP", "WritPetitionDHC", "OriginalApplicationCAT"]).default("SLP"),
   isCommonOrder: z.boolean().default(false),
   commonOrderParties: z.array(commonOrderPartyGroupSchema).default([]),
   impugnedOrders: z.array(impugnedOrderSchema).default([impugnedOrderSchema.parse({})]),
@@ -171,7 +192,7 @@ export const draftoProjectSchema = z.object({
   
   deponent: z.object({
     name: z.string().default(""),
-    relationship: z.enum(["son of", "daughter of", "wife of"]).default("son of"),
+    relationship: z.enum(["son of", "daughter of", "wife of", "husband of"]).default("son of"),
     fatherName: z.string().default(""),
     address: z.string().default(""),
     location: z.string().default(""),
@@ -327,18 +348,94 @@ export const draftoProjectSchema = z.object({
   // All WP-specific data lives here so the SLP shape is untouched. Active only
   // when courtType === "WritPetitionDHC". Reuses the shared petitioners /
   // respondents / deponent / synopsis / listOfDates / grounds fields above.
+  // CAT Original Application. Parties reuse the shared petitioners/respondents
+  // arrays (relabelled "Applicant(s)"); Facts reuse listOfDates→Facts; Grounds
+  // reuse the shared `grounds`; verification reuses the shared `deponent`;
+  // impugned-order annexure sentences reuse the shared annexure system.
+  // Bench comes from Settings (oaBench). MAs/PT/signing options land in later
+  // stages.
+  oa: z.object({
+    legalAid: z.boolean().default(false),
+    // Para 1 / Para 8 reliefs — single source of truth (the fixed residuary
+    // "Pass such other/further orders…" is appended automatically in the doc,
+    // so it is NOT stored here).
+    reliefs: z.array(aamTableItemSchema).default([aamTableItemSchema.parse({})]),
+    // Para 2 Jurisdiction — either/both declarations (each with optional custom
+    // rider); when neither is set the Section-25 sentence prints and a Petition
+    // for Transfer is triggered.
+    jurisdictionPosted: z.boolean().default(false),
+    jurisdictionPostedNote: z.string().default(""),
+    jurisdictionCause: z.boolean().default(false),
+    jurisdictionCauseNote: z.string().default(""),
+    // Para 3 Limitation
+    // Para 3 Limitation. "abundantCaution" = no delay asserted, but a
+    // condonation application is filed without prejudice. "custom" is legacy.
+    limitation: z.enum(["noDelay", "delay", "abundantCaution", "custom"]).default("noDelay"),
+    delayDays: z.string().default(""),
+    limitationNote: z.string().default(""),
+    limitationCustom: z.string().default(""),
+    // Para 4 Facts (transposed from the List of Dates, then hand-editable)
+    facts: z.string().default(""),
+    factsEdited: z.boolean().default(false),
+    factsLodIds: z.array(z.string()).default([]),
+    factsLodFingerprint: z.string().default(""),
+    // Para 9 Interim Relief (NIL by default)
+    interimNil: z.boolean().default(true),
+    interimReliefs: z.array(aamTableItemSchema).default([aamTableItemSchema.parse({})]),
+    // Para 11 postal orders for the Application Fee (custom; blank allowed)
+    postalOrders: z.string().default(""),
+    // Per-section sub-paragraph label styles. "decimal-sub" = 4.1/4.2 (parent
+    // para number + index); others are lettered/roman.
+    numbering: z.object({
+      facts: z.enum(["decimal-sub", "lower-alpha", "upper-alpha", "lower-roman", "upper-roman"]).default("decimal-sub"),
+      grounds: z.enum(["decimal-sub", "lower-alpha", "upper-alpha", "lower-roman", "upper-roman"]).default("decimal-sub"),
+      prayer: z.enum(["lower-roman", "upper-roman", "lower-alpha", "upper-alpha"]).default("lower-roman"),
+      interim: z.enum(["lower-roman", "upper-roman", "lower-alpha", "upper-alpha"]).default("lower-roman"),
+    }).default({}),
+    // "Filed by" advocate block (mirrors the WP Filed-by shape).
+    advocate: z.object({
+      name: z.string().default(""),
+      firm: z.string().default(""),
+      address: z.string().default(""),
+      enrolmentNo: z.string().default(""),
+      email: z.string().default(""),
+      phone: z.string().default(""),
+    }).default({}),
+    // Multi-applicant signing: each applicant signs their own set, or authorises
+    // one applicant to swear the MA affidavits.
+    signingMode: z.enum(["each", "authority"]).default("each"),
+    authorizedApplicant: z.number().int().min(1).default(1),
+    // Miscellaneous Applications + Petition for Transfer (user-ordered).
+    mas: z.array(oaMaSchema).default([]),
+    // Filing documents and signed/executed copies merged into the paper-book.
+    uploads: z.object({
+      courtFee: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
+      proofOfService: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
+      signedLastPage: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
+      signedVakalatnama: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
+    }).default({}),
+  }).default({}),
+
   wp: z.object({
     // Jurisdiction basis printed in the cause title and the petition body.
     articleBasis: z.enum(["226", "227", "226 read with 227"]).default("226 read with 227"),
     // Date the Notice of Motion says the matter is "likely to be listed on".
+    // Deliberately no default: an unnoticed wrong date is worse than a visible
+    // blank (the pre-flight check flags it before PDF generation).
     listingDate: z.preprocess((arg) => {
       if (typeof arg == "string" || arg instanceof Date) return new Date(arg);
-    }, z.date()).default(() => new Date()),
+    }, z.date().optional()),
+    // Optional "Drawn on" date. When set, it appears above "Filed on" in the
+    // Filed-by block of the petition body ONLY (not the other components).
+    drawnOnDate: z.preprocess((arg) => {
+      if (typeof arg == "string" || arg instanceof Date) return new Date(arg);
+    }, z.date().optional()),
     // IO writ: the impugned order is the first annexure(s) (marked via
-    // annexure.isImpugnedOrder) and relief (a) auto-quashes it.
+    // annexure.isImpugnedOrder) and a Stay CM becomes available.
     isIoWrit: z.boolean().default(false),
-    // Reliefs — single source of truth (lettered list). The last item is the
-    // residuary prayer, auto-omitted from the top reliefs block and the intro.
+    // Reliefs — single source of truth (lettered list), all user-authored
+    // (including any quash relief; residuary prayer last). The full list prints
+    // in the top reliefs block, Para 1 (inline) and the final Prayers.
     reliefs: z.array(aamTableItemSchema).default([
       aamTableItemSchema.parse({}),
       aamTableItemSchema.parse({ particulars: "Pass any such other order(s) as this Hon'ble Court may deem fit in the facts and circumstances of this case." }),
@@ -347,6 +444,14 @@ export const draftoProjectSchema = z.object({
     // hand-editable. `factsEdited` suppresses auto-regeneration once touched.
     facts: z.string().default(""),
     factsEdited: z.boolean().default(false),
+    // Transposition bookkeeping: LoD row ids already carried into Facts (drives
+    // the append-only "add new rows" action) and a fingerprint of the LoD at the
+    // last (re)generation (drives the staleness warning in the pre-flight check).
+    factsLodIds: z.array(z.string()).default([]),
+    factsLodFingerprint: z.string().default(""),
+    // Assembly order of the reorderable front-matter components (Index stays
+    // first, everything from the Synopsis & LoD onwards is fixed).
+    frontMatterOrder: z.array(z.enum(["notice", "urgency", "memo"])).default(["notice", "urgency", "memo"]),
     // Optionally split Synopsis and List of Dates onto separate pages.
     splitSynopsisAndLod: z.boolean().default(false),
     // "Filed by" advocate block (the High Court has no Advocate-on-Record).
@@ -367,6 +472,8 @@ export const draftoProjectSchema = z.object({
       // middle. The last prayer is the residuary placeholder.
       stay: z.object({
         active: z.boolean().default(false), // IO writs: stay of the impugned order
+        // Optional title override; empty = the standard title in wp-actions.ts.
+        title: z.string().default(""),
         body: z.array(aamTableItemSchema).default([
           aamTableItemSchema.parse({ particulars: "The Petitioner has a strong prima facie case and the balance of convenience lies in favour of the Petitioner. Irreparable injury would be caused to the Petitioner if the operation of the Impugned Order is not stayed during the pendency of the writ petition." }),
         ]),
@@ -377,6 +484,8 @@ export const draftoProjectSchema = z.object({
       }).default({}),
       lengthySynopsis: z.object({
         active: z.boolean().default(false),
+        // Optional title override; empty = the standard title in wp-actions.ts.
+        title: z.string().default(""),
         body: z.array(aamTableItemSchema).default([
           aamTableItemSchema.parse({ particulars: "Only those facts essential to the present Petition have been detailed in the Synopsis and List of Dates, which are nonetheless lengthy in view of the complex and intricate set of facts and circumstances of the present case." }),
         ]),
@@ -387,6 +496,8 @@ export const draftoProjectSchema = z.object({
       }).default({}),
       exemptionCopies: z.object({
         active: z.boolean().default(false),
+        // Optional title override; empty = the standard title in wp-actions.ts.
+        title: z.string().default(""),
         body: z.array(aamTableItemSchema).default([
           aamTableItemSchema.parse({ particulars: "The annexures to the writ petition are being filed on an urgent basis; some may not be legible or clear, or available as certified or true typed copies with the prescribed margins and spacing. The Petitioner undertakes to furnish clear/typed copies of the same if so directed by this Hon’ble Court." }),
         ]),

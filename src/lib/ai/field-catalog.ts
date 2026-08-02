@@ -584,7 +584,341 @@ const CHECKLIST_ENTRIES: CatalogEntry[] = checklistQueries.filter((q) => !q.head
 
 export const FIELD_CATALOG: CatalogEntry[] = [...BASE_CATALOG, ...CHECKLIST_ENTRIES];
 
-const CATALOG_BY_PATH = new Map(FIELD_CATALOG.map((e) => [e.path, e]));
+// ── Writ Petition (Delhi HC) catalog ─────────────────────────────────────────
+// A separate, WP-shaped field map rendered into the system prompt when the
+// project is a writ petition. Shares the project's common fields (parties,
+// deponent, synopsis, listOfDates, grounds) but describes them in WP terms, and
+// adds the wp.* fields. Exclusions mirror the SLP policy: wp.advocate.* is a
+// Settings-driven "Filed by" block (like the AoR fields) and file attachments
+// stay out of reach.
+
+export type DraftMode = "SLP" | "WritPetitionDHC";
+
+const WP_PARTY_FIELDS: LeafField[] = [
+  { key: "name", label: "Name", kind: "text" },
+  {
+    key: "through",
+    label: "\"Through\" service designation (optional)",
+    kind: "text",
+    description:
+      "Shown under the name in the Memo of Parties for parties served through an officer/counsel — e.g. \"Through the Secretary, Ministry of Finance\", \"Through its Standing Counsel\". Leave empty for natural persons.",
+  },
+  { key: "address", label: "Address", kind: "longtext" },
+];
+
+const WP_RELIEF_DESCRIPTION =
+  "The reliefs prayed for — the single source of truth: the FULL list (residuary included) prints as the lettered reliefs block at the top of the petition, inline in Para 1, AND as the final PRAYERS paragraph. One relief per row, plain prose, NO numbering/lettering (Drafto letters them), but YOU supply each relief's punctuation — \"; and\" after intermediate reliefs, a full stop after the last. The LAST row must be the residuary prayer (\"Pass any such other order(s) as this Hon'ble Court may deem fit…\"). In an Impugned-Order writ, the FIRST relief should seek to quash and set aside the impugned order (cite its annexure, e.g. \"[Annexure P-1]\").";
+
+export const WP_FIELD_CATALOG: CatalogEntry[] = [
+  // ── Preliminary tab ──
+  {
+    path: "caseType",
+    tab: "Preliminary",
+    label: "Petition type",
+    description: "Whether this is a Writ Petition (Civil) or Writ Petition (Criminal).",
+    isList: false,
+    kind: "enum",
+    enumValues: ["Civil", "Criminal"],
+  },
+  {
+    path: "petitioners",
+    tab: "Preliminary",
+    label: "Petitioners",
+    description: "The party/parties filing the writ petition, in order.",
+    isList: true,
+    itemFields: WP_PARTY_FIELDS,
+  },
+  {
+    path: "respondents",
+    tab: "Preliminary",
+    label: "Respondents",
+    description: "The authorities/parties against whom the writ is sought, in order (government respondents usually carry a \"through\" designation).",
+    isList: true,
+    itemFields: WP_PARTY_FIELDS,
+  },
+  {
+    path: "wp.articleBasis",
+    tab: "Preliminary",
+    label: "Constitutional basis",
+    description: "The Article(s) of the Constitution under which the writ petition is filed. Use 227 (alone) only for pure supervisory challenges to court/tribunal orders; 226 read with 227 is the safe default when an order is challenged.",
+    isList: false,
+    kind: "enum",
+    enumValues: ["226", "227", "226 read with 227"],
+  },
+  {
+    path: "wp.isIoWrit",
+    tab: "Preliminary",
+    label: "Impugned-order writ",
+    description:
+      "Set true when the writ challenges a specific impugned order. The impugned order's annexure (marked isImpugnedOrder on its List-of-Dates row) becomes Annexure P-1 and a Stay CM becomes available.",
+    isList: false,
+    kind: "boolean",
+  },
+  {
+    path: "wp.listingDate",
+    tab: "Preliminary",
+    label: "Listing date (ISO yyyy-mm-dd)",
+    description: "The date the Notice of Motion says the matter is \"likely to be listed on\". Only fill when the user provides it.",
+    isList: false,
+    kind: "date",
+  },
+  { path: "advocate.filingPlace", tab: "Preliminary", label: "Filing place", description: "Usually New Delhi.", isList: false, kind: "text" },
+  { path: "advocate.filingDate", tab: "Preliminary", label: "Filing date (ISO yyyy-mm-dd)", description: "Date the petition is filed.", isList: false, kind: "date" },
+  {
+    path: "wp.drawnOnDate",
+    tab: "Preliminary",
+    label: "Drawn on date (ISO yyyy-mm-dd)",
+    description: "Optional. When set, \"Drawn on\" appears above \"Filed on\" in the petition body's Filed-by block only. Fill only when the user provides it.",
+    isList: false,
+    kind: "date",
+  },
+  { path: "deponent.name", tab: "Preliminary", label: "Deponent name", description: "Person swearing the affidavit. Defaults to the first Petitioner if left blank.", isList: false, kind: "text" },
+  { path: "deponent.fatherName", tab: "Preliminary", label: "Deponent's father/spouse name", description: "", isList: false, kind: "text" },
+  { path: "deponent.address", tab: "Preliminary", label: "Deponent address", description: "", isList: false, kind: "longtext" },
+  { path: "deponent.age", tab: "Preliminary", label: "Deponent age", description: "", isList: false, kind: "text" },
+  {
+    path: "deponent.relationship",
+    tab: "Preliminary",
+    label: "Deponent relationship",
+    description: "Relationship phrasing used in the affidavit.",
+    isList: false,
+    kind: "enum",
+    enumValues: ["son of", "daughter of", "wife of", "husband of"],
+  },
+  {
+    path: "deponent.role",
+    tab: "Preliminary",
+    label: "Deponent capacity",
+    description: "The capacity in which the affidavit is sworn — pick a representative capacity (e.g. Authorised Representative) for company/organisation petitioners.",
+    isList: false,
+    kind: "enum",
+    enumValues: DEPONENT_ROLES,
+  },
+
+  // ── Petition tab ──
+  {
+    path: "synopsis",
+    tab: "Petition",
+    label: "Synopsis",
+    description: "The narrative synopsis of the case.",
+    isList: false,
+    kind: "longtext",
+  },
+  {
+    path: "listOfDates",
+    tab: "Petition",
+    label: "List of Dates & Events",
+    description:
+      "Chronological table of events. Each row is one event. IMPORTANT (WP): the printed List of Dates carries date + particulars ONLY — annexure sentences appear in the FACTS section instead. Attach each annexure's details to its row's annexure entry; never describe an annexure in the Particulars text.",
+    isList: true,
+    itemFields: [
+      { key: "date", label: "Date (free text, e.g. 12.03.2021)", kind: "text" },
+      { key: "event", label: "Particulars of the event", kind: "longtext" },
+      {
+        key: "annexures",
+        label: "Annexure(s) for this event",
+        kind: "longtext",
+        description:
+          "Annexure(s) tied to this event. Put each annexure's DESCRIPTION here, NOT in the event/particulars text. This describes the annexure only — it does not attach a file (use the documents map for splitting/attaching).",
+        itemFields: [
+          { key: "title", label: "Annexure description/title", kind: "longtext" },
+          { key: "date", label: "Annexure date (free text, e.g. 12.03.2021)", kind: "text" },
+          { key: "copyType", label: "Copy type", kind: "enum", enumValues: ["true copy", "typed copy", "true and typed copy", "translated copy", "true and translated copy"] },
+          { key: "isImpugnedOrder", label: "This annexure IS the impugned order (sorts to Annexure P-1; impugned-order writs only)", kind: "boolean" },
+        ],
+      },
+    ],
+  },
+  {
+    path: "wp.reliefs",
+    tab: "Petition",
+    label: "Reliefs",
+    description: WP_RELIEF_DESCRIPTION,
+    isList: true,
+    itemFields: [{ key: "particulars", label: "Relief", kind: "longtext" }],
+  },
+  {
+    path: "wp.facts",
+    tab: "Petition",
+    label: "Facts",
+    description:
+      "The FACTS section of the petition body — an HTML ordered list (<ol><li>…</li></ol>), ONE <li> per List-of-Dates row, each a flowing prose paragraph (\"On 12.03.2021, the Petitioner …\"). Annexure sentences live HERE (\"Annexure P-2 is a true copy of … dated ….\") — keep each annexure sentence with the paragraph for its event, in the annexure's P-number order. EXCEPTION: the impugned order's own sentence prints in Para 1 automatically — do NOT write it in Facts (the other annexures still cite their real P-numbers, P-2 onwards).",
+    isList: false,
+    kind: "longtext",
+  },
+  {
+    path: "grounds",
+    tab: "Petition",
+    label: "Grounds",
+    description: "Grounds of the writ petition. One per row, no numbering (Drafto letters them automatically).",
+    isList: true,
+    itemFields: [{ key: "particulars", label: "Ground", kind: "longtext" }],
+  },
+  {
+    path: "wp.splitSynopsisAndLod",
+    tab: "Petition",
+    label: "Start List of Dates on a fresh page",
+    description: "Layout preference; only set if the user asks.",
+    isList: false,
+    kind: "boolean",
+  },
+
+  // ── Applications (CMs) tab ──
+  {
+    path: "wp.cms.stay.active",
+    tab: "Applications",
+    label: "CM: Stay of the impugned order — active",
+    description: "Set true to include a CM seeking stay of the impugned order (impugned-order writs only).",
+    isList: false,
+    kind: "boolean",
+  },
+  {
+    path: "wp.cms.stay.title",
+    tab: "Applications",
+    label: "Stay CM — title override",
+    description: "Optional override of the standard application title. Leave empty for the default.",
+    isList: false,
+    kind: "text",
+  },
+  {
+    path: "wp.cms.stay.body",
+    tab: "Applications",
+    label: "Stay CM — body paragraphs",
+    description: "The application's middle paragraphs (the opening writ-petition reference, good-faith closing and prayer lead-in are added automatically). One per row.",
+    isList: true,
+    itemFields: PARTICULARS_FIELDS,
+  },
+  {
+    path: "wp.cms.stay.prayers",
+    tab: "Applications",
+    label: "Stay CM — prayers",
+    description: "The application's prayers, one per row, no lettering. Keep the residuary prayer last.",
+    isList: true,
+    itemFields: PARTICULARS_FIELDS,
+  },
+  {
+    path: "wp.cms.lengthySynopsis.active",
+    tab: "Applications",
+    label: "CM: Lengthy synopsis — active",
+    description: "Set true to include a CM seeking permission to file a lengthy Synopsis and List of Dates.",
+    isList: false,
+    kind: "boolean",
+  },
+  {
+    path: "wp.cms.lengthySynopsis.title",
+    tab: "Applications",
+    label: "Lengthy-synopsis CM — title override",
+    description: "Optional override of the standard application title. Leave empty for the default.",
+    isList: false,
+    kind: "text",
+  },
+  {
+    path: "wp.cms.lengthySynopsis.body",
+    tab: "Applications",
+    label: "Lengthy-synopsis CM — body paragraphs",
+    description: "The application's middle paragraphs. One per row.",
+    isList: true,
+    itemFields: PARTICULARS_FIELDS,
+  },
+  {
+    path: "wp.cms.lengthySynopsis.prayers",
+    tab: "Applications",
+    label: "Lengthy-synopsis CM — prayers",
+    description: "The application's prayers, one per row. Keep the residuary prayer last.",
+    isList: true,
+    itemFields: PARTICULARS_FIELDS,
+  },
+  {
+    path: "wp.cms.exemptionCopies.active",
+    tab: "Applications",
+    label: "CM: Exemption from filing certified/legible copies — active",
+    description: "Set true to include a CM for exemption from filing certified / legible / true-typed copies of the annexures.",
+    isList: false,
+    kind: "boolean",
+  },
+  {
+    path: "wp.cms.exemptionCopies.title",
+    tab: "Applications",
+    label: "Exemption CM — title override",
+    description: "Optional override of the standard application title. Leave empty for the default.",
+    isList: false,
+    kind: "text",
+  },
+  {
+    path: "wp.cms.exemptionCopies.body",
+    tab: "Applications",
+    label: "Exemption CM — body paragraphs",
+    description: "The application's middle paragraphs. One per row.",
+    isList: true,
+    itemFields: PARTICULARS_FIELDS,
+  },
+  {
+    path: "wp.cms.exemptionCopies.prayers",
+    tab: "Applications",
+    label: "Exemption CM — prayers",
+    description: "The application's prayers, one per row. Keep the residuary prayer last.",
+    isList: true,
+    itemFields: PARTICULARS_FIELDS,
+  },
+  {
+    path: "wp.customCms",
+    tab: "Applications",
+    label: "Custom applications (CMs)",
+    description: "Bespoke CM applications beyond the three standard ones. Each has a title, a \"praying that…\" paragraph, its own grounds, and its own prayers.",
+    isList: true,
+    itemFields: [
+      { key: "title", label: "Application title (e.g. \"Application under Section 151 CPC for ...\")", kind: "text" },
+      { key: "para2", label: "\"This application is being filed praying that…\" paragraph", kind: "longtext" },
+      { key: "grounds", label: "Grounds", kind: "longtext", itemFields: PARTICULARS_FIELDS },
+      { key: "prayers", label: "Prayers", kind: "longtext", itemFields: PARTICULARS_FIELDS },
+    ],
+  },
+];
+
+export function catalogFor(mode: DraftMode): CatalogEntry[] {
+  return mode === "WritPetitionDHC" ? WP_FIELD_CATALOG : FIELD_CATALOG;
+}
+
+// ── Validation map ────────────────────────────────────────────────────────────
+// Validation accepts the SUPERSET of both catalogs: shared paths (petitioners,
+// listOfDates, …) get their leaf fields merged so an op valid in either mode
+// passes. The mode-specific restriction happens at prompt time — the model only
+// SEES its own catalog; validation just guards types and the path allow-list.
+
+function mergeLeafFields(a?: LeafField[], b?: LeafField[]): LeafField[] | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  const out = a.map((f) => ({ ...f }));
+  for (const f of b) {
+    const i = out.findIndex((x) => x.key === f.key);
+    if (i < 0) { out.push({ ...f }); continue; }
+    const merged = { ...out[i] };
+    if (out[i].enumValues || f.enumValues) {
+      merged.enumValues = Array.from(new Set([...(out[i].enumValues ?? []), ...(f.enumValues ?? [])]));
+    }
+    merged.itemFields = mergeLeafFields(out[i].itemFields, f.itemFields);
+    out[i] = merged;
+  }
+  return out;
+}
+
+function buildValidationMap(): Map<string, CatalogEntry> {
+  const map = new Map<string, CatalogEntry>(FIELD_CATALOG.map((e) => [e.path, e]));
+  for (const e of WP_FIELD_CATALOG) {
+    const existing = map.get(e.path);
+    if (!existing) { map.set(e.path, e); continue; }
+    map.set(e.path, {
+      ...existing,
+      enumValues: existing.enumValues || e.enumValues
+        ? Array.from(new Set([...(existing.enumValues ?? []), ...(e.enumValues ?? [])]))
+        : undefined,
+      itemFields: mergeLeafFields(existing.itemFields, e.itemFields),
+    });
+  }
+  return map;
+}
+
+const CATALOG_BY_PATH = buildValidationMap();
 
 export function getFieldDescriptor(path: string): CatalogEntry | undefined {
   return CATALOG_BY_PATH.get(path);
@@ -592,10 +926,10 @@ export function getFieldDescriptor(path: string): CatalogEntry | undefined {
 
 // Group catalog entries by tab, preserving first-seen order — used to render the
 // field map in the system prompt.
-export function catalogByTab(): { tab: string; entries: CatalogEntry[] }[] {
+export function catalogByTab(mode: DraftMode = "SLP"): { tab: string; entries: CatalogEntry[] }[] {
   const order: string[] = [];
   const map = new Map<string, CatalogEntry[]>();
-  for (const e of FIELD_CATALOG) {
+  for (const e of catalogFor(mode)) {
     if (!map.has(e.tab)) {
       map.set(e.tab, []);
       order.push(e.tab);

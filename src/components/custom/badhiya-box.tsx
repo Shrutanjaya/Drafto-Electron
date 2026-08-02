@@ -3,11 +3,15 @@
 
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
+import Bold from '@tiptap/extension-bold'
+import Italic from '@tiptap/extension-italic'
+import { markInputRule, markPasteRule } from '@tiptap/core'
 import Underline from '@tiptap/extension-underline'
 import Highlight from '@tiptap/extension-highlight'
-import { useContext, useEffect } from 'react'
+import { useContext, useEffect, useRef } from 'react'
 import { EditorContext } from './editor-provider'
 import { useFieldReveal } from './field-reveal-provider'
+import { useCanEdit } from '@/providers/entitlement-provider'
 import { escapeRegExp } from '@/lib/find-replace'
 import TextAlign from '@tiptap/extension-text-align'
 import { Paragraph } from '@tiptap/extension-paragraph'
@@ -30,7 +34,75 @@ interface BadhiyaBoxProps {
   onCtrlSpace?: () => void
   /** RHF field path; when set, the editor registers itself for Find & Replace navigation. */
   path?: string
+  /** When true, the editor grabs keyboard focus once ready (e.g. a freshly-inserted row). */
+  autoFocus?: boolean
 }
+
+// ── Table column-ratio annotation ─────────────────────────────────────────────
+// TipTap serializes an explicit px width only for columns the user dragged;
+// fluid columns carry none, so the docx exporter used to GUESS their share from
+// an assumed editor width (wrong in wide panels — the last column collapsed to
+// a sliver). Instead, measure every column's actual rendered width when the
+// content is serialized and stamp each <col> with its width ÷ table-width ratio
+// (data-ratio). The exporter reproduces those exact proportions at the docx
+// table width, so the export matches what the user saw regardless of how wide
+// the editor really was. Missing annotations (older saves, AI-written HTML)
+// fall back to the exporter's px/content heuristics.
+
+function measureColRatios(table: HTMLTableElement): number[] | null {
+  const firstRow = table.querySelector('tr')
+  if (!firstRow) return null
+  const colPx: number[] = []
+  for (const el of Array.from(firstRow.children)) {
+    if (el.tagName !== 'TD' && el.tagName !== 'TH') continue
+    const span = Math.max(1, parseInt(el.getAttribute('colspan') || '1', 10) || 1)
+    const w = (el as HTMLElement).offsetWidth / span // spanned cells share evenly
+    for (let k = 0; k < span; k++) colPx.push(w)
+  }
+  const sum = colPx.reduce((s, w) => s + w, 0)
+  if (colPx.length === 0 || !sum) return null
+  return colPx.map((w) => w / sum)
+}
+
+function annotateTableColRatios(html: string, editorRoot: HTMLElement): string {
+  if (!html.includes('<table')) return html
+  const domTables = Array.from(editorRoot.querySelectorAll('table'))
+  if (domTables.length === 0) return html
+  let t = 0
+  // TipTap disallows nested tables, so a non-greedy table match is safe, and the
+  // Nth serialized table corresponds to the Nth rendered table.
+  return html.replace(/<table\b[\s\S]*?<\/table>/g, (tableHtml) => {
+    const dom = domTables[t++] as HTMLTableElement | undefined
+    const ratios = dom ? measureColRatios(dom) : null
+    if (!ratios) return tableHtml
+    const colTags = tableHtml.match(/<col\b[^>]*>/g) || []
+    if (colTags.length !== ratios.length) return tableHtml // shape mismatch — don't guess
+    let j = 0
+    return tableHtml.replace(/<col\b[^>]*>/g, (colTag) => {
+      const r = ratios[j++]
+      const clean = colTag.replace(/\s*data-ratio="[^"]*"/g, '')
+      return clean.replace(/^<col/, `<col data-ratio="${r.toFixed(4)}"`)
+    })
+  })
+}
+
+// Markdown-shortcut input/paste rules restricted to the ASTERISK forms only.
+// The default Bold/Italic extensions ALSO turn `__x__`/`_x_` into bold/italic;
+// legal drafting uses underscores as literal blanks ("____"), so the underscore
+// rules are dropped here while `**bold**` / `*italic*` keep working.
+const boldStarInput = /(?:^|\s)(\*\*(?!\s+\*\*)((?:[^*]+))\*\*(?!\s+\*\*))$/;
+const boldStarPaste = /(?:^|\s)(\*\*(?!\s+\*\*)((?:[^*]+))\*\*(?!\s+\*\*))/g;
+const italicStarInput = /(?:^|\s)(\*(?!\s+\*)((?:[^*]+))\*(?!\s+\*))$/;
+const italicStarPaste = /(?:^|\s)(\*(?!\s+\*)((?:[^*]+))\*(?!\s+\*))/g;
+
+const BoldStarOnly = Bold.extend({
+  addInputRules() { return [markInputRule({ find: boldStarInput, type: this.type })]; },
+  addPasteRules() { return [markPasteRule({ find: boldStarPaste, type: this.type })]; },
+});
+const ItalicStarOnly = Italic.extend({
+  addInputRules() { return [markInputRule({ find: italicStarInput, type: this.type })]; },
+  addPasteRules() { return [markPasteRule({ find: italicStarPaste, type: this.type })]; },
+});
 
 // Custom extension to handle Tab key and Ctrl+Space
 const TabHandler = Extension.create({
@@ -207,9 +279,17 @@ const ListEditingKeys = Extension.create({
   },
 });
 
-export const BadhiyaBox = ({ value, onChange, disabled, onTab, onCtrlSpace, path }: BadhiyaBoxProps) => {
+export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onCtrlSpace, path, autoFocus }: BadhiyaBoxProps) => {
+  // Read-only (lapsed subscription) locks the rich-text editor too — fieldset/
+  // capture-phase guards can't disable tiptap's contentEditable, so honor it here.
+  const canEdit = useCanEdit();
+  const disabled = disabledProp || !canEdit;
   const { setActiveEditor } = useContext(EditorContext);
   const fieldReveal = useFieldReveal();
+  // The last HTML this editor emitted (post ratio-annotation). The emitted
+  // string differs from editor.getHTML() whenever it contains a table, so the
+  // external-value sync below must treat it as "own content", not a reset.
+  const lastEmitted = useRef<string | null>(null);
 
   const editor = useEditor({
     extensions: [
@@ -227,7 +307,12 @@ export const BadhiyaBox = ({ value, onChange, disabled, onTab, onCtrlSpace, path
         listItem: false,
         blockquote: {}, // Enable blockquote
         paragraph: false, // Disable default paragraph to customize
+        // Replaced with asterisk-only variants (no underscore markdown shortcut).
+        bold: false,
+        italic: false,
       }),
+      BoldStarOnly,
+      ItalicStarOnly,
       // Allow a list item to start with a paragraph OR a blockquote (then any
       // blocks). Keeps normal list behaviour while letting users quote inside lists.
       ListItem.extend({ content: '(paragraph | blockquote) block*' }),
@@ -262,7 +347,11 @@ export const BadhiyaBox = ({ value, onChange, disabled, onTab, onCtrlSpace, path
     ],
     content: value,
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML())
+      // Stamp measured column ratios onto any tables before handing the HTML to
+      // the form (see annotateTableColRatios above).
+      const html = annotateTableColRatios(editor.getHTML(), editor.view.dom as HTMLElement)
+      lastEmitted.current = html
+      onChange(html)
     },
     onFocus: ({ editor }) => {
       setActiveEditor(editor);
@@ -283,8 +372,18 @@ export const BadhiyaBox = ({ value, onChange, disabled, onTab, onCtrlSpace, path
     }
   }, [disabled, editor]);
 
+  // Grab focus once the editor is ready when asked to (e.g. a row inserted via
+  // Ctrl+Space — the caller wants the cursor in the new row immediately).
   useEffect(() => {
-    if (editor && value !== editor.getHTML()) {
+    if (autoFocus && editor && !disabled) {
+      editor.commands.focus('end');
+    }
+    // Only the initial autoFocus/editor-ready transition matters here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoFocus, editor]);
+
+  useEffect(() => {
+    if (editor && value !== editor.getHTML() && value !== lastEmitted.current) {
       editor.commands.setContent(value, false);
     }
   }, [value, editor]);

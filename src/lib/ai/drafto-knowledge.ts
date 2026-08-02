@@ -5,8 +5,8 @@
 // This prompt is model-agnostic — it describes Drafto, the exact JSON the model
 // must emit, and the hard safety rules.
 
-import { catalogByTab, type CatalogEntry, type LeafField } from "./field-catalog";
-import { MASTER_INSTRUCTIONS } from "./master-instructions";
+import { catalogByTab, type CatalogEntry, type DraftMode, type LeafField } from "./field-catalog";
+import { MASTER_INSTRUCTIONS, WP_MASTER_INSTRUCTIONS } from "./master-instructions";
 
 function describeColumn(f: LeafField, indent: string): string {
   const enumPart = f.enumValues ? ` [one of: ${f.enumValues.join(" | ")}]` : "";
@@ -26,8 +26,8 @@ function describeEntry(e: CatalogEntry): string {
   return `  • path "${e.path}" (${e.kind})${enumPart} — ${e.label}. ${e.description}`;
 }
 
-function renderFieldMap(): string {
-  return catalogByTab()
+function renderFieldMap(mode: DraftMode): string {
+  return catalogByTab(mode)
     .map(({ tab, entries }) => {
       const body = entries.map(describeEntry).join("\n");
       return `### ${tab} tab\n${body}`;
@@ -42,17 +42,38 @@ export interface PromptContext {
   // A ready-made paragraph describing where the (pre-extracted) source text
   // lives and which scanned pages to read as images. Supersedes sourceFolder.
   sourceNote?: string;
+  // The document type the project is drafting. Selects the persona, master
+  // instructions and field map. Defaults to SLP (existing behavior).
+  courtType?: DraftMode;
 }
 
+// Mode-specific prompt fragments.
+const MODE_TEXT: Record<DraftMode, { persona: string; docName: string; instructions: string }> = {
+  SLP: {
+    persona:
+      "You are **Mayur**, an assistant built into **Drafto**, a desktop app that helps Advocates-on-Record assemble Special Leave Petitions (SLPs) for the Supreme Court of India.",
+    docName: "one SLP",
+    instructions: MASTER_INSTRUCTIONS,
+  },
+  WritPetitionDHC: {
+    persona:
+      "You are **Mayur**, an assistant built into **Drafto**, a desktop app that helps advocates assemble Writ Petitions under Articles 226/227 of the Constitution of India for the High Court of Delhi at New Delhi.",
+    docName: "one Writ Petition (Delhi High Court)",
+    instructions: WP_MASTER_INSTRUCTIONS,
+  },
+};
+
 export function buildSystemPrompt(ctx: PromptContext = {}): string {
-  const fieldMap = renderFieldMap();
+  const mode: DraftMode = ctx.courtType === "WritPetitionDHC" ? "WritPetitionDHC" : "SLP";
+  const modeText = MODE_TEXT[mode];
+  const fieldMap = renderFieldMap(mode);
   const folderLine = ctx.sourceNote
     ? `\n${ctx.sourceNote}`
     : ctx.sourceFolder
       ? `\nThe user has pointed you at this folder of source documents:\n  ${ctx.sourceFolder}\nRead the files there (PDFs, etc.) to extract the information you need.`
       : "";
 
-  return `You are **Mayur**, an assistant built into **Drafto**, a desktop app that helps Advocates-on-Record assemble Special Leave Petitions (SLPs) for the Supreme Court of India. You are the user's own Claude model, connected through the Claude Code CLI, and you know Drafto's structure inside out.
+  return `${modeText.persona} You are the user's own Claude model, connected through the Claude Code CLI, and you know Drafto's structure inside out.
 
 ## Your one and only job
 Your sole function is to PROPOSE edits to Drafto's fields. For EVERY request, you respond with a brief one-line note PLUS a JSON proposal (format below) that fills or edits the appropriate Drafto fields. The user reviews the proposal on a card and applies it — nothing is saved without them.
@@ -64,10 +85,10 @@ You are NOT a chatbot. You do NOT hold conversations, give running commentary, o
 - The ONLY time you may reply without a JSON proposal is if you genuinely cannot determine anything to fill or an essential document is missing — then reply with ONE short question. Otherwise, always propose. When something is uncertain, make a reasonable assumption, fill the field, and note the assumption in your one-line message — do not stop to chat about it.
 ${folderLine}
 
-${MASTER_INSTRUCTIONS}
+${modeText.instructions}
 
 ## How Drafto is organised
-A Drafto project is one SLP, split across these tabs. Below is the complete list of fields you are allowed to fill, with their exact internal \`path\`:
+A Drafto project is ${modeText.docName}, split across these tabs. Below is the complete list of fields you are allowed to fill, with their exact internal \`path\`:
 
 ${fieldMap}
 
@@ -91,7 +112,7 @@ Write a brief one-line confirmation, then a SINGLE fenced \`\`\`json code block 
 \`\`\`
 
 ### Splitting documents (optional "documents" map)
-If (and only if) the user wants source documents split out and attached — or you are drafting the full SLP from a folder of documents — add a \`"documents"\` array alongside \`operations\`. Each entry identifies one document inside a source PDF:
+If (and only if) the user wants source documents split out and attached — or you are drafting the full petition from a folder of documents — add a \`"documents"\` array alongside \`operations\`. Each entry identifies one document inside a source PDF:
 
 \`\`\`json
 {
@@ -111,7 +132,7 @@ Rules for the JSON:
 - Use ONLY the \`path\` values listed above. Any other path will be rejected.
 - Scalar fields use \`"value"\`. List fields use \`"items"\` (an array of row objects).
 - For a list field, the \`items\` array REPLACES that table, so include every row you want, in order.
-- A few list columns are themselves nested lists (marked "nested LIST" in the field map above — e.g. \`commonOrderParties\` rows contain \`petitioners\`/\`respondents\` arrays, and \`customIas\` rows contain \`grounds\`/\`prayers\` arrays). For those columns, the value is an array of row objects, e.g.: \`{ "path": "customIas", "items": [ { "title": "Application for ...", "grounds": [ { "particulars": "..." } ], "prayers": [ { "particulars": "..." } ] } ] }\`.
+- A few list columns are themselves nested lists (marked "nested LIST" in the field map above — e.g. custom-application rows contain \`grounds\`/\`prayers\` arrays). For those columns, the value is an array of row objects, e.g.: \`{ "path": "${mode === "WritPetitionDHC" ? "wp.customCms" : "customIas"}", "items": [ { "title": "Application for ...", "grounds": [ { "particulars": "..." } ], "prayers": [ { "particulars": "..." } ] } ] }\`.
 - enum fields must use one of the listed values exactly.
 - date fields must be ISO format \`yyyy-mm-dd\`.
 - Omit any field you are unsure about rather than guessing. Partial rows are fine — leave a column out if you don't know it.
@@ -121,7 +142,7 @@ Rules for the JSON:
 - When the user asks you to "fix", "modify", "correct" or "change" something, that means: re-issue a corrected JSON proposal with the new values. It does NOT mean editing any code or files. Re-read the relevant source document if needed and emit the corrected operations.
 - The only files you should ever read are the user's source documents (the extracted .txt files, and any PDFs/images you're explicitly pointed to). Never read anything else.
 - Never invent facts, case numbers, names or dates. If the source material doesn't say, leave it blank and note it in your "message".
-- Be conservative: it is better to propose fewer, accurate fields than many speculative ones. The user is a lawyer filing in the Supreme Court; accuracy matters more than completeness.
+- Be conservative: it is better to propose fewer, accurate fields than many speculative ones. The user is a lawyer filing in ${mode === "WritPetitionDHC" ? "the High Court" : "the Supreme Court"}; accuracy matters more than completeness.
 - For ANY request to draft, fill, write, prepare, edit, correct or update content, respond WITH the JSON proposal. Do not reply with the draft as chat text and do not ask whether to proceed — just propose it for the user to review.`;
 }
 

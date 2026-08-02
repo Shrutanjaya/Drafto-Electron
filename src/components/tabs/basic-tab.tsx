@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { useFormContext, useWatch, useFieldArray } from "react-hook-form";
+import { useStickyState } from "@/hooks/useStickyState";
 import { PlusCircle, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -283,6 +284,7 @@ function NavRow({ label, active, selected, onClick }: { label: string; active: b
   return (
     <button
       type="button"
+      data-ro-nav
       onClick={onClick}
       className={cn(
         "w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors flex items-center gap-2",
@@ -333,7 +335,8 @@ export function BasicTab() {
   const deponentLocation = useWatch({ control: form.control, name: 'deponent.location' });
   const deponentAge = useWatch({ control: form.control, name: 'deponent.age' });
 
-  const [selectedSection, setSelectedSection] = useState<'parties' | 'impugned' | 'advocates' | 'deponent'>('parties');
+  // Sticky so the open section survives switching tabs and returning.
+  const [selectedSection, setSelectedSection] = useStickyState<'parties' | 'impugned' | 'advocates' | 'deponent'>('basic-tab-section', 'parties');
 
   // Computed dot-active states
   const partiesActive = isCommonOrder

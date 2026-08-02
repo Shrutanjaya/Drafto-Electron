@@ -34,6 +34,7 @@ function NavRow({ label, active, selected, onClick }: { label: string; active: b
   return (
     <button
       type="button"
+      data-ro-nav
       onClick={onClick}
       className={cn(
         "w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors flex items-center gap-2",

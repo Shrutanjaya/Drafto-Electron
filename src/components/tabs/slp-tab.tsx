@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
+import { useStickyState } from "@/hooks/useStickyState";
 import type { DraftoProject } from "@/lib/schema";
 import { cn } from "@/lib/utils";
 import {
@@ -34,7 +35,7 @@ const EDITOR_SECTIONS: SlpSection[] = ['synopsis', 'listOfDates', 'grounds', 'qu
 // formatting toolbar (not the global header) so it reads as tab-scoped.
 function ViewToggle({ mode, onChange }: { mode: 'splitter' | 'navigation'; onChange: (m: 'splitter' | 'navigation') => void }) {
   return (
-    <div className="flex items-center rounded-md border overflow-hidden">
+    <div data-ro-nav className="flex items-center rounded-md border overflow-hidden">
       <button
         type="button"
         title="Splitter view"
@@ -71,6 +72,7 @@ function NavRow({ label, active, selected, onClick }: { label: string; active: b
   return (
     <button
       type="button"
+      data-ro-nav
       onClick={onClick}
       className={cn(
         "w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors flex items-center gap-2",
@@ -107,9 +109,10 @@ export function SlpTab() {
     }
   }, [ioText, form]);
 
-  // View mode: toggled in-tab (next to the formatting toolbar); falls back to the
-  // settings default when a new project is created.
-  const [viewMode, setViewMode] = useState<'splitter' | 'navigation'>(() => getSettings().slpTabView ?? 'splitter');
+  // View mode + open section: toggled in-tab (next to the formatting toolbar);
+  // sticky so they survive switching to another tab and back (Radix unmounts the
+  // inactive tab content). Falls back to the settings default for a new project.
+  const [viewMode, setViewMode] = useStickyState<'splitter' | 'navigation'>('slp-tab-view', getSettings().slpTabView ?? 'splitter');
   useEffect(() => {
     const handleNewProject = (e: Event) => {
       const mode = (e as CustomEvent).detail?.mode ?? getSettings().slpTabView ?? 'splitter';
@@ -119,9 +122,9 @@ export function SlpTab() {
     return () => {
       window.removeEventListener('drafto-new-project', handleNewProject);
     };
-  }, []);
+  }, [setViewMode]);
 
-  const [selectedSection, setSelectedSection] = useState<SlpSection>('synopsis');
+  const [selectedSection, setSelectedSection] = useStickyState<SlpSection>('slp-tab-section', 'synopsis');
 
   // Find & Replace navigation: when a match targets a Petition section, switch to
   // Navigation view and select that section so the field is mounted and revealable.

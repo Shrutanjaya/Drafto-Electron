@@ -20,6 +20,8 @@ import { Button } from "@/components/ui/button"
 import { PlusCircle, Trash2, FileText, GripVertical, Info } from "lucide-react"
 import { AnnexureDialog } from "../dialogs/annexure-dialog"
 import { BadhiyaBox } from "./badhiya-box"
+import { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures"
+import { annexPrefixFor } from "@/lib/annex-prefix"
 import {
   DndContext,
   closestCenter,
@@ -154,7 +156,15 @@ export function LoDTable() {
     setDateColWidth(Math.ceil(oneDateWidth) + 16);
   }, [allLods]);
   
+  const courtType = useWatch({ control: form.control, name: "courtType" });
   const annexureNumberingMap = useMemo(() => {
+    // WP mode uses the generator's own ordering (impugned-order annexures sort
+    // to P-1…), so the on-screen numbers always match the generated documents
+    // and re-sort live when the IO checkbox is toggled.
+    if (courtType === "WritPetitionDHC") {
+      return new Map<string, number>(wpAnnexureOrderFromLods(allLods).map(e => [e.annex.id, e.pNumber]));
+    }
+
     const map = new Map<string, number>();
     const allAnnexures: Annexure[] = [];
 
@@ -174,9 +184,9 @@ export function LoDTable() {
     adAnnexures.forEach(annex => {
       map.set(annex.id, counter++);
     });
-    
+
     return map;
-  }, [allLods]);
+  }, [allLods, courtType]);
 
   const getAnnexureLabel = (lodId: string) => {
     const annexuresInRow = allLods.find(lod => lod.id === lodId)?.annexures || [];
@@ -188,7 +198,7 @@ export function LoDTable() {
 
     if (numbers.length === 0) return <FileText className="h-4 w-4" />;
     
-    return `P-${numbers.join(', ')}`;
+    return `${annexPrefixFor(form.watch('courtType'))}-${numbers.join(', ')}`;
   }
   
   const sensors = useSensors(

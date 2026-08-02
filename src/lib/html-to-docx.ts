@@ -12,6 +12,14 @@ const SMART_CLOSE_QUOTE = '”'; // "
 // normal text equals the gap between two normal paragraphs (see
 // computeQuoteAfterTwips). Otherwise quotes inherit the document's default spacing.
 let exportQuoteSingleSpacing = false;
+// Geometry of the enclosing numbered list, so a quote inside a list indents
+// RELATIVE to that list instead of the page margin. Text indent of list level L
+// is (base + L*step); a quote sits 0.25" further in. Defaults to the SLP/HC list
+// geometry and is reset on every parseHtml call, so it never leaks between
+// documents. The CAT OA passes its own (wider) geometry.
+export interface ListGeom { base: number; step: number }
+const DEFAULT_LIST_GEOM: ListGeom = { base: 360, step: 360 };
+let quoteListGeom: ListGeom = DEFAULT_LIST_GEOM;
 // Output formatting (mirrors Settings → Customize → Output Text Formatting), read
 // at export time so the blockquote trailing space tracks the user's choices.
 let exportOutputFontSizePt = 14;
@@ -79,6 +87,10 @@ const WORD_DEFAULT_CELL_MARGINS = { top: 0, bottom: 0, left: 115, right: 115 };
 // out at this width, so a fluid column shows (width − sized columns) of space.
 const EDITOR_CONTENT_PX = 620;
 
+// Process-wide seed for <ol> numbering references, so every parsed list gets a
+// reference unique across ALL parseHtml calls (see the note in parseHtml).
+let olRefSeed = 0;
+
 // Basic HTML parser to create a tree structure
 function htmlToTree(html: string): (SimpleNode | string)[] {
     const stack: SimpleNode[] = [];
@@ -142,9 +154,19 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
     // buffer stays empty and behaviour is unchanged.)
     const INLINE_TAGS = new Set(['strong', 'b', 'em', 'i', 'u', 'mark', 'span', 'a', 'sub', 'sup', 'code', 'br']);
     let inlineBuffer: (SimpleNode | string)[] = [];
+
+    // True when the LAST emitted block is a table. A non-empty paragraph pushed
+    // directly against a table hugs the bottom border in Word, so it gets 12pt
+    // space-before for visual separation. A blank line the user left after the
+    // table emits an empty paragraph first, which consumes the adjacency — the
+    // rule then deliberately does nothing.
+    const lastIsTable = () => result.paragraphs.length > 0 && result.paragraphs[result.paragraphs.length - 1] instanceof Table;
+    const TABLE_GAP_BEFORE_TWIPS = 240; // 12pt
+
     const flushInline = () => {
         const plain = extractPlainText(inlineBuffer);
         if (!plain.trim()) { inlineBuffer = []; return; }
+        const followsTable = lastIsTable();
         const converted = convertToSmartQuotes(plain);
         const runs = processInline(inlineBuffer, {}, converted, 0, exportHighlight).runs;
         const props: any = {
@@ -154,6 +176,7 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
         };
         if (inBlockquote) props.indent = { left: 720, right: 720 };
         if (spacing) props.spacing = spacing;
+        if (followsTable) props.spacing = { ...(props.spacing ?? {}), before: TABLE_GAP_BEFORE_TWIPS };
         if (defaultNumbering) props.numbering = defaultNumbering;
         result.paragraphs.push(new Paragraph(props));
         inlineBuffer = [];
@@ -212,6 +235,29 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                     return cols;
                 };
 
+                // Measured column ratios stamped by the editor (data-ratio on each
+                // <col>): the column's rendered width ÷ the table's rendered width,
+                // captured at serialization time (see annotateTableColRatios in
+                // badhiya-box.tsx). When every column carries one, these ARE the
+                // ground truth for proportions — the px/content heuristics below are
+                // only the fallback for older saves and AI-written HTML.
+                const parseColRatios = (ns: (SimpleNode | string)[]): (number | null)[] => {
+                    const out: (number | null)[] = [];
+                    const visit = (arr: (SimpleNode | string)[]) => {
+                        arr.forEach(n => {
+                            if (typeof n === 'string') return;
+                            if (n.tagName === 'col') {
+                                const r = parseFloat(n.attributes['data-ratio'] || '');
+                                out.push(isFinite(r) && r > 0 ? r : null);
+                            } else if (n.tagName === 'colgroup') {
+                                visit(n.children);
+                            }
+                        });
+                    };
+                    visit(ns);
+                    return out;
+                };
+
                 const longestWord = (t: string): number =>
                     t.split(/\s+/).reduce((mx, w) => Math.max(mx, w.length), 0);
 
@@ -224,8 +270,9 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                         .filter((c): c is SimpleNode => typeof c !== 'string' && (c.tagName === 'td' || c.tagName === 'th'))
                         .map(cellNode => {
                             const span = Math.max(1, parseInt(cellNode.attributes.colspan || '1', 10) || 1);
+                            const rowSpan = Math.max(1, parseInt(cellNode.attributes.rowspan || '1', 10) || 1);
                             const text = extractPlainText(cellNode.children).trim();
-                            return { cellNode, span, textLen: text.length, word: longestWord(text) };
+                            return { cellNode, span, rowSpan, textLen: text.length, word: longestWord(text) };
                         })
                 );
 
@@ -242,15 +289,34 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 // text / longest word) so the busiest column is widest and words never
                 // break mid-word.
                 const manualCols = parseColWidths(node.children);
+                const ratioCols = parseColRatios(node.children);
                 const weights = new Array(columnCount).fill(0);
                 const sizedCount = manualCols.filter((w): w is number => w != null).length;
-                if (manualCols.length === columnCount && sizedCount > 0) {
+                if (ratioCols.length === columnCount && ratioCols.every((r): r is number => r != null)) {
+                    // Editor-measured ratios: reproduce the exact on-screen
+                    // proportions at the docx table width.
+                    for (let i = 0; i < columnCount; i++) weights[i] = ratioCols[i] as number;
+                } else if (manualCols.length === columnCount && sizedCount > 0) {
                     const sumSized = manualCols.reduce((s, w) => s + (w ?? 0), 0);
                     const numFluid = columnCount - sizedCount;
                     // Reference editor content width (≈ BadhiyaBox width). Fluid columns
                     // share whatever px is left after the sized columns take their share.
                     const remaining = Math.max(0, EDITOR_CONTENT_PX - sumSized);
-                    const fluidEach = numFluid > 0 ? Math.max(40, remaining / numFluid) : 0;
+                    // The true editor width isn't serialized, and in wider editors (the
+                    // WP workspace panels) the dragged columns can exceed the 620px
+                    // reference — the old formula then collapsed every fluid column to a
+                    // 40px sliver (one character wide in the export). When the leftover
+                    // per fluid column is implausibly small the reference is clearly
+                    // wrong: give each fluid column the average dragged width instead,
+                    // which is roughly how an undragged column reads next to its sized
+                    // siblings. Faithful behavior is kept whenever the leftover is real.
+                    const MIN_FLUID_PX = 60;
+                    const avgSized = sumSized / Math.max(1, sizedCount);
+                    const fluidEach = numFluid > 0
+                        ? (remaining / numFluid >= MIN_FLUID_PX
+                            ? remaining / numFluid
+                            : Math.max(MIN_FLUID_PX, avgSized))
+                        : 0;
                     for (let i = 0; i < columnCount; i++) weights[i] = manualCols[i] ?? fluidEach;
                 } else {
                     rowsData.forEach(cells => {
@@ -293,6 +359,7 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                             margins: WORD_DEFAULT_CELL_MARGINS,
                             width: { size: widthDxa || Math.round(TABLE_TOTAL_TWIPS / Math.max(1, columnCount)), type: WidthType.DXA },
                             ...(c.span > 1 ? { columnSpan: c.span } : {}),
+                            ...(c.rowSpan > 1 ? { rowSpan: c.rowSpan } : {}),
                         });
                     });
                     return new TableRow({ children: docxCells });
@@ -328,6 +395,11 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 }
                 if (spacing) {
                     paragraphProps.spacing = spacing;
+                }
+                // 12pt space-before when non-whitespace text sits directly against
+                // the preceding table (an intervening blank <p> suppresses this).
+                if (plainText.trim() && lastIsTable()) {
+                    paragraphProps.spacing = { ...(paragraphProps.spacing ?? {}), before: TABLE_GAP_BEFORE_TWIPS };
                 }
                 if (defaultNumbering && !paragraphProps.numbering) {
                     paragraphProps.numbering = defaultNumbering;
@@ -376,7 +448,17 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 // list = the current sub-level's indent + 0.25". Right is always a
                 // fixed 0.5". A quote is never numbered and never bears a list marker —
                 // it sits between/under list items, it is not one of them.
-                const quoteLeftIndent = listLevel > 0 ? (360 + listLevel * 360 + 360) : 720;
+                // A block can be "inside a list" in two ways: a real <ol>/<ul>
+                // wrapper (listLevel > 0), or a numbering reference injected by
+                // the caller (defaultNumbering) — which is how Grounds/Facts
+                // items are numbered, each parsed on its own with no wrapper.
+                // Both must indent the quote relative to that list.
+                const effectiveListLevel = listLevel > 0
+                    ? listLevel
+                    : (defaultNumbering ? defaultNumbering.level + 1 : 0);
+                const quoteLeftIndent = effectiveListLevel > 0
+                    ? (quoteListGeom.base + effectiveListLevel * quoteListGeom.step + 360)
+                    : 720;
 
                 blockChildSets.forEach((childSet, idx) => {
                     const isFirst = idx === 0;
@@ -429,6 +511,11 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 // Only create a new numbering definition for a top-level <ol>
                 if (listLevel === 0) {
                     currentOlRef = `ol-${olCounterRef.value++}`;
+                    // TipTap serializes a list resumed after a break as <ol start="N">
+                    // (typing "2." after a paragraph restarts numbering at 2). Word
+                    // needs that as the level's start value, else the resumed list
+                    // prints "1." again even though the editor shows "2.".
+                    const startAt = Math.max(1, parseInt(node.attributes.start || '1', 10) || 1);
                     result.numbering.push({
                         reference: currentOlRef,
                         levels: [{
@@ -436,6 +523,7 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                             format: "decimal",
                             text: "%1.",
                             alignment: AlignmentType.START,
+                            start: startAt,
                         },{
                             level: 1,
                             format: "lowerLetter",
@@ -608,7 +696,9 @@ function processInline(nodes: (SimpleNode | string)[], currentStyle = {}, fullTe
 }
 
 
-export function parseHtml(html: string, spacing?: ParagraphSpacing, defaultNumbering?: { reference: string; level: number }): ParseResult {
+export function parseHtml(html: string, spacing?: ParagraphSpacing, defaultNumbering?: { reference: string; level: number }, listGeom?: ListGeom): ParseResult {
+    // Always reset (never leak the previous caller's geometry).
+    quoteListGeom = listGeom ?? DEFAULT_LIST_GEOM;
     const emptyResult: ParseResult = { paragraphs: [new Paragraph("")], numbering: [] };
     if (!html || !html.trim()) return emptyResult;
 
@@ -626,11 +716,19 @@ export function parseHtml(html: string, spacing?: ParagraphSpacing, defaultNumbe
         } catch { /* ignore */ }
     }
 
-    const olCounterRef = { value: 0 };
+    // The <ol> reference counter continues across parseHtml calls (module-level
+    // seed) instead of restarting at 0 per call. A document is assembled from
+    // MANY parseHtml calls (one per rich-text field / list item), and per-call
+    // counting gave every field's first list the same "ol-0" reference — in
+    // docx one reference is ONE numbering instance, so Word silently CONTINUED
+    // the count across unrelated lists: a list showing "1., 2." in the editor
+    // printed as "2., 3." because some earlier field's list had consumed "1.".
+    const olCounterRef = { value: olRefSeed };
     const sanitizedHtml = html.replace(/\n/g, '');
 
     const tree = htmlToTree(sanitizedHtml);
     const docxResult = treeToDocx(tree, olCounterRef, 0, false, undefined, spacing, defaultNumbering, exportHighlight);
+    olRefSeed = olCounterRef.value;
     
     if (docxResult.paragraphs.length === 0 && !docxResult.numbering.length) {
       const plainText = html.replace(/<[^>]+>/g, '').trim();

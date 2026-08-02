@@ -22,10 +22,21 @@ import {
   type MatchedChange,
 } from "@/lib/tracked-changes";
 
-export function ImportChangesDialog() {
+// When `open`/`onOpenChange` are supplied the dialog is controlled and renders
+// no trigger of its own (it lives inside the DOCX menu). Left uncontrolled, it
+// renders its standalone icon trigger.
+interface ImportChangesDialogProps {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}
+
+export function ImportChangesDialog({ open: controlledOpen, onOpenChange }: ImportChangesDialogProps = {}) {
   const form = useFormContext<DraftoProject>();
   const { toast } = useToast();
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const open = isControlled ? controlledOpen : uncontrolledOpen;
+  const setOpen = (o: boolean) => { if (isControlled) onOpenChange?.(o); else setUncontrolledOpen(o); };
   const [loading, setLoading] = useState(false);
   const [fileName, setFileName] = useState("");
   const [results, setResults] = useState<MatchedChange[] | null>(null);
@@ -77,11 +88,13 @@ export function ImportChangesDialog() {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" title="Import tracked changes from an edited draft">
-          <FileDiff className="h-5 w-5" />
-        </Button>
-      </DialogTrigger>
+      {!isControlled && (
+        <DialogTrigger asChild>
+          <Button variant="ghost" size="icon" title="Import tracked changes from an edited draft">
+            <FileDiff className="h-5 w-5" />
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Import tracked changes</DialogTitle>

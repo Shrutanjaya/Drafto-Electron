@@ -27,12 +27,13 @@ import {
   createWpFiledBy,
   createSalutation,
   getWpStyles,
-  wpMargins,
+  getWpMargins,
   NO_BORDERS,
   partyPosition,
 } from "./wp-helpers";
-import { cascadeFor, type EnumStyle } from "./wp-numbering";
-import { wpAnnexureOrder, annexLabel } from "./wp-annexures";
+import { cascadeFor, enumLabel, type EnumStyle } from "./wp-numbering";
+import { wpAnnexureOrder, annexLabel, cmAnnexureOrder, cmAnnexLabel, cmAnnexBodySentence, cmAnnexIndexText, type CmAnnexEntry } from "./wp-annexures";
+import { factsAnnexureSentenceParts, inlineHtml } from "./wp-facts";
 import { getWpNumbering } from "./wp-settings";
 
 const cellMargins = { top: 0, bottom: 0, left: 115, right: 115 };
@@ -52,7 +53,7 @@ function wpDoc(children: (Paragraph | Table)[], numbering?: any[]) {
     styles: getWpStyles(),
     ...(numbering && numbering.length ? { numbering: { config: numbering } } : {}),
     sections: [{
-      properties: { page: { margin: wpMargins } },
+      properties: { page: { margin: getWpMargins() } },
       headers: { default: new Header({ children: [] }) },
       footers: { default: new Footer({ children: [] }) },
       children,
@@ -86,6 +87,21 @@ function annexIndexRuns(pNumber: number, annex: Annexure): (TextRun | string)[] 
 // True if the rich-text HTML has any visible text.
 function htmlHasText(html?: string): boolean {
   return !!(html || "").replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim();
+}
+
+function escapeHtmlText(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Append plain-text sentences INSIDE the ground's final block element so they
+// stay part of the same numbered paragraph (a trailing loose text node would
+// become a separate, unnumbered paragraph).
+function appendSentencesToHtml(html: string, sentences: string[]): string {
+  if (!sentences.length) return html;
+  const tail = " " + sentences.map(escapeHtmlText).join(" ");
+  const m = (html || "").match(/^([\s\S]*)(<\/(?:p|li)>\s*)$/i);
+  if (m) return `${m[1]}${tail}${m[2]}`;
+  return ((html || "") + tail).trim();
 }
 
 // ── Native Word numbering ────────────────────────────────────────────────────
@@ -165,7 +181,7 @@ function centeredBold(text: string, spacing?: { before?: number; after?: number 
 
 // ── Notice of Motion ────────────────────────────────────────────────────────
 
-export async function generateWpNoticeOfMotion(project: DraftoProject) {
+export async function generateWpNoticeOfMotion(project: DraftoProject, includeSignature = false) {
   const { petHeader, resHeader } = partyHeaders(project);
   const listing = project.wp.listingDate ? format(new Date(project.wp.listingDate), "dd.MM.yyyy") : "________";
   const doc = wpDoc([
@@ -178,14 +194,14 @@ export async function generateWpNoticeOfMotion(project: DraftoProject) {
       smartTextRun({ text: listing, bold: true }),
       smartTextRun(" or any date after that. Please take notice accordingly."),
     ]}),
-    ...createWpFiledBy(project),
+    ...createWpFiledBy(project, { includeSignature }),
   ]);
   return pack(doc, "WP-NoticeOfMotion.docx");
 }
 
 // ── Urgency Application ─────────────────────────────────────────────────────
 
-export async function generateWpUrgencyApplication(project: DraftoProject) {
+export async function generateWpUrgencyApplication(project: DraftoProject, includeSignature = false) {
   const { petHeader, resHeader } = partyHeaders(project);
   const doc = wpDoc([
     ...createWpHeader(project.caseType),
@@ -194,14 +210,14 @@ export async function generateWpUrgencyApplication(project: DraftoProject) {
     ...createSalutation(["To", "The Deputy Registrar,", "Delhi High Court."]),
     new Paragraph({ children: [smartTextRun("Sir,")] }),
     new Paragraph({ children: [smartTextRun("For the reasons stated in the accompanying writ petition, the same may be listed before the Hon’ble Court urgently as per the applicable rules.")] }),
-    ...createWpFiledBy(project),
+    ...createWpFiledBy(project, { includeSignature }),
   ]);
   return pack(doc, "WP-UrgencyApplication.docx");
 }
 
 // ── Memo of Parties ─────────────────────────────────────────────────────────
 
-export async function generateWpMemoOfParties(project: DraftoProject) {
+export async function generateWpMemoOfParties(project: DraftoProject, includeSignature = false) {
   const { petHeader, resHeader } = partyHeaders(project);
 
   const headerRow = new TableRow({ children: [
@@ -215,6 +231,8 @@ export async function generateWpMemoOfParties(project: DraftoProject) {
       new TableCell({ children: [new Paragraph({ text: `${i + 1}.`, spacing: tableSpacing })], verticalAlign: VerticalAlign.TOP, margins: cellMargins }),
       new TableCell({ children: [
         new Paragraph({ children: [smartTextRun({ text: p.name || "[Name]", bold: true })], spacing: tableSpacing }),
+        // Service designation, e.g. "Through its Standing Counsel".
+        ...(p.through?.trim() ? [new Paragraph({ children: [smartTextRun({ text: p.through.trim(), italics: true })], spacing: tableSpacing })] : []),
         ...(p.address ? [new Paragraph({ text: p.address, spacing: tableSpacing })] : []),
       ], verticalAlign: VerticalAlign.TOP, margins: cellMargins }),
       new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun(partyPosition(role, i, parties.length))], spacing: tableSpacing })], verticalAlign: VerticalAlign.BOTTOM, margins: cellMargins }),
@@ -236,7 +254,7 @@ export async function generateWpMemoOfParties(project: DraftoProject) {
     ...createWpPartiesHeader(petHeader, resHeader),
     centeredBold("MEMO OF PARTIES", { before: 240 }),
     table,
-    ...createWpFiledBy(project),
+    ...createWpFiledBy(project, { includeSignature }),
   ]);
   return pack(doc, "WP-MemoOfParties.docx");
 }
@@ -292,38 +310,23 @@ export async function generateWpSynopsisAndLod(project: DraftoProject) {
 }
 
 // ── Reliefs ────────────────────────────────────────────────────────────────
-// Single source of truth. The last entry is the residuary prayer, included only
-// in the final Prayers block (para 8). When IO, relief (a) auto-quashes the IO.
+// Single source of truth — all reliefs (including any quash relief in an IO
+// writ, and the residuary prayer last) are user-authored, and the FULL list
+// (residuary included) prints in all three places: the top reliefs block,
+// Para 1, and the final Prayers block (para 8).
 
-function reliefStrings(project: DraftoProject): { top: string[]; all: string[] } {
-  const items = (project.wp.reliefs || []).map(r => r.particulars || "").filter(htmlHasText);
-  // Drop the residuary (last) item for the "top" block and the intro.
-  const top = items.length > 1 ? items.slice(0, -1) : items;
-
-  if (project.wp.isIoWrit) {
-    const ioEntry = wpAnnexureOrder(project).find(e => e.annex.isImpugnedOrder);
-    let ioDesc: string;
-    if (ioEntry) {
-      const t = ioEntry.annex.title || "Impugned Order";
-      // Avoid "the the …" when the title already begins with an article.
-      const article = /^(the|a|an)\s/i.test(t) ? "" : "the ";
-      const dated = ioEntry.annex.date ? ` dated ${ioEntry.annex.date}` : "";
-      ioDesc = `Quash and set aside ${article}${t}${dated} [${annexLabel(ioEntry.pNumber, ioEntry.annex)}]`;
-    } else {
-      ioDesc = "Quash and set aside the Impugned Order [Annexure P-1]";
-    }
-    return { top: [ioDesc, ...top], all: [ioDesc, ...items] };
-  }
-  return { top, all: items };
+function reliefItems(project: DraftoProject): string[] {
+  return (project.wp.reliefs || []).map(r => r.particulars || "").filter(htmlHasText);
 }
 
 // ── Writ Petition (body + affidavit) ────────────────────────────────────────
 
-export async function generateWpPetition(project: DraftoProject, opts?: { includeAffidavit?: boolean }) {
+export async function generateWpPetition(project: DraftoProject, opts?: { includeAffidavit?: boolean; includeSignature?: boolean }) {
   const includeAffidavit = opts?.includeAffidavit ?? true;
+  const includeSignature = opts?.includeSignature ?? false;
   const { petHeader, resHeader } = partyHeaders(project);
   const article = project.wp.articleBasis;
-  const { top, all } = reliefStrings(project);
+  const reliefs = reliefItems(project);
 
   const num = getWpNumbering();
   const nb = numberer();
@@ -333,6 +336,29 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
   const reliefsTopRef = nb.styled(num.prayers);
   const groundsRef = nb.styled(num.grounds);
   const prayersRef = nb.styled(num.prayers);
+
+  // Para 1 restates the prayers verbatim as ONE flowing numbered paragraph —
+  // "… and: [a] …; [b] …" — the letters inline (matching the configured
+  // prayers style) and the user's own punctuation preserved untouched
+  // (including the final full stop after the residuary prayer).
+  const para1Html = `<p>This Writ Petition is filed praying that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and: ${reliefs
+    .map((h, i) => `[${enumLabel(i, num.prayers)}] ${inlineHtml(h)}`)
+    .join(" ")}</p>`;
+  const para1 = parseHtml(para1Html, { before: 120 }, { reference: mainRef, level: 0 });
+  numbering.push(...para1.numbering);
+
+  // Para 1 ends with an annexure sentence for each document marked as an
+  // Impugned Order ("Annexure P-1 is a true copy of … dated …."), the
+  // "Annexure P-N" label in bold.
+  const ioSentenceRuns: TextRun[] = wpAnnexureOrder(project)
+    .filter(e => e.annex.isImpugnedOrder)
+    .flatMap((e, i) => {
+      const { label, rest } = factsAnnexureSentenceParts(e.pNumber, e.annex);
+      return [
+        smartTextRun({ text: `${i > 0 ? " " : ""}${label}`, bold: true }),
+        smartTextRun(rest),
+      ];
+    });
 
   const facts = parseHtml(project.wp.facts || "");
   applyFactsCascade(facts.numbering, num.facts);
@@ -345,12 +371,17 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
     ...createWpPartiesHeader(petHeader, resHeader),
     centeredBold(`Writ Petition under Article ${article} of the Constitution of India`, { before: 240 }),
     new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun("PRAYING FOR THE FOLLOWING RELIEFS:")] }),
-    ...htmlListItems(reliefsTopRef, top, numbering),
+    ...htmlListItems(reliefsTopRef, reliefs, numbering),
     // Salutation (indented, italic)
     ...createSalutation(["To", "The Hon’ble Chief Justice of the Delhi High Court", "And His Companion Justices of the Hon’ble High Court of Delhi"]),
     new Paragraph({ children: [smartTextRun({ text: "The Petitioner most respectfully submits that:", bold: true })] }),
-    // 1. Intro
-    listItem(mainRef, "This Writ Petition is filed praying for the reliefs set out hereinabove.", { before: 120 }),
+    // 1. Intro — the prayers verbatim inline (all of them, residuary included),
+    // then the impugned order/document annexure sentence(s).
+    ...para1.paragraphs,
+    ...(ioSentenceRuns.length ? [new Paragraph({
+      indent: { left: 480 }, // continuation of para 1 (aligns with its text)
+      children: ioSentenceRuns,
+    })] : []),
     // 2. Facts
     listItemRuns(mainRef, [smartTextRun({ text: "FACTS", bold: true }), ": The facts and circumstances giving rise to this writ petition are as under:"]),
     ...(facts.paragraphs.length ? facts.paragraphs : [new Paragraph({ children: [smartTextRun("[Facts — generated from the List of Dates.]")] })]),
@@ -364,8 +395,9 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
     listItem(mainRef, "The Petitioner craves leave of this Hon’ble Court to produce additional documents and/or affidavits and to add, alter or amend this Writ Petition at a later stage of the proceedings, if required.", { before: 120 }),
     // 8. Prayers
     listItemRuns(mainRef, [smartTextRun({ text: "PRAYERS:", bold: true }), " In view of the foregoing submissions, it is respectfully prayed that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and:"]),
-    ...htmlListItems(prayersRef, all, numbering),
-    ...createWpFiledBy(project),
+    ...htmlListItems(prayersRef, reliefs, numbering),
+    // The petition body's Filed-by block is the ONLY one that shows "Drawn on".
+    ...createWpFiledBy(project, { includeSignature, showDrawnOn: true }),
     // Affidavit (the index lists the petition "with affidavit"). Omitted for the
     // PDF path, which appends the affidavit (generated or uploaded) separately.
     ...(includeAffidavit ? [
@@ -393,13 +425,32 @@ function deponentName(project: DraftoProject): string {
   return project.deponent?.name?.trim() || project.petitioners?.[0]?.name?.trim() || "[Deponent]";
 }
 
+// Opening affidavit paragraph, phrased for the deponent's capacity (the shared
+// deponent.role — Petitioner / Authorised Representative / Pairokar / Legal
+// Guardian / PoA holder) and for multi-petitioner writs.
+function deponentCapacityPara(project: DraftoProject, kind: "petition" | "cm"): string {
+  const multi = (project.petitioners?.length || 0) > 1;
+  const role = project.deponent?.role || "Petitioner";
+  const applicant = kind === "cm" ? " and the Applicant in the present Application" : "";
+  const conversant = "I am fully conversant with the facts of the case and hence competent to swear to this Affidavit.";
+  if (role === "Petitioner" || role === "Petitioner No. 1") {
+    const label = multi || role === "Petitioner No. 1" ? "Petitioner No. 1" : "Petitioner";
+    const behalf = multi ? " I am duly authorised to swear to this Affidavit on behalf of all the Petitioners." : "";
+    return `I am the ${label} in the captioned Writ Petition${applicant}.${behalf} ${conversant}`;
+  }
+  // Representative capacities: state the capacity and the authorisation.
+  return `I am the ${role} in the captioned Writ Petition${applicant} and am duly authorised to swear to this Affidavit on behalf of the Petitioner${multi ? "s" : ""}. ${conversant}`;
+}
+
 function deponentPreamble(project: DraftoProject): string {
   const d = project.deponent;
   const rel = d.relationship || "son of";
   const father = d.fatherName ? ` ${rel} ${d.fatherName},` : "";
   const age = d.age ? ` aged about ${d.age} years,` : "";
   const addr = d.address ? ` R/o ${d.address},` : "";
-  return `I, ${deponentName(project)},${father}${age}${addr} do hereby solemnly affirm and declare as under:`;
+  // "presently at" is optional: included only when the deponent's location is set.
+  const presentlyAt = d.location?.trim() ? ` presently at ${d.location.trim()},` : "";
+  return `I, ${deponentName(project)},${father}${age}${addr}${presentlyAt} do hereby solemnly affirm and declare as under:`;
 }
 
 // Right-aligned bold "DEPONENT" signature line.
@@ -418,19 +469,21 @@ function buildAffidavitChildren(
   numbering.push(decimalDef(affRef));
   const paras: string[] = kind === "petition"
     ? [
-        "I am the Petitioner in the captioned Writ Petition. I am fully conversant with the facts of the case and hence competent to swear to this Affidavit.",
+        deponentCapacityPara(project, "petition"),
         "The accompanying Writ Petition has been drafted under my instructions and the same has been read over to me and understood by me. I say that the averments made therein are true to the best of my knowledge and belief. Nothing material has been concealed therefrom and no part of it is false.",
         "The submissions concerning the facts are correct to the best of my knowledge based on records, and the submissions made in the Petition, Grounds, Synopsis, List of Dates and other legal submissions are based on legal advice received by me, which I believe to be correct.",
         "The accompanying annexures are true/typed copies of their respective originals or are downloaded from the internet.",
         "I have not preferred any similar or other petition in the aforementioned matter.",
       ]
     : [
-        "I am the Petitioner in the captioned Writ Petition and the Applicant in the present Application. I am fully conversant with the facts of the case and hence competent to swear to this Affidavit.",
+        deponentCapacityPara(project, "cm"),
         "The Application has been drafted under my instructions and the same has been read over to me and understood by me. I say that the averments made therein are true to the best of my knowledge and belief. Nothing material has been concealed therefrom and no part of it is false.",
         "The accompanying annexures, if any, are true copies of their respective originals.",
       ];
 
-  const place = project.advocate.filingPlace || "New Delhi";
+  // Verification place mirrors the deponent's "presently at": blank underscores
+  // when it isn't set, otherwise the entered place.
+  const place = project.deponent?.location?.trim() || "_______";
   return [
     ...createWpHeader(project.caseType, { cm: kind === "cm" }),
     ...createWpPartiesHeader(petHeader, resHeader),
@@ -453,6 +506,14 @@ export async function generateWpVakalatnama(project: DraftoProject) {
   const adv = project.wp.advocate;
   const advLine = [adv.name, adv.firm, adv.address, adv.enrolmentNo ? `Enrl. No.: ${adv.enrolmentNo}` : "", [adv.email, adv.phone].filter(Boolean).join(" | ")].filter(Boolean).join(", ");
 
+  // All petitioners execute the vakalatnama (each gets a signature slot below);
+  // "X and Ors." from the cause title is never used as an executant.
+  const names = (project.petitioners || []).map(p => p.name?.trim()).filter(Boolean) as string[];
+  const multi = names.length > 1;
+  const executants = names.join("; ") || petHeader;
+  const we = multi ? "We" : "I";
+  const my = multi ? "our" : "my";
+
   const authority = [
     "To act, appear and plead in the above-noted case in this Court or in any other Court in which the same may be tried or heard and also in the appellate Court including the High Court.",
     "To sign, file, verify and present pleadings, appeals, cross-objections or petitions for execution, review, revision, withdrawal, compromise or other petitions, replies, objections or affidavits or other documents as may be deemed necessary or proper for the prosecution of the said case in all its stages.",
@@ -468,9 +529,9 @@ export async function generateWpVakalatnama(project: DraftoProject) {
     ...createWpHeader(project.caseType),
     ...createWpPartiesHeader(petHeader, resHeader),
     centeredBold("VAKALATNAMA", { before: 240 }),
-    new Paragraph({ children: [smartTextRun(`I, ${petHeader}, the Petitioner in the captioned matter, do hereby appoint ${advLine || "[Advocate]"} to be my Advocate in the above-noted case and authorise him:`)] }),
+    new Paragraph({ children: [smartTextRun(`${we}, ${executants}, the Petitioner${multi ? "s" : ""} in the captioned matter, do hereby appoint ${advLine || "[Advocate]"} to be ${my} Advocate in the above-noted case and authorise him:`)] }),
     ...authority.map(t => listItem(authRef, t, { before: 60 })),
-    new Paragraph({ spacing: { before: 120 }, children: [smartTextRun("AND I undertake that I or my duly authorised agent will appear in Court on all hearings and will inform the Advocate for appearance when the case is on the date of hearing.")] }),
+    new Paragraph({ spacing: { before: 120 }, children: [smartTextRun(`AND ${we.toLowerCase() === "we" ? "we" : "I"} undertake that ${multi ? "we or our" : "I or my"} duly authorised agent will appear in Court on all hearings and will inform the Advocate for appearance when the case is on the date of hearing.`)] }),
     new Paragraph({ spacing: { before: 240 }, children: [smartTextRun("Dated: ____________")] }),
     new Paragraph({ children: [smartTextRun("Signed, Accepted and Identified by:")] }),
     new Paragraph({ spacing: { before: 360 }, children: [] }),
@@ -479,8 +540,19 @@ export async function generateWpVakalatnama(project: DraftoProject) {
       columnWidths: [5000, 5000],
       borders: NO_BORDERS,
       rows: [new TableRow({ children: [
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.LEFT, children: [smartTextRun({ text: "ADVOCATE", bold: true })] })], borders: NO_BORDERS }),
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: "CLIENT", bold: true })] })], borders: NO_BORDERS }),
+        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.LEFT, children: [smartTextRun({ text: "ADVOCATE", bold: true })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP }),
+        new TableCell({
+          children: multi
+            // One signature slot per petitioner, stacked with signing space.
+            ? names.map((n, i) => new Paragraph({
+                alignment: AlignmentType.RIGHT,
+                spacing: { before: i === 0 ? 0 : 480 },
+                children: [smartTextRun({ text: `CLIENT (PETITIONER NO. ${i + 1} — ${n})`, bold: true })],
+              }))
+            : [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: "CLIENT", bold: true })] })],
+          borders: NO_BORDERS,
+          verticalAlign: VerticalAlign.TOP,
+        }),
       ]})],
     }),
   ], nb.defs);
@@ -494,11 +566,20 @@ export async function generateWpVakalatnama(project: DraftoProject) {
 const CM_PARA1 = "The accompanying writ petition has been filed praying that this Hon’ble Court be pleased to grant the reliefs set out therein. The contents of the writ petition are not being repeated here for the sake of brevity and may kindly be treated as part and parcel of this application.";
 const CM_GOODFAITH = "This application is filed in good faith and in the interest of justice. No prejudice would be caused to the Respondent(s) if this application were allowed.";
 
+// Standard titles for the three built-in CMs. The user can override each title
+// in the Applications tab (empty override = these defaults).
+export const WP_STD_CM_TITLES = {
+  stay: "Application under Section 151 of the Code of Civil Procedure, 1908 seeking stay of the operation of the Impugned Order",
+  lengthySynopsis: "Application under Section 151 of the Code of Civil Procedure, 1908 seeking permission to file a lengthy Synopsis and List of Dates",
+  exemptionCopies: "Application under Section 151 of the Code of Civil Procedure, 1908 for exemption from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition",
+} as const;
+
 interface CmSpec {
   title: string;
   para2: string;        // "This application is being filed praying that…" (frozen std / editable custom)
   middle: string[];     // editable middle paras the user may insert
   prayers: string[];    // editable prayers; last = residuary placeholder
+  annexures: CmAnnexEntry[]; // A-series annexures (custom CMs only)
 }
 
 function activeCms(project: DraftoProject): CmSpec[] {
@@ -508,45 +589,59 @@ function activeCms(project: DraftoProject): CmSpec[] {
 
   if (project.wp.isIoWrit && c.stay.active) {
     cms.push({
-      title: "Application under Order XXXIX Rules 1 and 2 read with Section 151 of the Code of Civil Procedure, 1908 seeking stay of the operation of the Impugned Order",
+      title: c.stay.title?.trim() || WP_STD_CM_TITLES.stay,
       para2: "This application is being filed praying that this Hon’ble Court be pleased to stay the operation of the Impugned Order during the pendency of the writ petition.",
       middle: mid(c.stay.body),
       prayers: mid(c.stay.prayers),
+      annexures: [],
     });
   }
   if (c.lengthySynopsis.active) {
     cms.push({
-      title: "Application under Section 151 of the Code of Civil Procedure, 1908 seeking permission to file a lengthy Synopsis and List of Dates",
+      title: c.lengthySynopsis.title?.trim() || WP_STD_CM_TITLES.lengthySynopsis,
       para2: "This application is being filed praying that this Hon’ble Court be pleased to permit the Petitioner to file a lengthy Synopsis and List of Dates.",
       middle: mid(c.lengthySynopsis.body),
       prayers: mid(c.lengthySynopsis.prayers),
+      annexures: [],
     });
   }
   if (c.exemptionCopies.active) {
     cms.push({
-      title: "Application under Section 151 of the Code of Civil Procedure, 1908 for exemption from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition",
+      title: c.exemptionCopies.title?.trim() || WP_STD_CM_TITLES.exemptionCopies,
       para2: "This application is being filed praying that this Hon’ble Court be pleased to exempt the Petitioner from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition.",
       middle: mid(c.exemptionCopies.body),
       prayers: mid(c.exemptionCopies.prayers),
+      annexures: [],
     });
   }
   // Custom CMs (SLP custom-IA shape): para2 + grounds (middle) + prayers are all
-  // user-editable.
+  // user-editable. Ground annexures become the CM's A-series: a prose sentence
+  // is appended to the owning ground para, and the files follow the CM in the
+  // Index/PDF.
   (project.wp.customCms || []).forEach(cm => {
+    const annexures = cmAnnexureOrder(cm);
+    const middle: string[] = [];
+    for (const g of cm.grounds || []) {
+      const sentences = annexures.filter(e => e.groundId === g.id).map(e => cmAnnexBodySentence(e.aNumber, e.annex));
+      if (!htmlHasText(g.particulars) && sentences.length === 0) continue;
+      middle.push(appendSentencesToHtml(g.particulars || "", sentences));
+    }
     cms.push({
       title: cm.title || "Application",
       para2: cm.para2 || "",
-      middle: (cm.grounds || []).map(g => g.particulars).filter(htmlHasText),
+      middle,
       prayers: (cm.prayers || []).map(p => p.particulars).filter(htmlHasText),
+      annexures,
     });
   });
   return cms;
 }
 
 // The active CM specifications (standard + custom). Exported so the PDF
-// assembler can bookmark each CM separately with its full title.
-export function wpActiveCms(project: DraftoProject): { title: string }[] {
-  return activeCms(project).map(c => ({ title: c.title }));
+// assembler can bookmark each CM separately with its full title and interleave
+// its A-series annexure files immediately after it.
+export function wpActiveCms(project: DraftoProject): { title: string; annexures: CmAnnexEntry[] }[] {
+  return activeCms(project).map(c => ({ title: c.title, annexures: c.annexures }));
 }
 
 // Bookmark/index title for a CM: "CM Appl. No. ____ of <yr>: <full title>".
@@ -557,7 +652,7 @@ export function wpCmTitle(cm: { title: string }): string {
 // Render one CM in the SLP-IA pattern: frozen opening para → "This application…"
 // → editable middle paras → frozen good-faith closing → PRAYERS lead-in →
 // editable lettered prayers → filed-by → affidavit. Shared by both generators.
-function renderCmChildren(project: DraftoProject, cm: CmSpec, petHeader: string, resHeader: string, nb: ReturnType<typeof numberer>, numbering: any[]): (Paragraph | Table)[] {
+function renderCmChildren(project: DraftoProject, cm: CmSpec, petHeader: string, resHeader: string, nb: ReturnType<typeof numberer>, numbering: any[], includeSignature = false): (Paragraph | Table)[] {
   const num = getWpNumbering();
   const mainRef = nb.decimal();
   return [
@@ -576,7 +671,7 @@ function renderCmChildren(project: DraftoProject, cm: CmSpec, petHeader: string,
     // PRAYERS lead-in + editable lettered prayers (last = residuary)
     listItemRuns(mainRef, [smartTextRun({ text: "PRAYERS:", bold: true }), " In view of the foregoing averments, it is most respectfully prayed that this Hon’ble Court may be pleased to:"]),
     ...htmlListItems(nb.styled(num.prayers), cm.prayers, numbering),
-    ...createWpFiledBy(project),
+    ...createWpFiledBy(project, { includeSignature }),
     // CM affidavit
     new Paragraph({ children: [new PageBreak()] }),
     ...buildAffidavitChildren(project, "cm", petHeader, resHeader, numbering),
@@ -599,12 +694,12 @@ export async function generateWpCms(project: DraftoProject) {
 }
 
 // A single CM as its own docx (used by the PDF assembler for per-CM bookmarks).
-export async function generateWpSingleCm(project: DraftoProject, cmIndex: number) {
+export async function generateWpSingleCm(project: DraftoProject, cmIndex: number, includeSignature = false) {
   const { petHeader, resHeader } = partyHeaders(project);
   const cm = activeCms(project)[cmIndex];
   if (!cm) return pack(wpDoc([new Paragraph("")]), `WP-CM-${cmIndex + 1}.docx`);
   const nb = numberer();
-  const children = renderCmChildren(project, cm, petHeader, resHeader, nb, nb.defs);
+  const children = renderCmChildren(project, cm, petHeader, resHeader, nb, nb.defs, includeSignature);
   return pack(wpDoc(children, nb.defs), `WP-CM-${cmIndex + 1}.docx`);
 }
 
@@ -615,24 +710,42 @@ export async function generateWpSingleCm(project: DraftoProject, cmIndex: number
 
 // The ordered index items with their stable keys — shared with the PDF
 // assembler so page ranges line up.
+// The user-configured order of the reorderable front-matter components, with a
+// safety net for missing/duplicated entries.
+export function wpFrontMatterOrder(project: DraftoProject): ("notice" | "urgency" | "memo")[] {
+  const all: ("notice" | "urgency" | "memo")[] = ["notice", "urgency", "memo"];
+  const chosen = (project.wp.frontMatterOrder || []).filter((k, i, a) => all.includes(k) && a.indexOf(k) === i);
+  return [...chosen, ...all.filter(k => !chosen.includes(k))];
+}
+
 export function wpIndexItems(project: DraftoProject): { key: string; runs: (TextRun | string)[] }[] {
   const year = new Date().getFullYear();
+  const frontLabels: Record<"notice" | "urgency" | "memo", string> = {
+    notice: "Notice of Motion",
+    urgency: "Urgency Application",
+    memo: "Memo of Parties",
+  };
   const items: { key: string; runs: (TextRun | string)[] }[] = [
-    { key: "notice", runs: [smartTextRun("Notice of Motion")] },
-    { key: "urgency", runs: [smartTextRun("Urgency Application")] },
-    { key: "memo", runs: [smartTextRun("Memo of Parties")] },
+    ...wpFrontMatterOrder(project).map(k => ({ key: k, runs: [smartTextRun(frontLabels[k])] })),
     { key: "slod", runs: [smartTextRun("Synopsis and List of Dates")] },
     { key: "petition", runs: [smartTextRun(`Writ Petition under Article ${project.wp.articleBasis} of the Constitution of India, with affidavit.`)] },
   ];
   wpAnnexureOrder(project).forEach(({ annex, pNumber }) => items.push({ key: `annex:${annex.id}`, runs: annexIndexRuns(pNumber, annex) }));
-  activeCms(project).forEach((cm, i) => items.push({ key: `cm:${i}`, runs: [smartTextRun({ text: `C.M. No. ____ of ${year}: `, bold: true }), convertToSmartQuotes(cm.title + ", with affidavit.")] }));
+  activeCms(project).forEach((cm, i) => {
+    items.push({ key: `cm:${i}`, runs: [smartTextRun({ text: `C.M. No. ____ of ${year}: `, bold: true }), convertToSmartQuotes(cm.title + ", with affidavit.")] });
+    // The CM's own A-series annexures sit immediately after it.
+    cm.annexures.forEach(({ annex, aNumber }) => items.push({
+      key: `cmannex:${annex.id}`,
+      runs: [smartTextRun({ text: `${cmAnnexLabel(aNumber)}: `, bold: true }), convertToSmartQuotes(cmAnnexIndexText(annex))],
+    }));
+  });
   items.push({ key: "vakalatnama", runs: [smartTextRun("Vakalatnama")] });
   items.push({ key: "courtfee", runs: [smartTextRun("Court Fee")] });
   items.push({ key: "proofofservice", runs: [smartTextRun("Proof of Service")] });
   return items;
 }
 
-export async function generateWpIndex(project: DraftoProject, pageRanges?: Record<string, string>) {
+export async function generateWpIndex(project: DraftoProject, pageRanges?: Record<string, string>, includeSignature = false) {
   const { petHeader, resHeader } = partyHeaders(project);
   const items = wpIndexItems(project);
 
@@ -659,7 +772,7 @@ export async function generateWpIndex(project: DraftoProject, pageRanges?: Recor
       smartTextRun({ text: "Note: ", bold: true }),
       smartTextRun("The Petition has been duly bookmarked and an OCR version of the same has been served upon all the parties."),
     ]}),
-    ...createWpFiledBy(project),
+    ...createWpFiledBy(project, { includeSignature }),
   ]);
   return pack(doc, "WP-Index.docx");
 }

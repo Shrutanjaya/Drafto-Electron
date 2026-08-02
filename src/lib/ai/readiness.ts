@@ -30,6 +30,7 @@ const htmlHasText = (v: unknown): boolean =>
 
 export function computeReadiness(values: any): Readiness {
   const v = values || {};
+  if (v.courtType === "WritPetitionDHC") return computeWpReadiness(v);
   const io = Array.isArray(v.impugnedOrders) ? v.impugnedOrders[0] : undefined;
   const dep = v.deponent || {};
 
@@ -108,6 +109,75 @@ export function computeReadiness(values: any): Readiness {
       ...check([[anyRowFilled(v.interimReliefPrayers, "particulars"), "interim prayer"]]),
     });
   }
+
+  const doneCount = sections.filter((s) => s.done).length;
+  const total = sections.length;
+  return {
+    sections,
+    doneCount,
+    total,
+    percent: total ? Math.round((doneCount / total) * 100) : 0,
+    next: sections.find((s) => !s.done) || null,
+  };
+}
+
+// Writ Petition (Delhi HC) readiness. Preset ids reference WP_PRESETS.
+function computeWpReadiness(v: any): Readiness {
+  const dep = v.deponent || {};
+  // The last wp.reliefs row is the residuary prayer — substantive reliefs are the rest.
+  const reliefRows: unknown[] = Array.isArray(v.wp?.reliefs) ? v.wp.reliefs : [];
+  const substantiveReliefs = reliefRows.slice(0, Math.max(0, reliefRows.length - 1));
+
+  const sections: ReadinessSection[] = [
+    {
+      id: "parties",
+      label: "Parties",
+      presetId: "memo",
+      ...check([
+        [anyRowFilled(v.petitioners, "name"), "petitioner(s)"],
+        [anyRowFilled(v.respondents, "name"), "respondent(s)"],
+      ]),
+    },
+    {
+      id: "deponent",
+      label: "Deponent",
+      presetId: "deponent",
+      ...check([
+        [filled(dep.name) || anyRowFilled(v.petitioners, "name"), "name"],
+        [filled(dep.address), "address"],
+      ]),
+    },
+    {
+      id: "synopsis",
+      label: "Synopsis",
+      presetId: "synopsis",
+      ...check([[htmlHasText(v.synopsis), "synopsis"]]),
+    },
+    {
+      id: "lod",
+      label: "List of dates",
+      presetId: "lod",
+      ...check([[anyRowFilled(v.listOfDates, "event"), "dates & events"]]),
+    },
+    {
+      id: "reliefs",
+      label: "Reliefs",
+      presetId: "reliefs",
+      ...check([[substantiveReliefs.some((r: any) => htmlHasText(r?.particulars)), "reliefs"]]),
+    },
+    {
+      id: "facts",
+      label: "Facts",
+      presetId: "facts",
+      ...check([[htmlHasText(v.wp?.facts), "facts section"]]),
+    },
+    {
+      id: "grounds",
+      label: "Grounds",
+      presetId: "grounds",
+      ...check([[anyRowFilled(v.grounds, "particulars"), "grounds"]]),
+    },
+  ];
 
   const doneCount = sections.filter((s) => s.done).length;
   const total = sections.length;

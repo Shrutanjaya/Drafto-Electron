@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useFormContext, useWatch, useFieldArray } from "react-hook-form";
-import { Sparkles, PlusCircle, Columns2, LayoutList } from "lucide-react";
+import { Sparkles, PlusCircle, Columns2, LayoutList, ListPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DraftoProject } from "@/lib/schema";
 import { customIaSchema } from "@/lib/schema";
-import { transposeLodToFacts } from "@/lib/wp/wp-facts";
+import { transposeLodToFacts, transposableLodIds, lodFingerprint, appendNewLodRowsToFacts } from "@/lib/wp/wp-facts";
+import { WP_STD_CM_TITLES } from "@/lib/wp/wp-actions";
 import { CustomIaCard } from "@/components/custom/custom-ia-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
@@ -22,13 +23,14 @@ import { AamTable } from "@/components/custom/aam-table";
 import { BadhiyaBox } from "@/components/custom/badhiya-box";
 import { EditorProvider } from "@/components/custom/editor-provider";
 import { EditorToolbar } from "@/components/custom/editor-toolbar";
+import { SectionDialog } from "@/components/custom/section-dialog";
 import { DateInput } from "@/components/custom/date-input";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 
 // ── Shared little components (mirrors the SLP tab) ───────────────────────────
 function ViewToggle({ mode, onChange }: { mode: "splitter" | "navigation"; onChange: (m: "splitter" | "navigation") => void }) {
   return (
-    <div className="flex items-center overflow-hidden rounded-md border">
+    <div data-ro-nav className="flex items-center overflow-hidden rounded-md border">
       <button type="button" title="Splitter view" onClick={() => onChange("splitter")}
         className={cn("flex items-center gap-1 px-2 py-1 text-xs transition-colors", mode === "splitter" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
         <Columns2 className="h-3 w-3" />Split
@@ -43,7 +45,7 @@ function ViewToggle({ mode, onChange }: { mode: "splitter" | "navigation"; onCha
 
 function NavRow({ label, active, selected, onClick }: { label: string; active: boolean; selected: boolean; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick}
+    <button type="button" data-ro-nav onClick={onClick}
       className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors", selected ? "bg-primary text-primary-foreground dark:text-white" : "text-foreground hover:bg-muted")}>
       <span className={cn("h-2 w-2 flex-shrink-0 rounded-full", active ? (selected ? "bg-green-300" : "bg-green-500") : (selected ? "bg-primary-foreground/40" : "bg-muted-foreground/30"))} />
       <span className="leading-snug">{label}</span>
@@ -78,7 +80,7 @@ export function WpWorkspace() {
   }, []);
 
   const [editorSection, setEditorSection] = useState<EditorSection>("synopsis");
-  const [prelim, setPrelim] = useState<"parties" | "details" | "deponent" | "advocate">("parties");
+  const [prelim, setPrelim] = useState<"parties" | "details" | "deponent">("parties");
   const [cmSection, setCmSection] = useState<"stay" | "lengthySynopsis" | "exemptionCopies" | "custom">(isIoWrit ? "stay" : "lengthySynopsis");
 
   // Facts generation (edit-locked).
@@ -91,6 +93,19 @@ export function WpWorkspace() {
     generatingFacts.current = true;
     form.setValue("wp.facts", transposeLodToFacts(proj), { shouldDirty: true });
     form.setValue("wp.factsEdited", false);
+    form.setValue("wp.factsLodIds", transposableLodIds(proj));
+    form.setValue("wp.factsLodFingerprint", lodFingerprint(proj));
+  };
+  // Append-only transposition: adds paragraphs for LoD rows added AFTER the last
+  // generation without touching the (possibly hand-edited) existing Facts.
+  const handleAppendNewRows = () => {
+    const proj = form.getValues();
+    const { html, appendedIds } = appendNewLodRowsToFacts(proj, proj.wp.facts || "", proj.wp.factsLodIds || []);
+    if (appendedIds.length === 0) return;
+    generatingFacts.current = true;
+    form.setValue("wp.facts", html, { shouldDirty: true });
+    form.setValue("wp.factsLodIds", [...(proj.wp.factsLodIds || []), ...appendedIds]);
+    form.setValue("wp.factsLodFingerprint", lodFingerprint(proj));
   };
 
   // Dot-active watches.
@@ -100,10 +115,32 @@ export function WpWorkspace() {
   const facts = useWatch({ control: form.control, name: "wp.facts" });
   const grounds = useWatch({ control: form.control, name: "grounds" });
   const petitioners = useWatch({ control: form.control, name: "petitioners" });
-  const advName = useWatch({ control: form.control, name: "wp.advocate.name" });
-  const depName = useWatch({ control: form.control, name: "deponent.name" });
+  const respondents = useWatch({ control: form.control, name: "respondents" });
+  const caseType = useWatch({ control: form.control, name: "caseType" });
+  const articleBasis = useWatch({ control: form.control, name: "wp.articleBasis" });
+  const listingDate = useWatch({ control: form.control, name: "wp.listingDate" });
+  const deponent = useWatch({ control: form.control, name: "deponent" });
   const hasAam = (rows: any[]) => rows?.some((r: any) => r.particulars?.trim()) ?? false;
   const hasLoD = (rows: any[]) => rows?.some((r: any) => r.date?.trim() || r.event?.trim()) ?? false;
+
+  // ── Preliminary nav-dot readiness ──────────────────────────────────────────
+  // Parties: every party has a name AND an address (Through is optional).
+  const partiesFilled = (rows: any[]) =>
+    Array.isArray(rows) && rows.length > 0 && rows.every((r: any) => r?.name?.trim() && r?.address?.trim());
+  const prelimPartiesReady = partiesFilled(petitioners) && partiesFilled(respondents);
+  // Details: type + article picked, and listing date is a future date (drawn-on optional).
+  const listingIsFuture = (() => {
+    if (!listingDate) return false;
+    const d = new Date(listingDate as any);
+    if (isNaN(d.getTime())) return false;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime() > today.getTime();
+  })();
+  const prelimDetailsReady = !!caseType && !!articleBasis && listingIsFuture;
+  // Deponent: everything except "presently at" (location) is mandatory.
+  const prelimDeponentReady = (["name", "relationship", "fatherName", "age", "address", "role"] as const)
+    .every((k) => String((deponent as any)?.[k] ?? "").trim());
 
   const active: Record<EditorSection, boolean> = {
     synopsis: !!synopsis?.trim(),
@@ -138,20 +175,35 @@ export function WpWorkspace() {
   const reliefsEditor = (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
-        Single source of truth — drives the top reliefs block and the intro paragraph. Keep the residuary prayer last.
-        {isIoWrit && " Relief (a) to quash the impugned order is added automatically."}
+        Single source of truth — all rows (residuary prayer last) print in the top reliefs block, Para 1 (run together inline) and the final Prayers.
+        Type each relief&rsquo;s own punctuation (&ldquo;; and&rdquo; between, a full stop after the last) — nothing is added automatically.
       </p>
       <AamTable name="wp.reliefs" />
     </div>
   );
 
+  // Count of LoD rows added since the last generation (drives "Append new rows").
+  const factsLodIds = useWatch({ control: form.control, name: "wp.factsLodIds" });
+  const newLodRowCount = useMemo(() => {
+    const done = new Set(factsLodIds || []);
+    return transposableLodIds(form.getValues()).filter(id => !done.has(id)).length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lod, factsLodIds]);
+
   const factsEditor = (
     <div className="flex h-full flex-col gap-2">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">Transposed from the List of Dates (with annexure sentences). Editing locks it against regeneration.</p>
-        <Button type="button" size="sm" variant="secondary" onClick={handleGenerateFacts}>
-          <Sparkles className="mr-1 h-3.5 w-3.5" />Generate from List of Dates
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          {!!facts?.trim() && newLodRowCount > 0 && (
+            <Button type="button" size="sm" variant="outline" title="Add paragraphs for List-of-Dates rows added after the last generation, without touching your edits" onClick={handleAppendNewRows}>
+              <ListPlus className="mr-1 h-3.5 w-3.5" />Append {newLodRowCount} new row{newLodRowCount === 1 ? "" : "s"}
+            </Button>
+          )}
+          <Button type="button" size="sm" variant="secondary" onClick={handleGenerateFacts}>
+            <Sparkles className="mr-1 h-3.5 w-3.5" />Generate from List of Dates
+          </Button>
+        </div>
       </div>
       <FormField control={form.control} name="wp.facts" render={({ field }) => (
         <FormItem className="flex flex-grow flex-col"><FormControl>
@@ -203,7 +255,10 @@ export function WpWorkspace() {
                   <EditorToolbar />
                   <ViewToggle mode={viewMode} onChange={setViewMode} />
                 </div>
-                <div className="flex-grow overflow-auto">{editorContent[editorSection]}</div>
+                {/* Keyed so switching sections remounts the inputs — reusing a
+                    mounted Controller with a different `name` makes values bleed
+                    between fields (blank/garbled data on return). */}
+                <div key={editorSection} className="flex-grow overflow-auto">{editorContent[editorSection]}</div>
               </div>
             </ResizablePanel>
           </ResizablePanelGroup>
@@ -211,6 +266,9 @@ export function WpWorkspace() {
       ) : (
         <div className={cn("flex flex-col", PANEL_H)}>
           <div className="mb-1 flex items-center gap-1">
+            {/* Sections not shown as panels in split view open in dialogs. */}
+            <SectionDialog label="Reliefs" active={active.reliefs}>{reliefsEditor}</SectionDialog>
+            <SectionDialog label="Facts" active={active.facts}>{factsEditor}</SectionDialog>
             <div className="flex-grow" />
             <EditorToolbar />
             <ViewToggle mode={viewMode} onChange={setViewMode} />
@@ -243,29 +301,32 @@ export function WpWorkspace() {
   );
 
   // ── Preliminary content ─────────────────────────────────────────────────────
+  const throughPlaceholder = 'E.g., "Through the Secretary, Ministry of Home Affairs"';
   const partiesContent = (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <div><p className="mb-1 text-xs font-medium">Petitioner(s)</p><VaadiTable name="petitioners" /></div>
-      <div><p className="mb-1 text-xs font-medium">Respondent(s)</p><VaadiTable name="respondents" /></div>
+    <div className="space-y-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div><p className="mb-1 text-xs font-medium">Petitioner(s)</p><VaadiTable name="petitioners" showPosition={false} showThrough throughPlaceholder={throughPlaceholder} compactAdd /></div>
+        <div><p className="mb-1 text-xs font-medium">Respondent(s)</p><VaadiTable name="respondents" showPosition={false} showThrough throughPlaceholder={throughPlaceholder} compactAdd /></div>
+      </div>
     </div>
   );
   const detailsContent = (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <Field label="Petition type">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-2 text-xs">
+        This is a
         <FormField control={form.control} name="caseType" render={({ field }) => (
           <Select onValueChange={field.onChange} value={field.value}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-7 w-[180px] px-2"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="Civil">Writ Petition (Civil)</SelectItem>
               <SelectItem value="Criminal">Writ Petition (Criminal)</SelectItem>
             </SelectContent>
           </Select>
         )} />
-      </Field>
-      <Field label="Constitutional basis">
+        under
         <FormField control={form.control} name="wp.articleBasis" render={({ field }) => (
           <Select onValueChange={field.onChange} value={field.value}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-7 w-[210px] px-2"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="226">Article 226</SelectItem>
               <SelectItem value="227">Article 227</SelectItem>
@@ -273,58 +334,83 @@ export function WpWorkspace() {
             </SelectContent>
           </Select>
         )} />
-      </Field>
-      <Field label="Listing date" hint="Shown in the Notice of Motion (“likely to be listed on …”).">
+        , drawn on
+        <FormField control={form.control} name="wp.drawnOnDate" render={({ field }) => (
+          <DateInput value={field.value as Date} onChange={field.onChange} />
+        )} />
+        , likely to be listed on
         <FormField control={form.control} name="wp.listingDate" render={({ field }) => (
           <DateInput value={field.value as Date} onChange={field.onChange} />
         )} />
-      </Field>
-      <Field label="Impugned-order writ?" hint="If on, the impugned order is Annexure P-1 and relief (a) auto-quashes it; a Stay CM becomes available.">
-        <FormField control={form.control} name="wp.isIoWrit" render={({ field }) => (
-          <div className="flex items-center gap-2 pt-1">
-            <Checkbox id="wp-io" checked={field.value} onCheckedChange={field.onChange} />
-            <label htmlFor="wp-io" className="text-xs">This writ challenges an Impugned Order</label>
-          </div>
-        )} />
-      </Field>
+        .
+      </div>
+      <FormField control={form.control} name="wp.isIoWrit" render={({ field }) => (
+        <div className="flex items-center gap-2">
+          <Checkbox id="wp-io" checked={field.value} onCheckedChange={field.onChange} />
+          <label htmlFor="wp-io" className="text-xs">This writ petition has Impugned Order(s)</label>
+        </div>
+      )} />
     </div>
   );
-  const advInput = (name: any) => <FormField control={form.control} name={name} render={({ field }) => <Input {...field} />} />;
-  const advocateContent = (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <p className="col-span-full text-xs text-muted-foreground">Pre-filled from Settings → Writ Petition (DHC). Edit here to override for this petition only.</p>
-      <Field label="Advocate name">{advInput("wp.advocate.name")}</Field>
-      <Field label="Firm / Chamber">{advInput("wp.advocate.firm")}</Field>
-      <Field label="Address"><FormField control={form.control} name="wp.advocate.address" render={({ field }) => <Textarea {...field} rows={2} />} /></Field>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Enrolment No.">{advInput("wp.advocate.enrolmentNo")}</Field>
-        <Field label="Phone">{advInput("wp.advocate.phone")}</Field>
-        <Field label="Email">{advInput("wp.advocate.email")}</Field>
-      </div>
-    </div>
+  // Deponent — sentence template mirrored from the SLP tool. Everything except
+  // "presently at" (deponent.location) is mandatory.
+  const depField = (name: any, placeholder: string, width: string) => (
+    <FormField control={form.control} name={name} render={({ field }) => (
+      <FormItem className="inline-block"><FormControl>
+        <Input {...field} placeholder={placeholder} className={`h-7 px-2 ${width}`} />
+      </FormControl></FormItem>
+    )} />
   );
   const deponentContent = (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <p className="col-span-full text-xs text-muted-foreground">Deponent for the affidavit &amp; verification. The name defaults to the first Petitioner if left blank.</p>
-      <Field label="Deponent name">{advInput("deponent.name")}</Field>
-      <Field label="Relationship">
-        <FormField control={form.control} name="deponent.relationship" render={({ field }) => (
+    <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs">
+      The Deponent is
+      {depField("deponent.name", "Name", "w-[150px]")},
+      <FormField control={form.control} name="deponent.relationship" render={({ field }) => (
+        <FormItem className="inline-block">
           <Select onValueChange={field.onChange} value={field.value}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
+            <FormControl><SelectTrigger className="h-7 px-2 w-[120px]"><SelectValue /></SelectTrigger></FormControl>
             <SelectContent>
               <SelectItem value="son of">son of</SelectItem>
               <SelectItem value="daughter of">daughter of</SelectItem>
               <SelectItem value="wife of">wife of</SelectItem>
             </SelectContent>
           </Select>
-        )} />
-      </Field>
-      <Field label="Father’s / Husband’s name">{advInput("deponent.fatherName")}</Field>
-      <Field label="Age (years)">{advInput("deponent.age")}</Field>
-      <Field label="Address"><FormField control={form.control} name="deponent.address" render={({ field }) => <Textarea {...field} rows={2} />} /></Field>
+        </FormItem>
+      )} />
+      {depField("deponent.fatherName", "Father's Name", "w-[150px]")},
+      aged
+      {depField("deponent.age", "Age", "w-[50px]")}
+      years, resident of
+      <FormField control={form.control} name="deponent.address" render={({ field }) => (
+        <FormItem className="inline-block flex-grow"><FormControl>
+          <Textarea {...field} ref={(el) => { field.ref(el); if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }} rows={1} placeholder="Address" className="px-2 min-h-0 text-xs overflow-hidden resize-none" onInput={(e) => { const t = e.currentTarget; t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }} />
+        </FormControl></FormItem>
+      )} />,
+      presently at
+      {depField("deponent.location", "Location", "w-[120px]")}.
+      The Deponent is the
+      <FormField control={form.control} name="deponent.role" render={({ field }) => (
+        <FormItem className="inline-block">
+          <Select onValueChange={field.onChange} value={field.value}>
+            <FormControl><SelectTrigger className="h-7 px-2 w-[240px]"><SelectValue /></SelectTrigger></FormControl>
+            <SelectContent>
+              <SelectItem value="Petitioner">Petitioner</SelectItem>
+              <SelectItem value="Petitioner No. 1">Petitioner No. 1</SelectItem>
+              <SelectItem value="Pairokar of the Petitioner">Pairokar of the Petitioner</SelectItem>
+              <SelectItem value="Pairokar of the Petitioner No. 1">Pairokar of the Petitioner No. 1</SelectItem>
+              <SelectItem value="Authorised Representative of the Petitioner">Authorised Representative of the Petitioner</SelectItem>
+              <SelectItem value="Authorised Representative of Petitioner No. 1">Authorised Representative of Petitioner No. 1</SelectItem>
+              <SelectItem value="Legal Guardian of the Petitioner">Legal Guardian of the Petitioner</SelectItem>
+              <SelectItem value="Legal Guardian of Petitioner No. 1">Legal Guardian of Petitioner No. 1</SelectItem>
+              <SelectItem value="Power of Attorney Holder of the Petitioner">Power of Attorney Holder of the Petitioner</SelectItem>
+              <SelectItem value="Power of Attorney Holder of Petitioner No. 1">Power of Attorney Holder of Petitioner No. 1</SelectItem>
+            </SelectContent>
+          </Select>
+        </FormItem>
+      )} />.
     </div>
   );
-  const prelimContent = { parties: partiesContent, details: detailsContent, deponent: deponentContent, advocate: advocateContent }[prelim];
+  const prelimContent = { parties: partiesContent, details: detailsContent, deponent: deponentContent }[prelim];
 
   // ── Applications content ────────────────────────────────────────────────────
   const cmToggle = (name: any, id: string, label: string) => (
@@ -332,6 +418,15 @@ export function WpWorkspace() {
       <div className="flex items-center gap-2">
         <Checkbox id={id} checked={field.value} onCheckedChange={field.onChange} />
         <label htmlFor={id} className="text-xs">{label}</label>
+      </div>
+    )} />
+  );
+  const cmTitle = (name: any, defaultTitle: string) => (
+    <FormField control={form.control} name={name} render={({ field }) => (
+      <div className="space-y-1">
+        <label className="text-xs font-medium">Application title</label>
+        <p className="text-xs text-muted-foreground">Leave blank to use the standard title (shown greyed below).</p>
+        <Textarea {...field} rows={2} placeholder={defaultTitle} className="text-xs" />
       </div>
     )} />
   );
@@ -344,6 +439,7 @@ export function WpWorkspace() {
   const stayContent = (
     <div className="space-y-3">
       {cmToggle("wp.cms.stay.active", "cm-stay", "Include a CM for Stay of the impugned order")}
+      {cmTitle("wp.cms.stay.title", WP_STD_CM_TITLES.stay)}
       {cmBody("wp.cms.stay.body")}
       {cmPrayers("wp.cms.stay.prayers")}
     </div>
@@ -351,6 +447,7 @@ export function WpWorkspace() {
   const lengthyContent = (
     <div className="space-y-3">
       {cmToggle("wp.cms.lengthySynopsis.active", "cm-syn", "Include a CM seeking permission to file a lengthy Synopsis & List of Dates")}
+      {cmTitle("wp.cms.lengthySynopsis.title", WP_STD_CM_TITLES.lengthySynopsis)}
       {cmBody("wp.cms.lengthySynopsis.body")}
       {cmPrayers("wp.cms.lengthySynopsis.prayers")}
     </div>
@@ -358,6 +455,7 @@ export function WpWorkspace() {
   const exemptionContent = (
     <div className="space-y-3">
       {cmToggle("wp.cms.exemptionCopies.active", "cm-exempt", "Include a CM for exemption from filing certified / legible / true-typed copies")}
+      {cmTitle("wp.cms.exemptionCopies.title", WP_STD_CM_TITLES.exemptionCopies)}
       {cmBody("wp.cms.exemptionCopies.body")}
       {cmPrayers("wp.cms.exemptionCopies.prayers")}
     </div>
@@ -396,7 +494,12 @@ export function WpWorkspace() {
         </ResizablePanel>
         <ResizableHandle withHandle />
         <ResizablePanel defaultSize={78} minSize={60}>
-          <div className="h-full overflow-auto p-3">{content}</div>
+          {/* Keyed by the selected section: the sections render structurally
+              identical field trees, so without a remount React reuses the live
+              Controllers and only swaps their `name` prop — react-hook-form then
+              bleeds values across fields (the blank/garbled Advocate & Deponent
+              pages). */}
+          <div key={selected} className="h-full overflow-auto p-3">{content}</div>
         </ResizablePanel>
       </ResizablePanelGroup>
     </div>
@@ -413,10 +516,9 @@ export function WpWorkspace() {
       <TabsContent value="preliminary" className="mt-1">
         {navLayout(
           [
-            { id: "parties", label: "Parties", active: !!petitioners?.[0]?.name?.trim() },
-            { id: "details", label: "Petition Details", active: true },
-            { id: "deponent", label: "Deponent", active: !!depName?.trim() },
-            { id: "advocate", label: "Advocate (“Filed by”)", active: !!advName?.trim() },
+            { id: "parties", label: "Parties", active: prelimPartiesReady },
+            { id: "details", label: "Petition Details", active: prelimDetailsReady },
+            { id: "deponent", label: "Deponent", active: prelimDeponentReady },
           ],
           prelim, setPrelim, prelimContent, "wp-prelim-nav",
         )}

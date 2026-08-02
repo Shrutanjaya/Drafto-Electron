@@ -38,6 +38,14 @@ type VaadiTableName =
 interface VaadiTableProps {
     name: VaadiTableName;
     disabled?: boolean;
+    // WP mode: writs are original proceedings, so "Position in the Court Below"
+    // is hidden and a "Through …" service designation (Memo of Parties) shows.
+    showPosition?: boolean;
+    showThrough?: boolean;
+    // WP mode overrides: custom placeholder for the Through field, and an
+    // icon-only "add" button (no "Add Party" caption).
+    throughPlaceholder?: string;
+    compactAdd?: boolean;
 }
 
 // Auto-growing single-field cell. The field name is shown as in-field preview
@@ -45,9 +53,11 @@ interface VaadiTableProps {
 const PartyField = ({
   name,
   label,
+  placeholder,
 }: {
   name: string;
   label: string;
+  placeholder?: string;
 }) => {
   const form = useFormContext<DraftoProject>();
   return (
@@ -59,7 +69,7 @@ const PartyField = ({
           <FormControl>
             <Textarea
               {...field}
-              placeholder={label}
+              placeholder={placeholder ?? label}
               ref={(el) => { field.ref(el); if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; } }}
               rows={1}
               className="p-1.5 text-xs min-h-0 overflow-hidden resize-none leading-snug"
@@ -77,11 +87,17 @@ const SortableCard = ({
   index,
   name,
   onRemove,
+  showPosition = true,
+  showThrough = false,
+  throughPlaceholder,
 }: {
   id: string;
   index: number;
   name: string;
   onRemove: () => void;
+  showPosition?: boolean;
+  showThrough?: boolean;
+  throughPlaceholder?: string;
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const style = {
@@ -122,8 +138,9 @@ const SortableCard = ({
       </div>
       <div className="space-y-2 p-2">
         <PartyField name={`${name}.${index}.name`} label="Name" />
+        {showThrough && <PartyField name={`${name}.${index}.through`} label="Through (e.g. its Standing Counsel) — optional" placeholder={throughPlaceholder} />}
         <PartyField name={`${name}.${index}.address`} label="Address" />
-        <PartyField name={`${name}.${index}.positionInEarlierCourt`} label="Position in the Court Below" />
+        {showPosition && <PartyField name={`${name}.${index}.positionInEarlierCourt`} label="Position in the Court Below" />}
       </div>
     </div>
   );
@@ -138,7 +155,7 @@ const ClientSideDnd = ({ children }: { children: React.ReactNode }) => {
   return isClient ? <>{children}</> : null;
 };
 
-export function VaadiTable({ name, disabled = false }: VaadiTableProps) {
+export function VaadiTable({ name, disabled = false, showPosition = true, showThrough = false, throughPlaceholder, compactAdd = false }: VaadiTableProps) {
   const form = useFormContext<DraftoProject>()
   const { fields, append, remove, move } = useFieldArray({
     control: form.control,
@@ -180,6 +197,9 @@ export function VaadiTable({ name, disabled = false }: VaadiTableProps) {
                     index={index}
                     name={name}
                     onRemove={() => remove(index)}
+                    showPosition={showPosition}
+                    showThrough={showThrough}
+                    throughPlaceholder={throughPlaceholder}
                   />
                 ))}
               </div>
@@ -197,9 +217,11 @@ export function VaadiTable({ name, disabled = false }: VaadiTableProps) {
         variant="outline"
         size="sm"
         className="h-7 text-xs"
-        onClick={() => append({ id: `vaadi_${Date.now()}`, name: "", address: "", positionInEarlierCourt: "" })}
+        onClick={() => append({ id: `vaadi_${Date.now()}`, name: "", address: "", positionInEarlierCourt: "", through: "" })}
+        title="Add party"
+        aria-label="Add party"
       >
-        <PlusCircle className="mr-1.5 h-4 w-4" /> Add Party
+        <PlusCircle className={compactAdd ? "h-4 w-4" : "mr-1.5 h-4 w-4"} />{!compactAdd && "Add Party"}
       </Button>
     </fieldset>
   )
