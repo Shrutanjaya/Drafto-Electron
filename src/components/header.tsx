@@ -8,10 +8,13 @@ import {
   Redo,
   FileDown,
   FileText,
+  FileDiff,
   Settings,
   LogOut,
   User,
   Loader2,
+  History,
+  ChevronDown,
 } from "lucide-react";
 import { saveAs } from "file-saver";
 
@@ -36,17 +39,24 @@ import { draftoProjectSchema } from "@/lib/schema";
 import { PdfGenerationDialog } from "./dialogs/pdf-generation-dialog";
 import { ImportChangesDialog } from "./dialogs/import-changes-dialog";
 import { LoadProjectDialog } from "./dialogs/load-project-dialog";
+import { getRecentProjects, pushRecentProject, removeRecentProject, type RecentProject } from "@/lib/recent-projects";
 import { ModeSelectDialog } from "./dialogs/mode-select-dialog";
 import { generateWpIndex, generateWpNoticeOfMotion, generateWpUrgencyApplication, generateWpMemoOfParties, generateWpSynopsisAndLod, generateWpPetition, generateWpVakalatnama, generateWpCms } from "@/lib/wp/wp-actions";
 import { generateWpPdf } from "@/lib/wp/wp-pdf";
 import { WpPdfGenerationDialog } from "./dialogs/wp-pdf-generation-dialog";
 import { WP_ENABLED } from "@/lib/wp/wp-enabled";
+import { OA_ENABLED } from "@/lib/oa/oa-enabled";
+import { generateOaAll, generateOaBody } from "@/lib/oa/oa-actions";
+import { generateOaPdf } from "@/lib/oa/oa-pdf";
+import { OaPdfGenerationDialog } from "./dialogs/oa-pdf-generation-dialog";
 import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
 import { newBlankProject } from "@/lib/project-defaults";
 import { getIaList } from "@/lib/ia-list-utils";
 import { restoreFileFromPath } from "@/lib/utils/pick-file";
 import { cn } from "@/lib/utils";
 import { useAuthContext } from "@/providers/auth-provider";
+import { useEntitlement } from "@/providers/entitlement-provider";
+import { ToastAction } from "@/components/ui/toast";
 import { incrementGenerationCount } from "@/lib/firebase/usage-service";
 
 /** Returns first N words of a string, trimmed. */
@@ -121,6 +131,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   const form = useFormContext<DraftoProject>();
   const { toast } = useToast();
   const { user, signOut } = useAuthContext();
+  const { entitlement, loading: entLoading, openManageSubscription } = useEntitlement();
   const courtType = useWatch({ control: form.control, name: "courtType" });
   const [isPending, startTransition] = useTransition();
   const [draftSelection, setDraftSelection] = useState<DraftSelection>(
@@ -129,6 +140,19 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   const [showLoadDialog, setShowLoadDialog] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
+  // Import-tracked-changes dialog, now opened from the DOCX menu.
+  const [importOpen, setImportOpen] = useState(false);
+  // Recent projects (Quick Load). Kept in sync with the MRU store.
+  const [recentProjects, setRecentProjects] = useState<RecentProject[]>(() => getRecentProjects());
+  useEffect(() => {
+    const onChange = () => setRecentProjects(getRecentProjects());
+    window.addEventListener("drafto-recent-projects-changed", onChange);
+    return () => window.removeEventListener("drafto-recent-projects-changed", onChange);
+  }, []);
+  // Any project opened/saved to a real path becomes the most-recent entry.
+  useEffect(() => {
+    if (currentFilePath) pushRecentProject(currentFilePath);
+  }, [currentFilePath]);
   // Draft-type prompt (SLP vs Delhi HC writ petition). 'startup' fires once on
   // launch; 'new' fires from the New Project action. null = closed.
   const [modeDialog, setModeDialog] = useState<null | "startup" | "new">(null);
@@ -136,7 +160,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   // Prompt for the draft type on app launch — dev only. In production the WP
   // mode is hidden, so there is no prompt and the app opens straight into the
   // SLP interface (unchanged customer experience).
-  useEffect(() => { if (WP_ENABLED) setModeDialog("startup"); }, []);
+  useEffect(() => { if (WP_ENABLED || OA_ENABLED) setModeDialog("startup"); }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -266,6 +290,16 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     for (const k of ['courtFee', 'proofOfService', 'signedAffidavit', 'signedVakalatnama'] as const) {
       const p = getPath(data.wp?.uploads?.[k]?.file);
       if (p && cloned.wp?.uploads?.[k]) cloned.wp.uploads[k].filePath = p;
+    }
+
+    // WP custom-CM ground annexures (A-series)
+    for (let i = 0; i < (data.wp?.customCms ?? []).length; i++) {
+      for (let j = 0; j < (data.wp.customCms[i].grounds ?? []).length; j++) {
+        for (let k = 0; k < (data.wp.customCms[i].grounds[j].annexures ?? []).length; k++) {
+          const p = getPath(data.wp.customCms[i].grounds[j].annexures[k].file);
+          if (p) cloned.wp.customCms[i].grounds[j].annexures[k].filePath = p;
+        }
+      }
     }
 
     // standardIas grounds annexures
@@ -453,6 +487,16 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     } catch (err) {
       console.error("Load from path error:", err);
       toast({ variant: "destructive", title: "Load Failed", description: String(err) });
+      throw err; // let Quick Load prune a path that no longer opens
+    }
+  };
+
+  // Quick Load: reopen a recent project; drop it from the list if it's gone.
+  const handleQuickLoad = async (rp: RecentProject) => {
+    try {
+      await handleLoadFromPath(rp.path);
+    } catch {
+      removeRecentProject(rp.path);
     }
   };
 
@@ -528,6 +572,17 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       if (u?.filePath && !(u.file instanceof File)) u.file = await tryRestore(u.filePath, `wp.uploads.${k}.file`);
     }
 
+    // WP custom-CM ground annexures (A-series)
+    for (let ii = 0; ii < (data.wp?.customCms ?? []).length; ii++) {
+      for (let gi = 0; gi < (data.wp.customCms[ii].grounds ?? []).length; gi++) {
+        for (let ai = 0; ai < (data.wp.customCms[ii].grounds[gi].annexures ?? []).length; ai++) {
+          const annex = data.wp.customCms[ii].grounds[gi].annexures[ai];
+          if (annex.filePath && !(annex.file instanceof File))
+            annex.file = await tryRestore(annex.filePath, `wp.customCm[${ii}].ground[${gi}].annex[${ai}].file`);
+        }
+      }
+    }
+
     // customIas grounds annexures
     for (let ii = 0; ii < (data.customIas ?? []).length; ii++) {
       for (let gi = 0; gi < (data.customIas[ii].grounds ?? []).length; gi++) {
@@ -583,7 +638,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
 
   // New Project now asks the user which document type to start.
   const handleNew = () => {
-    if (WP_ENABLED) { setModeDialog("new"); return; }
+    if (WP_ENABLED || OA_ENABLED) { setModeDialog("new"); return; }
     // Production (WP hidden): New Project creates a blank SLP directly.
     form.reset(newBlankProject("SLP"));
     setCurrentFilePath(null);
@@ -604,12 +659,30 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     const defaultView = getSettings().slpTabView ?? 'splitter';
     window.dispatchEvent(new CustomEvent('drafto-new-project', { detail: { mode: defaultView } }));
     if (reason === "new") {
-      const label = courtType === "WritPetitionDHC" ? "Writ Petition (Delhi HC)" : "SLP";
+      const label = courtType === "WritPetitionDHC" ? "Writ Petition (Delhi HC)"
+        : courtType === "OriginalApplicationCAT" ? "Original Application (CAT)"
+        : "SLP";
       toast({ title: "New Project", description: `A new blank ${label} project has been created.` });
     }
   };
   
   const downloadDocx = async (docx: string, fileName: string) => {
+    // Entitlement gate: generating documents requires an active subscription.
+    if (entLoading || !entitlement.canExport) {
+      toast({
+        variant: "destructive",
+        title: "Subscription required",
+        description:
+          "Document generation is disabled because your subscription isn’t active. Renew to continue.",
+        action: (
+          <ToastAction altText="Renew" onClick={openManageSubscription}>
+            Renew
+          </ToastAction>
+        ),
+      });
+      return;
+    }
+
     // Try Electron first (with default path)
     try {
       if (typeof window !== "undefined" && window.electron?.saveDocx) {
@@ -665,6 +738,52 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     { id: "vakalatnama", label: "Vakalatnama", fn: generateWpVakalatnama },
   ];
 
+  // ── CAT Original Application ──
+  const handleGenerateOaPdf = () => {
+    startTransition(async () => {
+      toast({ title: "Generating PDF…", description: "Assembling the Original Application paper-book." });
+      const result = await generateOaPdf(form.getValues(), (label) => toast({ title: "Generating PDF…", description: label }));
+      if (!result.success || !result.pdfBase64) {
+        toast({ variant: "destructive", title: "PDF Failed", description: result.error || "Could not assemble the PDF." });
+        return;
+      }
+      const settings = getSettings();
+      try {
+        if (typeof window !== "undefined" && window.electron?.savePdf) {
+          const savedPath = await window.electron.savePdf({
+            fileName: result.fileName,
+            content: result.pdfBase64,
+            defaultPath: (settings as any).defaultPdfPath || undefined,
+            projectFolder: getProjectFileName(form.getValues()),
+          });
+          if (savedPath) {
+            toast({ title: "PDF Saved", description: savedPath });
+            window.electron.openFolderPath?.(savedPath.replace(/[\\/][^\\/]+$/, ""));
+            return;
+          }
+        }
+      } catch { /* fall through to browser download */ }
+      const bytes = Uint8Array.from(atob(result.pdfBase64), (c) => c.charCodeAt(0));
+      saveAs(new Blob([bytes], { type: "application/pdf" }), result.fileName);
+    });
+  };
+
+
+  const handleGenerateOaAll = () => {
+    startTransition(async () => {
+      const result = await generateOaAll(form.getValues());
+      if (result?.success && result.docx) await downloadDocx(result.docx, result.fileName);
+      else toast({ variant: "destructive", title: "Export Failed", description: "Could not generate the Original Application." });
+    });
+  };
+  const handleGenerateOaBody = () => {
+    startTransition(async () => {
+      const result = await generateOaBody(form.getValues());
+      if (result?.success && result.docx) await downloadDocx(result.docx, result.fileName);
+      else toast({ variant: "destructive", title: "Export Failed", description: "Could not generate the Original Application." });
+    });
+  };
+
   const handleExportWp = (fn: (d: DraftoProject) => Promise<{ success: boolean; docx?: string; fileName: string }>) => {
     startTransition(async () => {
       const result = await fn(form.getValues());
@@ -691,6 +810,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         toast({ variant: "destructive", title: "PDF Failed", description: result.error || "Could not assemble the PDF." });
         return;
       }
+      const offerBriefing = () => window.dispatchEvent(new CustomEvent("drafto-offer-briefing", { detail: { pageByAnnexId: result.annexureFirstPages || {} } }));
       const settings = getSettings();
       try {
         if (typeof window !== "undefined" && window.electron?.savePdf) {
@@ -698,12 +818,14 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           if (savedPath) {
             toast({ title: "PDF Saved", description: savedPath });
             window.electron.openFolderPath?.(savedPath.replace(/[\\/][^\\/]+$/, ""));
+            offerBriefing();
             return;
           }
         }
       } catch { /* fall through to browser download */ }
       const bytes = Uint8Array.from(atob(result.pdfBase64), c => c.charCodeAt(0));
       saveAs(new Blob([bytes], { type: "application/pdf" }), result.fileName);
+      offerBriefing();
     });
   };
 
@@ -845,7 +967,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     <header className="flex h-12 items-center justify-between border-b bg-card px-2">
       <div className="flex items-center gap-1">
         <img src="./drafto-logo.png" alt="Drafto Logo" className="h-7 w-auto translate-x-0.5" />
-        <h1 className="text-base font-bold" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>DraftoSLP</h1>
+        <h1 className="text-base font-bold" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Drafto</h1>
       </div>
       <div className="flex items-center gap-1">
         <Button variant="ghost" size="icon" title="Undo" onClick={undo} disabled={!canUndo}><Undo /></Button>
@@ -894,7 +1016,23 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent>
-            {courtType === "WritPetitionDHC" ? (
+            {courtType === "OriginalApplicationCAT" ? (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                    <FileDown className="mr-2" />
+                    <span>Original Application</span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="p-1">
+                    <DropdownMenuItem onSelect={handleGenerateOaAll}>
+                        <FileDown className="mr-2" />All Documents (.docx)
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={handleGenerateOaBody}>
+                        Original Application only
+                    </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            ) : courtType === "WritPetitionDHC" ? (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                     <FileDown className="mr-2" />
@@ -943,10 +1081,16 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
               </DropdownMenuItem>
               </>
             )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => setImportOpen(true)}>
+              <FileDiff className="mr-2" />Import tracked changes…
+              <span className="ml-2 rounded bg-amber-100 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Beta</span>
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <ImportChangesDialog />
+        {/* Controlled: opened from the DOCX menu above (no standalone button). */}
+        <ImportChangesDialog open={importOpen} onOpenChange={setImportOpen} />
 
         {(() => {
           const pdfButtonInner = (
@@ -959,6 +1103,15 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           );
           // A loaded writ petition uses the WP paper-book assembler; the same
           // button opens the SLP paper-book dialog otherwise.
+          if (courtType === "OriginalApplicationCAT") {
+            return (
+              <OaPdfGenerationDialog onGenerate={handleGenerateOaPdf} isPending={isPending}>
+                <Button variant="ghost" size="icon" title="Generate Original Application Paperbook (PDF)" disabled={isPending}>
+                  {pdfButtonInner}
+                </Button>
+              </OaPdfGenerationDialog>
+            );
+          }
           return courtType === "WritPetitionDHC" ? (
             <WpPdfGenerationDialog onGenerate={handleGenerateWpPdf} isPending={isPending}>
               <Button variant="ghost" size="icon" title="Generate Writ Petition Paperbook (PDF)" disabled={isPending}>
@@ -984,6 +1137,39 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
             )}
           </Button>
         </SettingsDialog>
+
+        {/* Quick Load — the last few projects, one click to reopen. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="gap-1 px-2" title="Quick Load a recent project">
+              <History className="h-4 w-4" />
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[240px]">
+            <DropdownMenuLabel className="text-xs">Recent projects</DropdownMenuLabel>
+            {recentProjects.length === 0 ? (
+              <DropdownMenuItem disabled className="text-xs text-muted-foreground">No recent projects yet</DropdownMenuItem>
+            ) : (
+              recentProjects.slice(0, 3).map((rp) => (
+                <DropdownMenuItem key={rp.path} onSelect={() => handleQuickLoad(rp)} className="text-xs" title={rp.path}>
+                  <FolderOpen className="mr-2 h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate max-w-[210px]">{rp.name}</span>
+                </DropdownMenuItem>
+              ))
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-xs"
+              onSelect={() => {
+                if (window.electron?.listDraftoFiles) setShowLoadDialog(true);
+                else fileInputRef.current?.click();
+              }}
+            >
+              <FolderOpen className="mr-2 h-3.5 w-3.5" />Load another project…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

@@ -10,6 +10,7 @@ import { IasTab } from "./tabs/ias-tab";
 import { ListingProformaTab } from "./tabs/listing-proforma-tab";
 import { AdvocateChecklistTab } from "./tabs/advocate-checklist-tab";
 import { WpWorkspace } from "./wp/wp-workspace";
+import { OaWorkspace } from "./oa/oa-workspace";
 import { FIND_REVEAL_EVENT, getPendingReveal } from "@/lib/find-reveal";
 import type { DraftoProject } from "@/lib/schema";
 
@@ -30,6 +31,11 @@ export function Workspace() {
   // Delhi HC writ-petition mode loads an entirely different interface.
   if (courtType === "WritPetitionDHC") {
     return <WpWorkspace />;
+  }
+
+  // CAT Original Application mode.
+  if (courtType === "OriginalApplicationCAT") {
+    return <OaWorkspace />;
   }
 
   return (
