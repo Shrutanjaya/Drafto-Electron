@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Settings, FolderOpen, RefreshCw, ExternalLink, Moon, Sun, Download, CheckCircle, AlertCircle, Loader2, Info, Sparkles, XCircle, ChevronRight } from "lucide-react";
+import { Settings, FolderOpen, RefreshCw, ExternalLink, Moon, Sun, Download, CheckCircle, AlertCircle, Loader2, Info, Sparkles, XCircle, ChevronRight, ArrowUp, ArrowDown } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -10,13 +10,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { getGenerationCounts, type UsageCounts } from "@/lib/firebase/usage-service";
-import { WP_NUMBER_STYLES, DEFAULT_WP_NUMBERING, type WpNumbering, DEFAULT_WP_FILED_BY, type WpFiledBy } from "@/lib/wp/wp-settings";
+import { ManageDevices } from "@/components/auth/manage-devices";
+import { OA_BENCHES, DEFAULT_OA_BENCH } from "@/lib/oa/oa-benches";
+import { WP_NUMBER_STYLES, DEFAULT_WP_NUMBERING, type WpNumbering, DEFAULT_WP_FILED_BY, type WpFiledBy, type WpFiledByLayoutItem, type WpFiledByCaps, WP_FILED_BY_ITEM_LABELS, normalizeWpFiledByLayout, wpFiledByLines } from "@/lib/wp/wp-settings";
 import type { EnumStyle } from "@/lib/wp/wp-numbering";
 import { LICENSE_TEXT, TERMS_TEXT } from "@/lib/legal";
 import { cn } from "@/lib/utils";
@@ -25,7 +28,15 @@ type SlpTabView = 'splitter' | 'navigation';
 type QuoteLineSpacing = 'default' | 'single';
 type TrueCopyPosition = 'left' | 'center';
 type AiModel = 'default' | 'haiku' | 'sonnet' | 'opus';
-type SettingsSection = 'appearance' | 'workspace' | 'formatting' | 'writpetition' | 'paperbook' | 'userdefaults' | 'customize' | 'save' | 'shortcuts' | 'support';
+type SettingsSection = 'interface' | 'customize' | 'save' | 'shortcuts' | 'support' | 'slp' | 'wp' | 'oa';
+
+// Court tag shown next to each document-type nav item.
+type CourtTag = 'SC' | 'HC' | 'CAT';
+const COURT_TAG_CLASS: Record<CourtTag, string> = {
+  SC: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300',
+  HC: 'bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300',
+  CAT: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300',
+};
 
 interface SettingsData {
   defaultDocxPath: string;
@@ -99,6 +110,73 @@ interface SettingsData {
   wpNumbering: WpNumbering;
   // Writ Petition — "Filed by" advocate defaults
   wpFiledBy: WpFiledBy;
+  // Writ Petition — advocate signature for the "Filed by" blocks (PDF path only;
+  // separate from the SLP AoR signature)
+  wpSignaturePng: string;    // data URL (data:image/png;base64,...)
+  wpSignatureW: number;      // natural pixel width  (for aspect ratio)
+  wpSignatureH: number;      // natural pixel height (for aspect ratio)
+  wpPlaceSignatureInPaperbook: boolean;
+  wpSignatureSizePx: number; // display width of the signature, in px
+
+  // SLP — page margins (inches)
+  slpMarginTopIn: number;
+  slpMarginRightIn: number;
+  slpMarginBottomIn: number;
+  slpMarginLeftIn: number;
+  // Writ Petition — page margins (inches)
+  wpMarginTopIn: number;
+  wpMarginRightIn: number;
+  wpMarginBottomIn: number;
+  wpMarginLeftIn: number;
+  // Writ Petition — output text formatting (mirrors the SLP set + before-spacing)
+  wpOutputFont: string;
+  wpOutputFontSizePt: number;
+  wpOutputLineSpacing: number;
+  wpOutputParaBeforePt: number;
+  wpOutputParaAfterPt: number;
+  // Writ Petition — "Filed by" table left-column share (%)
+  wpFiledByLeftPct: number;
+  // Writ Petition — "Filed by" advocate-details layout (order / joins / styling)
+  wpFiledByLayout: WpFiledByLayoutItem[];
+  // Writ Petition — PDF stamps (annexure labels / page numbers / True Copy)
+  wpStampFont: 'times' | 'helvetica' | 'courier';
+  wpPageNumberSizePt: number;
+  wpPageNumberMarginTopPt: number;
+  wpPageNumberMarginRightPt: number;
+  wpAnnexureLabelSizePt: number;
+  wpAnnexureLabelMarginPt: number;
+  wpAnnexureLabelPosition: 'center' | 'right';
+  wpStampBackground: boolean;
+  wpPlaceTrueCopyText: boolean;
+  wpTrueCopyPosition: 'left' | 'center';
+  wpTrueCopyBackground: boolean;
+  wpTrueCopyMarginXPt: number;
+  wpTrueCopyMarginBottomPt: number;
+
+  // ── Original Application (CAT) ──
+  oaBench: string; // bench value, see @/lib/oa/oa-benches
+  oaFiledBy: WpFiledBy; // advocate details for the OA "Filed by" block
+  oaFiledByLeftPct: number;
+  oaFiledByLayout: WpFiledByLayoutItem[];
+  oaSignaturePng: string;
+  oaSignatureW: number;
+  oaSignatureH: number;
+  oaPlaceSignatureInPaperbook: boolean;
+  oaSignatureSizePx: number;
+  // CAT — PDF stamps (annexure labels / page numbers / True Copy)
+  oaStampFont: 'times' | 'helvetica' | 'courier';
+  oaPageNumberSizePt: number;
+  oaPageNumberMarginTopPt: number;
+  oaPageNumberMarginRightPt: number;
+  oaAnnexureLabelSizePt: number;
+  oaAnnexureLabelMarginPt: number;
+  oaAnnexureLabelPosition: 'center' | 'right';
+  oaStampBackground: boolean;
+  oaPlaceTrueCopyText: boolean;
+  oaTrueCopyPosition: 'left' | 'center';
+  oaTrueCopyBackground: boolean;
+  oaTrueCopyMarginXPt: number;
+  oaTrueCopyMarginBottomPt: number;
 }
 
 // Fonts offered for the output text formatting
@@ -266,19 +344,29 @@ function PrereqRow({ ok, label, detail, warnOnly }: { ok: boolean; label: string
   );
 }
 
-function SettingsNavRow({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
+function SettingsNavRow({ label, selected, onClick, tag }: { label: string; selected: boolean; onClick: () => void; tag?: CourtTag }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors",
+        "w-full flex items-center justify-between gap-2 text-left px-2 py-1.5 rounded-md text-xs transition-colors",
         selected
           ? "bg-primary text-primary-foreground dark:text-white font-medium"
           : "hover:bg-muted text-foreground"
       )}
     >
-      {label}
+      <span className="truncate">{label}</span>
+      {tag && (
+        <span
+          className={cn(
+            "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide",
+            selected ? "bg-white/20 text-white" : COURT_TAG_CLASS[tag],
+          )}
+        >
+          {tag}
+        </span>
+      )}
     </button>
   );
 }
@@ -286,7 +374,7 @@ function SettingsNavRow({ label, selected, onClick }: { label: string; selected:
 export function SettingsDialog({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
-  const [selectedSection, setSelectedSection] = useState<SettingsSection>('appearance');
+  const [selectedSection, setSelectedSection] = useState<SettingsSection>('interface');
   const [showAdvancedVolume, setShowAdvancedVolume] = useState(false);
   const [usageCounts, setUsageCounts] = useState<UsageCounts | null>(null);
   const [licenseOpen, setLicenseOpen] = useState(false);
@@ -359,6 +447,61 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     defaultAorCode: "",
     wpNumbering: DEFAULT_WP_NUMBERING,
     wpFiledBy: DEFAULT_WP_FILED_BY,
+    wpSignaturePng: "",
+    wpSignatureW: 0,
+    wpSignatureH: 0,
+    wpPlaceSignatureInPaperbook: false,
+    wpSignatureSizePx: 120,
+    slpMarginTopIn: 1.5,
+    slpMarginRightIn: 1,
+    slpMarginBottomIn: 1,
+    slpMarginLeftIn: 1.5,
+    wpMarginTopIn: 1.5,
+    wpMarginRightIn: 1,
+    wpMarginBottomIn: 1,
+    wpMarginLeftIn: 1.5,
+    wpOutputFont: 'Times New Roman',
+    wpOutputFontSizePt: 14,
+    wpOutputLineSpacing: 1.5,
+    wpOutputParaBeforePt: 0,
+    wpOutputParaAfterPt: 12,
+    wpFiledByLeftPct: 40,
+    wpFiledByLayout: normalizeWpFiledByLayout(null),
+    wpStampFont: 'times',
+    wpPageNumberSizePt: 20,
+    wpPageNumberMarginTopPt: 54,
+    wpPageNumberMarginRightPt: 54,
+    wpAnnexureLabelSizePt: 14,
+    wpAnnexureLabelMarginPt: 14.4,
+    wpAnnexureLabelPosition: 'center',
+    wpStampBackground: false,
+    wpPlaceTrueCopyText: false,
+    wpTrueCopyPosition: 'left',
+    wpTrueCopyBackground: false,
+    wpTrueCopyMarginXPt: 36,
+    wpTrueCopyMarginBottomPt: 36,
+    oaBench: DEFAULT_OA_BENCH,
+    oaFiledBy: DEFAULT_WP_FILED_BY,
+    oaFiledByLeftPct: 40,
+    oaFiledByLayout: normalizeWpFiledByLayout(null),
+    oaSignaturePng: "",
+    oaSignatureW: 0,
+    oaSignatureH: 0,
+    oaPlaceSignatureInPaperbook: false,
+    oaSignatureSizePx: 120,
+    oaStampFont: 'times',
+    oaPageNumberSizePt: 20,
+    oaPageNumberMarginTopPt: 54,
+    oaPageNumberMarginRightPt: 54,
+    oaAnnexureLabelSizePt: 14,
+    oaAnnexureLabelMarginPt: 14.4,
+    oaAnnexureLabelPosition: 'center',
+    oaStampBackground: false,
+    oaPlaceTrueCopyText: false,
+    oaTrueCopyPosition: 'left',
+    oaTrueCopyBackground: false,
+    oaTrueCopyMarginXPt: 36,
+    oaTrueCopyMarginBottomPt: 36,
   });
 
   // Load settings from localStorage on mount
@@ -429,6 +572,68 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
             email: parsed.wpFiledBy?.email ?? "",
             phone: parsed.wpFiledBy?.phone ?? "",
           },
+          wpSignaturePng: parsed.wpSignaturePng ?? "",
+          wpSignatureW: parsed.wpSignatureW ?? 0,
+          wpSignatureH: parsed.wpSignatureH ?? 0,
+          wpPlaceSignatureInPaperbook: parsed.wpPlaceSignatureInPaperbook ?? false,
+          wpSignatureSizePx: parsed.wpSignatureSizePx ?? 120,
+          slpMarginTopIn: parsed.slpMarginTopIn ?? 1.5,
+          slpMarginRightIn: parsed.slpMarginRightIn ?? 1,
+          slpMarginBottomIn: parsed.slpMarginBottomIn ?? 1,
+          slpMarginLeftIn: parsed.slpMarginLeftIn ?? 1.5,
+          wpMarginTopIn: parsed.wpMarginTopIn ?? 1.5,
+          wpMarginRightIn: parsed.wpMarginRightIn ?? 1,
+          wpMarginBottomIn: parsed.wpMarginBottomIn ?? 1,
+          wpMarginLeftIn: parsed.wpMarginLeftIn ?? 1.5,
+          wpOutputFont: parsed.wpOutputFont || 'Times New Roman',
+          wpOutputFontSizePt: parsed.wpOutputFontSizePt ?? 14,
+          wpOutputLineSpacing: parsed.wpOutputLineSpacing ?? 1.5,
+          wpOutputParaBeforePt: parsed.wpOutputParaBeforePt ?? 0,
+          wpOutputParaAfterPt: parsed.wpOutputParaAfterPt ?? 12,
+          wpFiledByLeftPct: parsed.wpFiledByLeftPct ?? 40,
+          wpFiledByLayout: normalizeWpFiledByLayout(parsed.wpFiledByLayout),
+          wpStampFont: ['times', 'helvetica', 'courier'].includes(parsed.wpStampFont) ? parsed.wpStampFont : 'times',
+          wpPageNumberSizePt: parsed.wpPageNumberSizePt ?? 20,
+          wpPageNumberMarginTopPt: parsed.wpPageNumberMarginTopPt ?? 54,
+          wpPageNumberMarginRightPt: parsed.wpPageNumberMarginRightPt ?? 54,
+          wpAnnexureLabelSizePt: parsed.wpAnnexureLabelSizePt ?? 14,
+          wpAnnexureLabelMarginPt: parsed.wpAnnexureLabelMarginPt ?? 14.4,
+          wpAnnexureLabelPosition: parsed.wpAnnexureLabelPosition === 'right' ? 'right' : 'center',
+          wpStampBackground: parsed.wpStampBackground ?? false,
+          wpPlaceTrueCopyText: parsed.wpPlaceTrueCopyText ?? false,
+          wpTrueCopyPosition: parsed.wpTrueCopyPosition === 'center' ? 'center' : 'left',
+          wpTrueCopyBackground: parsed.wpTrueCopyBackground ?? false,
+          wpTrueCopyMarginXPt: parsed.wpTrueCopyMarginXPt ?? 36,
+          wpTrueCopyMarginBottomPt: parsed.wpTrueCopyMarginBottomPt ?? 36,
+          oaBench: parsed.oaBench || DEFAULT_OA_BENCH,
+          oaFiledBy: {
+            name: parsed.oaFiledBy?.name ?? "",
+            firm: parsed.oaFiledBy?.firm ?? "",
+            address: parsed.oaFiledBy?.address ?? "",
+            enrolmentNo: parsed.oaFiledBy?.enrolmentNo ?? "",
+            email: parsed.oaFiledBy?.email ?? "",
+            phone: parsed.oaFiledBy?.phone ?? "",
+          },
+          oaFiledByLeftPct: parsed.oaFiledByLeftPct ?? 40,
+          oaFiledByLayout: normalizeWpFiledByLayout(parsed.oaFiledByLayout),
+          oaSignaturePng: parsed.oaSignaturePng ?? "",
+          oaSignatureW: parsed.oaSignatureW ?? 0,
+          oaSignatureH: parsed.oaSignatureH ?? 0,
+          oaPlaceSignatureInPaperbook: parsed.oaPlaceSignatureInPaperbook ?? false,
+          oaSignatureSizePx: parsed.oaSignatureSizePx ?? 120,
+          oaStampFont: ['times', 'helvetica', 'courier'].includes(parsed.oaStampFont) ? parsed.oaStampFont : 'times',
+          oaPageNumberSizePt: parsed.oaPageNumberSizePt ?? 20,
+          oaPageNumberMarginTopPt: parsed.oaPageNumberMarginTopPt ?? 54,
+          oaPageNumberMarginRightPt: parsed.oaPageNumberMarginRightPt ?? 54,
+          oaAnnexureLabelSizePt: parsed.oaAnnexureLabelSizePt ?? 14,
+          oaAnnexureLabelMarginPt: parsed.oaAnnexureLabelMarginPt ?? 14.4,
+          oaAnnexureLabelPosition: (parsed.oaAnnexureLabelPosition === 'right' ? 'right' : 'center'),
+          oaStampBackground: parsed.oaStampBackground ?? false,
+          oaPlaceTrueCopyText: parsed.oaPlaceTrueCopyText ?? false,
+          oaTrueCopyPosition: (parsed.oaTrueCopyPosition === 'center' ? 'center' : 'left'),
+          oaTrueCopyBackground: parsed.oaTrueCopyBackground ?? false,
+          oaTrueCopyMarginXPt: parsed.oaTrueCopyMarginXPt ?? 36,
+          oaTrueCopyMarginBottomPt: parsed.oaTrueCopyMarginBottomPt ?? 36,
         });
         applyUiFont(parsed.uiFont || DEFAULT_UI_FONT);
         applyUiFontSize(parsed.uiFontSize ?? DEFAULT_UI_FONT_SIZE);
@@ -489,6 +694,29 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  // Snapshot of the persisted state captured when the dialog opens, so Cancel
+  // (button, Escape, or clicking outside) can fully discard unsaved edits —
+  // including the ones that were applied live (fonts, theme).
+  const openSnapshotRef = useRef<{ settings: SettingsData; theme: string } | null>(null);
+
+  const revertUnsaved = () => {
+    const snap = openSnapshotRef.current;
+    if (!snap) return;
+    setSettings(snap.settings);
+    setTheme(snap.theme); // its effect re-applies the class AND rewrites localStorage('theme')
+    applyUiFont(snap.settings.uiFont);
+    applyUiFontSize(snap.settings.uiFontSize);
+    applyInputFont(snap.settings.inputFont);
+    applyInputFontSize(snap.settings.inputFontSize);
+  };
+
+  // Snapshot on open; discard-and-revert on any close that isn't a Save.
+  const handleOpenChange = (o: boolean) => {
+    if (o) openSnapshotRef.current = { settings, theme };
+    else revertUnsaved();
+    setOpen(o);
+  };
+
   const handleSave = () => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     window.dispatchEvent(new CustomEvent('drafto-settings-changed'));
@@ -546,8 +774,13 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   };
 
   const signatureInputRef = useRef<HTMLInputElement>(null);
+  const wpSignatureInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Shared PNG-upload flow for both signature slots (SLP AoR / WP advocate).
+  const readSignaturePng = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    apply: (dataUrl: string, w: number, h: number) => void,
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.type !== "image/png") {
@@ -559,19 +792,38 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     reader.onload = () => {
       const dataUrl = reader.result as string;
       const img = new window.Image();
-      img.onload = () => {
-        setSettings((prev) => ({
-          ...prev,
-          aorSignaturePng: dataUrl,
-          aorSignatureW: img.naturalWidth,
-          aorSignatureH: img.naturalHeight,
-        }));
-      };
+      img.onload = () => apply(dataUrl, img.naturalWidth, img.naturalHeight);
       img.src = dataUrl;
     };
     reader.readAsDataURL(file);
     e.target.value = "";
   };
+
+  const handleSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) =>
+    readSignaturePng(e, (dataUrl, w, h) => setSettings((prev) => ({ ...prev, aorSignaturePng: dataUrl, aorSignatureW: w, aorSignatureH: h })));
+
+  const handleWpSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) =>
+    readSignaturePng(e, (dataUrl, w, h) => setSettings((prev) => ({ ...prev, wpSignaturePng: dataUrl, wpSignatureW: w, wpSignatureH: h })));
+
+  // Four page-margin inputs (inches), shared by the SLP and WP margin blocks.
+  const marginInputs = (keys: { top: keyof SettingsData; right: keyof SettingsData; bottom: keyof SettingsData; left: keyof SettingsData }) => (
+    <div className="grid grid-cols-4 gap-3">
+      {([["Top", keys.top], ["Right", keys.right], ["Bottom", keys.bottom], ["Left", keys.left]] as [string, keyof SettingsData][]).map(([label, key]) => (
+        <div key={key as string} className="space-y-1">
+          <Label className="text-xs text-muted-foreground">{label} (in)</Label>
+          <Input
+            type="number"
+            min={0.2}
+            max={3}
+            step={0.1}
+            value={settings[key] as number}
+            onChange={(e) => setSettings((prev) => ({ ...prev, [key]: Math.min(3, Math.max(0.2, parseFloat(e.target.value) || 0.2)) }))}
+            className="h-7 text-xs"
+          />
+        </div>
+      ))}
+    </div>
+  );
 
   const handleUpdate = async () => {
     if (!window.electron?.auCheck) return;
@@ -684,7 +936,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="max-w-2xl flex flex-col" style={{ height: 'min(520px, calc(100vh - 4rem))' }}>
         <DialogHeader className="shrink-0 pb-2">
@@ -695,14 +947,18 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
         <div className="flex flex-1 min-h-0 rounded-lg border overflow-hidden">
           {/* Left nav */}
           <div className="w-36 shrink-0 border-r flex flex-col p-2 space-y-0.5 bg-muted/30">
-            <SettingsNavRow label="Appearance" selected={selectedSection === 'appearance'} onClick={() => setSelectedSection('appearance')} />
-            <SettingsNavRow label="Workspace" selected={selectedSection === 'workspace'} onClick={() => setSelectedSection('workspace')} />
-            <SettingsNavRow label="Formatting" selected={selectedSection === 'formatting'} onClick={() => setSelectedSection('formatting')} />
-            <SettingsNavRow label="Writ Petition (DHC)" selected={selectedSection === 'writpetition'} onClick={() => setSelectedSection('writpetition')} />
-            <SettingsNavRow label="Paperbook" selected={selectedSection === 'paperbook'} onClick={() => setSelectedSection('paperbook')} />
-            <SettingsNavRow label="User Defaults" selected={selectedSection === 'userdefaults'} onClick={() => setSelectedSection('userdefaults')} />
+            {/* Common to all court & document types */}
+            <SettingsNavRow label="Interface" selected={selectedSection === 'interface'} onClick={() => setSelectedSection('interface')} />
             <SettingsNavRow label="Mayur (AI)" selected={selectedSection === 'customize'} onClick={() => setSelectedSection('customize')} />
             <SettingsNavRow label="Save Locations" selected={selectedSection === 'save'} onClick={() => setSelectedSection('save')} />
+
+            {/* Per document type */}
+            <div className="my-1 px-2 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Document types</div>
+            <SettingsNavRow label="Special Leave Petition" tag="SC" selected={selectedSection === 'slp'} onClick={() => setSelectedSection('slp')} />
+            <SettingsNavRow label="Writ Petition" tag="HC" selected={selectedSection === 'wp'} onClick={() => setSelectedSection('wp')} />
+            <SettingsNavRow label="Original Application" tag="CAT" selected={selectedSection === 'oa'} onClick={() => setSelectedSection('oa')} />
+
+            <div className="my-1 border-t" />
             <SettingsNavRow label="Shortcuts" selected={selectedSection === 'shortcuts'} onClick={() => setSelectedSection('shortcuts')} />
             <SettingsNavRow label="Support" selected={selectedSection === 'support'} onClick={() => setSelectedSection('support')} />
           </div>
@@ -711,7 +967,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
 
             {/* ── APPEARANCE ── */}
-            {selectedSection === 'appearance' && (
+            {selectedSection === 'interface' && (
               <div className="space-y-4">
                 {/* Theme */}
                 <div className="space-y-1.5">
@@ -817,40 +1073,6 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
             )}
 
             {/* ── USER DEFAULTS ── */}
-            {selectedSection === 'userdefaults' && (
-              <div className="space-y-4">
-                <p className="text-xs text-muted-foreground">
-                  These values are filled into every new project automatically — including the blank project created when Drafto launches. Changing them here does not alter projects you've already created.
-                </p>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="default-aor-name" className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">AoR Name</Label>
-                  <Input
-                    id="default-aor-name"
-                    value={settings.defaultAorName}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorName: e.target.value }))}
-                    placeholder="Advocate-on-Record name"
-                    className="h-7 text-xs"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="default-aor-code" className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">AoR Code</Label>
-                  <Input
-                    id="default-aor-code"
-                    value={settings.defaultAorCode}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorCode: e.target.value }))}
-                    placeholder="AoR registration code"
-                    className="h-7 text-xs"
-                  />
-                </div>
-
-                <p className="text-[10px] text-muted-foreground italic">
-                  The AI assistant will not overwrite these fields unless you explicitly ask it to.
-                </p>
-              </div>
-            )}
-
             {/* ── CUSTOMIZE ── */}
             {selectedSection === 'customize' && (
               <div className="space-y-5">
@@ -1143,7 +1365,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
             )}
 
             {/* ── WORKSPACE ── */}
-            {selectedSection === 'workspace' && (
+            {selectedSection === 'interface' && (
               <div className="space-y-4">
                 {/* Default Petition View — controls the default on new project; real-time switching via the header toggle */}
                 <div className="space-y-1.5">
@@ -1197,11 +1419,31 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     <Label htmlFor="autosave-interval" className="text-xs text-muted-foreground">seconds (0 = disabled)</Label>
                   </div>
                 </div>
+
+                {/* Export Highlights (common to all document types) */}
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Highlights</p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="export-highlight"
+                      checked={settings.exportHighlight}
+                      onChange={(e) => {
+                        // Save-gated like every other setting so Cancel discards it.
+                        setSettings((prev) => ({ ...prev, exportHighlight: e.target.checked }));
+                      }}
+                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+                    />
+                    <Label htmlFor="export-highlight" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                      Export text highlights to DOCX and PDF (off = highlights stay on-screen only)
+                    </Label>
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* ── DOCUMENT FORMATTING ── */}
-            {selectedSection === 'formatting' && (
+            {/* ── SPECIAL LEAVE PETITION (SC) — formatting ── */}
+            {selectedSection === 'slp' && (
               <div className="space-y-6">
 
                 {/* Output Text Formatting */}
@@ -1291,6 +1533,13 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   </div>
                 </div>
 
+                {/* Page margins (SLP) */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Page margins</p>
+                  <p className="text-xs text-muted-foreground">Margins for every generated SLP document, in inches. (Defaults: 1.5&quot; top/left, 1&quot; bottom/right. The Advocate&rsquo;s Checklist keeps its own top/left margins.)</p>
+                  {marginInputs({ top: 'slpMarginTopIn', right: 'slpMarginRightIn', bottom: 'slpMarginBottomIn', left: 'slpMarginLeftIn' })}
+                </div>
+
                 {/* Quotes */}
                 <div className="space-y-2">
                   <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Quotes</p>
@@ -1311,37 +1560,47 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   </RadioGroup>
                 </div>
 
-                {/* Export Highlights */}
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Highlights</p>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="export-highlight"
-                      checked={settings.exportHighlight}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setSettings((prev) => ({ ...prev, exportHighlight: checked }));
-                        // Persist immediately so parseHtml reads the correct value at export time
-                        try {
-                          const stored = localStorage.getItem(SETTINGS_KEY);
-                          const existing = stored ? JSON.parse(stored) : {};
-                          localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...existing, exportHighlight: checked }));
-                        } catch {}
-                      }}
-                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
-                    />
-                    <Label htmlFor="export-highlight" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                      Export text highlights to DOCX and PDF (off = highlights stay on-screen only)
-                    </Label>
-                  </div>
-                </div>
-
               </div>
             )}
 
-            {/* ── WRIT PETITION (DHC) ── */}
-            {selectedSection === 'writpetition' && (
+            {/* ── SPECIAL LEAVE PETITION (SC) — Advocate-on-Record details ── */}
+            {selectedSection === 'slp' && (
+              <div className="space-y-4">
+                <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Advocate-on-Record (AoR) Details</p>
+                <p className="text-xs text-muted-foreground">
+                  These values are filled into every new project automatically — including the blank project created when Drafto launches. Changing them here does not alter projects you've already created.
+                </p>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="default-aor-name" className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">AoR Name</Label>
+                  <Input
+                    id="default-aor-name"
+                    value={settings.defaultAorName}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorName: e.target.value }))}
+                    placeholder="Advocate-on-Record name"
+                    className="h-7 text-xs"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="default-aor-code" className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">AoR Code</Label>
+                  <Input
+                    id="default-aor-code"
+                    value={settings.defaultAorCode}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorCode: e.target.value }))}
+                    placeholder="AoR registration code"
+                    className="h-7 text-xs"
+                  />
+                </div>
+
+                <p className="text-[10px] text-muted-foreground italic">
+                  The AI assistant will not overwrite these fields unless you explicitly ask it to.
+                </p>
+              </div>
+            )}
+
+            {/* ── WRIT PETITION (HC) ── */}
+            {selectedSection === 'wp' && (
               <div className="space-y-6">
                 {/* Filed-by defaults */}
                 <div className="space-y-2">
@@ -1371,6 +1630,460 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                         className="text-xs"
                         value={settings.wpFiledBy?.address ?? ""}
                         onChange={(e) => setSettings((prev) => ({ ...prev, wpFiledBy: { ...(prev.wpFiledBy ?? DEFAULT_WP_FILED_BY), address: e.target.value } }))}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Advocate signature (Filed-by blocks, PDF path only) */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Advocate Signature</p>
+                    <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Beta</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Placed above the advocate&rsquo;s name in every &ldquo;Filed&nbsp;by&rdquo; block of the writ-petition paperbook. Applied only during PDF generation — plain .docx exports never carry it. This is separate from the SLP AoR signature.
+                  </p>
+                  <p className="text-xs text-muted-foreground italic">
+                    Pro-Tip: For the cleanest appearance, use a signature with a transparent background and minimal white margins.
+                  </p>
+
+                  <div className="rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700/60 dark:bg-amber-900/20 p-2.5">
+                    <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" /> Important
+                    </p>
+                    <p className="text-xs text-amber-800/90 dark:text-amber-200/90 mt-1 leading-relaxed">
+                      Please note that Drafto merely assists you in collating the paperbook and electronically placing your signatures on it. The responsibility for the contents of the paperbook continues to rest with you, and we urge you to examine the paperbook comprehensively before it is filed.
+                    </p>
+                  </div>
+
+                  <input
+                    ref={wpSignatureInputRef}
+                    type="file"
+                    accept="image/png"
+                    onChange={handleWpSignatureUpload}
+                    className="hidden"
+                  />
+
+                  <div className="flex items-center gap-3">
+                    {settings.wpSignaturePng ? (
+                      <div className="flex items-center justify-center border rounded bg-white p-1" style={{ width: 96, height: 48 }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={settings.wpSignaturePng} alt="Advocate signature" className="max-w-full max-h-full object-contain" />
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center border border-dashed rounded text-[10px] text-muted-foreground" style={{ width: 96, height: 48 }}>
+                        No signature
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-1.5">
+                      <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => wpSignatureInputRef.current?.click()}>
+                        {settings.wpSignaturePng ? "Replace PNG" : "Upload PNG"}
+                      </Button>
+                      {settings.wpSignaturePng && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-muted-foreground"
+                          onClick={() => setSettings((prev) => ({ ...prev, wpSignaturePng: "", wpSignatureW: 0, wpSignatureH: 0 }))}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="wp-place-signature"
+                      checked={settings.wpPlaceSignatureInPaperbook}
+                      disabled={!settings.wpSignaturePng}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, wpPlaceSignatureInPaperbook: e.target.checked }))}
+                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0 disabled:opacity-40"
+                    />
+                    <Label htmlFor="wp-place-signature" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                      Place the signature above the advocate&rsquo;s name in every &ldquo;Filed by&rdquo; block
+                    </Label>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-muted-foreground">Signature width</Label>
+                      <span className="text-xs font-semibold tabular-nums w-12 text-right">{settings.wpSignatureSizePx}&nbsp;px</span>
+                    </div>
+                    <Slider
+                      min={48}
+                      max={240}
+                      step={4}
+                      value={[settings.wpSignatureSizePx]}
+                      onValueChange={([v]) => setSettings((prev) => ({ ...prev, wpSignatureSizePx: v }))}
+                      className="w-full"
+                    />
+                    {settings.wpSignaturePng && settings.wpSignatureW > 0 && (
+                      <div className="flex items-center justify-center border rounded bg-white p-2 mt-1">
+                        {/* Live size preview at the chosen width */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={settings.wpSignaturePng}
+                          alt="signature size preview"
+                          style={{
+                            width: settings.wpSignatureSizePx,
+                            height: settings.wpSignatureSizePx * (settings.wpSignatureH / settings.wpSignatureW),
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Paperbook stamps: annexure labels, page numbers, True Copy */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Annexure Labels &amp; Page Numbers</p>
+                  <p className="text-xs text-muted-foreground">Stamped onto the paperbook during PDF generation. The annexure label appears on the first page of each annexure; page numbers on every numbered page. Stamps stay upright on rotated/scanned pages.</p>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Stamp font</Label>
+                    <Select value={settings.wpStampFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, wpStampFont: v as SettingsData['wpStampFont'] }))}>
+                      <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="times" className="text-xs" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
+                        <SelectItem value="helvetica" className="text-xs" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
+                        <SelectItem value="courier" className="text-xs" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Page number size (pt)</Label>
+                      <Input type="number" min={8} max={48} step={1} value={settings.wpPageNumberSizePt} onChange={(e) => setSettings((prev) => ({ ...prev, wpPageNumberSizePt: Math.min(48, Math.max(8, parseFloat(e.target.value) || 20)) }))} className="h-7 text-xs" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Top margin (pt)</Label>
+                      <Input type="number" min={0} max={216} step={1} value={settings.wpPageNumberMarginTopPt} onChange={(e) => setSettings((prev) => ({ ...prev, wpPageNumberMarginTopPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Right margin (pt)</Label>
+                      <Input type="number" min={0} max={216} step={1} value={settings.wpPageNumberMarginRightPt} onChange={(e) => setSettings((prev) => ({ ...prev, wpPageNumberMarginRightPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Annexure label size (pt)</Label>
+                      <Input type="number" min={8} max={32} step={1} value={settings.wpAnnexureLabelSizePt} onChange={(e) => setSettings((prev) => ({ ...prev, wpAnnexureLabelSizePt: Math.min(32, Math.max(8, parseFloat(e.target.value) || 14)) }))} className="h-7 text-xs" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Label top margin (pt)</Label>
+                      <Input type="number" min={0} max={216} step={0.1} value={settings.wpAnnexureLabelMarginPt} onChange={(e) => setSettings((prev) => ({ ...prev, wpAnnexureLabelMarginPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Label position</Label>
+                      <Select value={settings.wpAnnexureLabelPosition} onValueChange={(v) => setSettings((prev) => ({ ...prev, wpAnnexureLabelPosition: v as SettingsData['wpAnnexureLabelPosition'] }))}>
+                        <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="center" className="text-xs">Top-centre</SelectItem>
+                          <SelectItem value="right" className="text-xs">Top-right (under the page number)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">In top-right mode the label uses the page number&rsquo;s margins and its own top margin is ignored.</p>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="wp-stamp-bg"
+                      checked={settings.wpStampBackground}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, wpStampBackground: e.target.checked }))}
+                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+                    />
+                    <Label htmlFor="wp-stamp-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                      Add white background behind annexure labels and page numbers
+                    </Label>
+                  </div>
+
+                  {/* True Copy stamp */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="checkbox"
+                      id="wp-place-truecopy"
+                      checked={settings.wpPlaceTrueCopyText}
+                      disabled={!settings.wpSignaturePng}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, wpPlaceTrueCopyText: e.target.checked }))}
+                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0 disabled:opacity-40"
+                    />
+                    <Label htmlFor="wp-place-truecopy" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                      Stamp &ldquo;True Copy&rdquo; with the advocate&rsquo;s signature on every annexure page{!settings.wpSignaturePng && " (upload a signature above first)"}
+                    </Label>
+                  </div>
+                  {settings.wpPlaceTrueCopyText && (
+                    <div className="space-y-3 pl-6 border-l border-border ml-1.5">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">True Copy position</Label>
+                        <RadioGroup
+                          value={settings.wpTrueCopyPosition}
+                          onValueChange={(value) => setSettings((prev) => ({ ...prev, wpTrueCopyPosition: value as SettingsData['wpTrueCopyPosition'] }))}
+                          className="flex gap-4 pt-0.5"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <RadioGroupItem value="left" id="wp-truecopy-left" />
+                            <Label htmlFor="wp-truecopy-left" className="text-xs font-normal cursor-pointer">Bottom-left</Label>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <RadioGroupItem value="center" id="wp-truecopy-center" />
+                            <Label htmlFor="wp-truecopy-center" className="text-xs font-normal cursor-pointer">Bottom-centre</Label>
+                          </div>
+                        </RadioGroup>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="wp-truecopy-bg"
+                          checked={settings.wpTrueCopyBackground}
+                          onChange={(e) => setSettings((prev) => ({ ...prev, wpTrueCopyBackground: e.target.checked }))}
+                          className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+                        />
+                        <Label htmlFor="wp-truecopy-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                          Add white background behind the True Copy stamp
+                        </Label>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Horizontal margin (pt)</Label>
+                          <Input type="number" min={0} max={216} step={1} value={settings.wpTrueCopyMarginXPt} onChange={(e) => setSettings((prev) => ({ ...prev, wpTrueCopyMarginXPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Bottom margin (pt)</Label>
+                          <Input type="number" min={0} max={216} step={1} value={settings.wpTrueCopyMarginBottomPt} onChange={(e) => setSettings((prev) => ({ ...prev, wpTrueCopyMarginBottomPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">The True Copy signature renders at half the configured signature width. In bottom-centre mode the horizontal margin is ignored.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Filed-by table layout + preview */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">&ldquo;Filed by&rdquo; table layout</p>
+                  <p className="text-xs text-muted-foreground">Width of the left column (Filed on / Place); the advocate details take the rest. The preview approximates the docx output, including the signature at its configured size.</p>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-muted-foreground">Left column width</Label>
+                    <span className="text-xs font-semibold tabular-nums w-16 text-right">{settings.wpFiledByLeftPct}% / {100 - settings.wpFiledByLeftPct}%</span>
+                  </div>
+                  <Slider
+                    min={10}
+                    max={70}
+                    step={1}
+                    value={[settings.wpFiledByLeftPct]}
+                    onValueChange={([v]) => setSettings((prev) => ({ ...prev, wpFiledByLeftPct: v }))}
+                    className="w-full"
+                  />
+
+                  {/* Advocate-details designer: order, "|" joins, per-item styling */}
+                  <p className="pt-1 text-xs text-muted-foreground">Order and style of the details under the advocate&rsquo;s name. &ldquo;<span className="font-mono">|&nbsp;next</span>&rdquo; keeps an item on the same line as the one below it, separated by &ldquo;&nbsp;|&nbsp;&rdquo;.</p>
+                  <div className="space-y-1">
+                    {settings.wpFiledByLayout.map((item, i, arr) => {
+                      const update = (patch: Partial<WpFiledByLayoutItem>) =>
+                        setSettings((prev) => ({ ...prev, wpFiledByLayout: prev.wpFiledByLayout.map((it, j) => (j === i ? { ...it, ...patch } : it)) }));
+                      const move = (dir: -1 | 1) =>
+                        setSettings((prev) => {
+                          const a = [...prev.wpFiledByLayout];
+                          const t = i + dir;
+                          if (t < 0 || t >= a.length) return prev;
+                          [a[i], a[t]] = [a[t], a[i]];
+                          return { ...prev, wpFiledByLayout: a };
+                        });
+                      const fmtBtn = (label: string, active: boolean, onClick: () => void, cls = "") => (
+                        <button
+                          type="button"
+                          onClick={onClick}
+                          className={`h-6 w-6 rounded border text-[11px] leading-none ${cls} ${active ? "bg-primary text-primary-foreground border-primary" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                        >
+                          {label}
+                        </button>
+                      );
+                      return (
+                        <div key={item.id} className="flex items-center gap-1.5 rounded-md border px-2 py-1">
+                          <span className="flex flex-col">
+                            <button type="button" disabled={i === 0} onClick={() => move(-1)} className="text-muted-foreground hover:text-foreground disabled:opacity-25"><ArrowUp className="h-3 w-3" /></button>
+                            <button type="button" disabled={i === arr.length - 1} onClick={() => move(1)} className="text-muted-foreground hover:text-foreground disabled:opacity-25"><ArrowDown className="h-3 w-3" /></button>
+                          </span>
+                          <span className="flex-grow text-xs">{WP_FILED_BY_ITEM_LABELS[item.id]}</span>
+                          {fmtBtn("B", item.bold, () => update({ bold: !item.bold }), "font-bold")}
+                          {fmtBtn("I", item.italics, () => update({ italics: !item.italics }), "italic")}
+                          {fmtBtn("U", item.underline, () => update({ underline: !item.underline }), "underline")}
+                          <Select value={item.caps} onValueChange={(v) => update({ caps: v as WpFiledByCaps })}>
+                            <SelectTrigger className="h-6 w-[92px] text-[10px] px-1.5"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none" className="text-xs">Normal</SelectItem>
+                              <SelectItem value="allCaps" className="text-xs">ALL CAPS</SelectItem>
+                              <SelectItem value="smallCaps" className="text-xs" style={{ fontVariant: 'small-caps' }}>Small Caps</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {i < arr.length - 1 ? (
+                            <label className="flex cursor-pointer items-center gap-1 text-[10px] text-muted-foreground">
+                              <input
+                                type="checkbox"
+                                checked={item.joinWithNext}
+                                onChange={(e) => update({ joinWithNext: e.target.checked })}
+                                className="h-3 w-3 rounded border-gray-300"
+                              />
+                              <span className="font-mono">| next</span>
+                            </label>
+                          ) : (
+                            <span className="w-[52px]" />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {(() => {
+                    // Preview scale: the box maps the docx content width (A4 8.27"
+                    // minus the configured left/right margins) to a fixed pixel width.
+                    const contentIn = Math.max(3, 8.27 - settings.wpMarginLeftIn - settings.wpMarginRightIn);
+                    const boxPx = 430;
+                    const pxPerIn = boxPx / contentIn;
+                    const fontPx = Math.max(6, (settings.wpOutputFontSizePt / 72) * pxPerIn);
+                    const showSig = !!settings.wpSignaturePng && settings.wpPlaceSignatureInPaperbook && settings.wpSignatureW > 0;
+                    const sigW = showSig ? (settings.wpSignatureSizePx / 96) * pxPerIn : 0;
+                    const sigH = showSig ? sigW * (settings.wpSignatureH / settings.wpSignatureW) : 0;
+                    const overlapPx = (6 / 72) * pxPerIn; // signature dips 6pt into the name line
+                    const fb = settings.wpFiledBy;
+                    // Layout-driven lines; empty fields show greyed placeholders so
+                    // the layout can be designed before the defaults are filled in.
+                    const realVals = {
+                      firm: fb.firm || "", address: fb.address || "",
+                      enrolmentNo: fb.enrolmentNo ? `Enrl. No.: ${fb.enrolmentNo}` : "",
+                      email: fb.email || "", phone: fb.phone || "",
+                    };
+                    const placeholders = { firm: "[Firm]", address: "[Address]", enrolmentNo: "Enrl. No.: [xx/xxxx]", email: "[email]", phone: "[phone]" };
+                    const previewVals = Object.fromEntries(
+                      (Object.keys(realVals) as (keyof typeof realVals)[]).map((k) => [k, realVals[k] || placeholders[k]])
+                    ) as typeof realVals;
+                    const fbLines = wpFiledByLines(settings.wpFiledByLayout, previewVals);
+                    const partStyle = (it: WpFiledByLayoutItem, isPlaceholder: boolean): React.CSSProperties => ({
+                      fontWeight: it.bold ? 700 : 400,
+                      fontStyle: it.italics ? 'italic' : 'normal',
+                      textDecoration: it.underline ? 'underline' : 'none',
+                      textTransform: it.caps === 'allCaps' ? 'uppercase' : 'none',
+                      fontVariant: it.caps === 'smallCaps' ? 'small-caps' : 'normal',
+                      opacity: isPlaceholder ? 0.45 : 1,
+                    });
+                    return (
+                      <div className="rounded border bg-white p-2 text-black overflow-hidden" style={{ width: boxPx + 18, fontFamily: settings.wpOutputFont, fontSize: fontPx, lineHeight: 1.25 }}>
+                        <div className="flex" style={{ width: boxPx }}>
+                          <div style={{ width: `${settings.wpFiledByLeftPct}%`, flexShrink: 0 }}>
+                            <div>Filed on: __.__.____</div>
+                            <div>Place: New Delhi</div>
+                          </div>
+                          <div style={{ width: `${100 - settings.wpFiledByLeftPct}%`, flexShrink: 0, minWidth: 0 }}>
+                            <div>Filed by:</div>
+                            <div style={{ position: 'relative', marginTop: showSig ? Math.max(4, sigH - overlapPx) : fontPx * 0.6 }}>
+                              {showSig && (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img src={settings.wpSignaturePng} alt="signature" style={{ position: 'absolute', left: 0, bottom: fontPx * 1.1 - overlapPx, width: sigW, height: sigH }} />
+                              )}
+                              <div style={{ fontWeight: 700 }}>{fb.name || "[Advocate name]"}</div>
+                            </div>
+                            {fbLines.map((line, li) => (
+                              <div key={li} style={{ whiteSpace: 'pre-line' }}>
+                                {line.map((part, pi) => (
+                                  <React.Fragment key={part.item.id}>
+                                    {pi > 0 && <span> | </span>}
+                                    <span style={partStyle(part.item, !realVals[part.item.id])}>{part.text}</span>
+                                  </React.Fragment>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Page margins (WP) */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Page margins</p>
+                  <p className="text-xs text-muted-foreground">Margins for every generated writ-petition document, in inches. (Defaults: 1.5&quot; top/left, 1&quot; bottom/right — the top margin leaves room for the stamped page number.)</p>
+                  {marginInputs({ top: 'wpMarginTopIn', right: 'wpMarginRightIn', bottom: 'wpMarginBottomIn', left: 'wpMarginLeftIn' })}
+                </div>
+
+                {/* Output text formatting (WP) */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Output text formatting</p>
+                  <p className="text-xs text-muted-foreground">Font, size and spacing applied to the body text of the generated writ petition. (Defaults: Times New Roman, 14&nbsp;pt, 1.5&nbsp;line spacing, 0&nbsp;pt before / 12&nbsp;pt after each paragraph.)</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1 col-span-2">
+                      <Label className="text-xs text-muted-foreground">Font</Label>
+                      <Select
+                        value={settings.wpOutputFont}
+                        onValueChange={(v) => setSettings((prev) => ({ ...prev, wpOutputFont: v }))}
+                      >
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {OUTPUT_FONTS.map((f) => (
+                            <SelectItem key={f} value={f} className="text-xs" style={{ fontFamily: f }}>{f}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Font size (pt)</Label>
+                      <Input
+                        type="number"
+                        min={8}
+                        max={24}
+                        step={0.5}
+                        value={settings.wpOutputFontSizePt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, wpOutputFontSizePt: Math.min(24, Math.max(8, parseFloat(e.target.value) || 14)) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Line spacing</Label>
+                      <Select
+                        value={String(settings.wpOutputLineSpacing)}
+                        onValueChange={(v) => setSettings((prev) => ({ ...prev, wpOutputLineSpacing: parseFloat(v) }))}
+                      >
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
+                          <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
+                          <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
+                          <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Spacing before each paragraph (pt)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={36}
+                        step={1}
+                        value={settings.wpOutputParaBeforePt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, wpOutputParaBeforePt: Math.min(36, Math.max(0, parseFloat(e.target.value) || 0)) }))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Spacing after each paragraph (pt)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={36}
+                        step={1}
+                        value={settings.wpOutputParaAfterPt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, wpOutputParaAfterPt: Math.min(36, Math.max(0, parseFloat(e.target.value) || 0)) }))}
+                        className="h-7 text-xs"
                       />
                     </div>
                   </div>
@@ -1407,7 +2120,8 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
             )}
 
             {/* ── PAPERBOOK ── */}
-            {selectedSection === 'paperbook' && (
+            {/* ── SPECIAL LEAVE PETITION (SC) — paperbook: annexure, pagination, true-copy, volume splitting & checklist (SC-only) ── */}
+            {selectedSection === 'slp' && (
               <div className="space-y-6">
 
                 {/* Annexure Labels */}
@@ -1864,6 +2578,388 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
               </div>
             )}
 
+            {/* ── ORIGINAL APPLICATION (CAT) ── */}
+            {selectedSection === 'oa' && (
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Bench</p>
+                  <p className="text-xs text-muted-foreground">The Tribunal Bench printed in the OA header (and used for "Registrar, &lt;Bench&gt;" references).</p>
+                  <select
+                    value={settings.oaBench || DEFAULT_OA_BENCH}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, oaBench: e.target.value }))}
+                    className="h-8 w-full max-w-sm rounded-md border bg-background px-2 text-xs"
+                  >
+                    {(["Regular", "Circuit"] as const).map((group) => (
+                      <optgroup key={group} label={group === "Regular" ? "Regular Benches" : "Circuit Benches"}>
+                        {OA_BENCHES.filter((b) => b.group === group).map((b) => (
+                          <option key={b.value} value={b.value}>{b.header}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+                {/* Filed-by defaults */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Advocate Details (“Filed by”)</p>
+                  <p className="text-xs text-muted-foreground">Pre-filled into the “Filed by” block of every new Original Application. Per-case edits override these.</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {([
+                      ["name", "Advocate name"],
+                      ["firm", "Firm / Chamber"],
+                      ["enrolmentNo", "Enrolment No."],
+                      ["phone", "Phone"],
+                      ["email", "Email"],
+                    ] as [keyof WpFiledBy, string][]).map(([key, label]) => (
+                      <div key={key} className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">{label}</Label>
+                        <Input
+                          className="h-7 text-xs"
+                          value={settings.oaFiledBy?.[key] ?? ""}
+                          onChange={(e) => setSettings((prev) => ({ ...prev, oaFiledBy: { ...(prev.oaFiledBy ?? DEFAULT_WP_FILED_BY), [key]: e.target.value } }))}
+                        />
+                      </div>
+                    ))}
+                    <div className="col-span-2 space-y-1">
+                      <Label className="text-xs text-muted-foreground">Address</Label>
+                      <Textarea
+                        rows={2}
+                        className="text-xs"
+                        value={settings.oaFiledBy?.address ?? ""}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, oaFiledBy: { ...(prev.oaFiledBy ?? DEFAULT_WP_FILED_BY), address: e.target.value } }))}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Filed-by table layout + preview (CAT) */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">&ldquo;Filed by&rdquo; table layout</p>
+                  <p className="text-xs text-muted-foreground">Width of the left column (Filed on / Place); the advocate details take the rest. The preview approximates the docx output, including the signature at its configured size.</p>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-muted-foreground">Left column width</Label>
+                    <span className="text-xs font-semibold tabular-nums w-16 text-right">{settings.oaFiledByLeftPct}% / {100 - settings.oaFiledByLeftPct}%</span>
+                  </div>
+                  <Slider
+                    min={10}
+                    max={70}
+                    step={1}
+                    value={[settings.oaFiledByLeftPct]}
+                    onValueChange={([v]) => setSettings((prev) => ({ ...prev, oaFiledByLeftPct: v }))}
+                    className="w-full"
+                  />
+
+                  {/* Advocate-details designer: order, "|" joins, per-item styling */}
+                  <p className="pt-1 text-xs text-muted-foreground">Order and style of the details under the advocate&rsquo;s name. &ldquo;<span className="font-mono">|&nbsp;next</span>&rdquo; keeps an item on the same line as the one below it, separated by &ldquo;&nbsp;|&nbsp;&rdquo;.</p>
+                  <div className="space-y-1">
+                    {settings.oaFiledByLayout.map((item, i, arr) => {
+                      const update = (patch: Partial<WpFiledByLayoutItem>) =>
+                        setSettings((prev) => ({ ...prev, oaFiledByLayout: prev.oaFiledByLayout.map((it, j) => (j === i ? { ...it, ...patch } : it)) }));
+                      const move = (dir: -1 | 1) =>
+                        setSettings((prev) => {
+                          const a = [...prev.oaFiledByLayout];
+                          const t = i + dir;
+                          if (t < 0 || t >= a.length) return prev;
+                          [a[i], a[t]] = [a[t], a[i]];
+                          return { ...prev, oaFiledByLayout: a };
+                        });
+                      const fmtBtn = (label: string, active: boolean, onClick: () => void, cls = "") => (
+                        <button
+                          type="button"
+                          onClick={onClick}
+                          className={`h-6 w-6 rounded border text-[11px] leading-none ${cls} ${active ? "bg-primary text-primary-foreground border-primary" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                        >
+                          {label}
+                        </button>
+                      );
+                      return (
+                        <div key={item.id} className="flex items-center gap-1.5 rounded-md border px-2 py-1">
+                          <span className="flex flex-col">
+                            <button type="button" disabled={i === 0} onClick={() => move(-1)} className="text-muted-foreground hover:text-foreground disabled:opacity-25"><ArrowUp className="h-3 w-3" /></button>
+                            <button type="button" disabled={i === arr.length - 1} onClick={() => move(1)} className="text-muted-foreground hover:text-foreground disabled:opacity-25"><ArrowDown className="h-3 w-3" /></button>
+                          </span>
+                          <span className="flex-grow text-xs">{WP_FILED_BY_ITEM_LABELS[item.id]}</span>
+                          {fmtBtn("B", item.bold, () => update({ bold: !item.bold }), "font-bold")}
+                          {fmtBtn("I", item.italics, () => update({ italics: !item.italics }), "italic")}
+                          {fmtBtn("U", item.underline, () => update({ underline: !item.underline }), "underline")}
+                          <Select value={item.caps} onValueChange={(v) => update({ caps: v as WpFiledByCaps })}>
+                            <SelectTrigger className="h-6 w-[92px] text-[10px] px-1.5"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none" className="text-xs">Normal</SelectItem>
+                              <SelectItem value="allCaps" className="text-xs">ALL CAPS</SelectItem>
+                              <SelectItem value="smallCaps" className="text-xs" style={{ fontVariant: 'small-caps' }}>Small Caps</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {i < arr.length - 1 ? (
+                            <label className="flex cursor-pointer items-center gap-1 text-[10px] text-muted-foreground">
+                              <input
+                                type="checkbox"
+                                checked={item.joinWithNext}
+                                onChange={(e) => update({ joinWithNext: e.target.checked })}
+                                className="h-3 w-3 rounded border-gray-300"
+                              />
+                              <span className="font-mono">| next</span>
+                            </label>
+                          ) : (
+                            <span className="w-[52px]" />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {(() => {
+                    // Preview scale: the box maps the docx content width (A4 8.27"
+                    // minus the configured left/right margins) to a fixed pixel width.
+                    const contentIn = Math.max(3, 8.27 - settings.wpMarginLeftIn - settings.wpMarginRightIn);
+                    const boxPx = 430;
+                    const pxPerIn = boxPx / contentIn;
+                    const fontPx = Math.max(6, (settings.wpOutputFontSizePt / 72) * pxPerIn);
+                    const showSig = !!settings.oaSignaturePng && settings.oaPlaceSignatureInPaperbook && settings.oaSignatureW > 0;
+                    const sigW = showSig ? (settings.oaSignatureSizePx / 96) * pxPerIn : 0;
+                    const sigH = showSig ? sigW * (settings.oaSignatureH / settings.oaSignatureW) : 0;
+                    const overlapPx = (6 / 72) * pxPerIn; // signature dips 6pt into the name line
+                    const fb = settings.oaFiledBy;
+                    // Layout-driven lines; empty fields show greyed placeholders so
+                    // the layout can be designed before the defaults are filled in.
+                    const realVals = {
+                      firm: fb.firm || "", address: fb.address || "",
+                      enrolmentNo: fb.enrolmentNo ? `Enrl. No.: ${fb.enrolmentNo}` : "",
+                      email: fb.email || "", phone: fb.phone || "",
+                    };
+                    const placeholders = { firm: "[Firm]", address: "[Address]", enrolmentNo: "Enrl. No.: [xx/xxxx]", email: "[email]", phone: "[phone]" };
+                    const previewVals = Object.fromEntries(
+                      (Object.keys(realVals) as (keyof typeof realVals)[]).map((k) => [k, realVals[k] || placeholders[k]])
+                    ) as typeof realVals;
+                    const fbLines = wpFiledByLines(settings.oaFiledByLayout, previewVals);
+                    const partStyle = (it: WpFiledByLayoutItem, isPlaceholder: boolean): React.CSSProperties => ({
+                      fontWeight: it.bold ? 700 : 400,
+                      fontStyle: it.italics ? 'italic' : 'normal',
+                      textDecoration: it.underline ? 'underline' : 'none',
+                      textTransform: it.caps === 'allCaps' ? 'uppercase' : 'none',
+                      fontVariant: it.caps === 'smallCaps' ? 'small-caps' : 'normal',
+                      opacity: isPlaceholder ? 0.45 : 1,
+                    });
+                    return (
+                      <div className="rounded border bg-white p-2 text-black overflow-hidden" style={{ width: boxPx + 18, fontFamily: settings.wpOutputFont, fontSize: fontPx, lineHeight: 1.25 }}>
+                        <div className="flex" style={{ width: boxPx }}>
+                          <div style={{ width: `${settings.oaFiledByLeftPct}%`, flexShrink: 0 }}>
+                            <div>Filed on: __.__.____</div>
+                            <div>Place: New Delhi</div>
+                          </div>
+                          <div style={{ width: `${100 - settings.oaFiledByLeftPct}%`, flexShrink: 0, minWidth: 0 }}>
+                            <div>Filed by:</div>
+                            <div style={{ position: 'relative', marginTop: showSig ? Math.max(4, sigH - overlapPx) : fontPx * 0.6 }}>
+                              {showSig && (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img src={settings.oaSignaturePng} alt="signature" style={{ position: 'absolute', left: 0, bottom: fontPx * 1.1 - overlapPx, width: sigW, height: sigH }} />
+                              )}
+                              <div style={{ fontWeight: 700 }}>{fb.name || "[Advocate name]"}</div>
+                            </div>
+                            {fbLines.map((line, li) => (
+                              <div key={li} style={{ whiteSpace: 'pre-line' }}>
+                                {line.map((part, pi) => (
+                                  <React.Fragment key={part.item.id}>
+                                    {pi > 0 && <span> | </span>}
+                                    <span style={partStyle(part.item, !realVals[part.item.id])}>{part.text}</span>
+                                  </React.Fragment>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Advocate signature (CAT Filed-by, PDF path only) */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Advocate Signature</p>
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Beta</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">A transparent PNG placed above the advocate name in the Filed-by block of the generated paper-book.</p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="oa-place-signature"
+                      checked={settings.oaPlaceSignatureInPaperbook}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, oaPlaceSignatureInPaperbook: e.target.checked }))}
+                      className="h-3.5 w-3.5 shrink-0 rounded border-gray-300"
+                    />
+                    <Label htmlFor="oa-place-signature" className="cursor-pointer text-xs font-normal text-muted-foreground">Place the signature in the paper-book</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="file"
+                      accept="image/png"
+                      className="text-xs"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const dataUrl = String(reader.result || "");
+                          const img = new Image();
+                          img.onload = () => setSettings((prev) => ({ ...prev, oaSignaturePng: dataUrl, oaSignatureW: img.naturalWidth, oaSignatureH: img.naturalHeight }));
+                          img.src = dataUrl;
+                        };
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                    {settings.oaSignaturePng && (
+                      <Button type="button" variant="ghost" size="sm" className="h-7 text-xs text-destructive" onClick={() => setSettings((prev) => ({ ...prev, oaSignaturePng: "", oaSignatureW: 0, oaSignatureH: 0 }))}>Remove</Button>
+                    )}
+                  </div>
+                  {settings.oaSignaturePng && (
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground">Width</Label>
+                      <Input
+                        type="number"
+                        min={24}
+                        max={400}
+                        value={settings.oaSignatureSizePx}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, oaSignatureSizePx: Math.min(400, Math.max(24, parseInt(e.target.value) || 120)) }))}
+                        className="h-7 w-20 text-xs"
+                      />
+                      <span className="text-xs text-muted-foreground">px</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Paperbook stamps (CAT): annexure labels, page numbers, True Copy */}
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Annexure Labels &amp; Page Numbers</p>
+                  <p className="text-xs text-muted-foreground">Stamped onto the paperbook during PDF generation. The annexure label appears on the first page of each annexure; page numbers on every numbered page. Stamps stay upright on rotated/scanned pages.</p>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Stamp font</Label>
+                    <Select value={settings.oaStampFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, oaStampFont: v as SettingsData['oaStampFont'] }))}>
+                      <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="times" className="text-xs" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
+                        <SelectItem value="helvetica" className="text-xs" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
+                        <SelectItem value="courier" className="text-xs" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Page number size (pt)</Label>
+                      <Input type="number" min={8} max={48} step={1} value={settings.oaPageNumberSizePt} onChange={(e) => setSettings((prev) => ({ ...prev, oaPageNumberSizePt: Math.min(48, Math.max(8, parseFloat(e.target.value) || 20)) }))} className="h-7 text-xs" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Top margin (pt)</Label>
+                      <Input type="number" min={0} max={216} step={1} value={settings.oaPageNumberMarginTopPt} onChange={(e) => setSettings((prev) => ({ ...prev, oaPageNumberMarginTopPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Right margin (pt)</Label>
+                      <Input type="number" min={0} max={216} step={1} value={settings.oaPageNumberMarginRightPt} onChange={(e) => setSettings((prev) => ({ ...prev, oaPageNumberMarginRightPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Annexure label size (pt)</Label>
+                      <Input type="number" min={8} max={32} step={1} value={settings.oaAnnexureLabelSizePt} onChange={(e) => setSettings((prev) => ({ ...prev, oaAnnexureLabelSizePt: Math.min(32, Math.max(8, parseFloat(e.target.value) || 14)) }))} className="h-7 text-xs" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Label top margin (pt)</Label>
+                      <Input type="number" min={0} max={216} step={0.1} value={settings.oaAnnexureLabelMarginPt} onChange={(e) => setSettings((prev) => ({ ...prev, oaAnnexureLabelMarginPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Label position</Label>
+                      <Select value={settings.oaAnnexureLabelPosition} onValueChange={(v) => setSettings((prev) => ({ ...prev, oaAnnexureLabelPosition: v as SettingsData['oaAnnexureLabelPosition'] }))}>
+                        <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="center" className="text-xs">Top-centre</SelectItem>
+                          <SelectItem value="right" className="text-xs">Top-right (under the page number)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">In top-right mode the label uses the page number&rsquo;s margins and its own top margin is ignored.</p>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="wp-stamp-bg"
+                      checked={settings.oaStampBackground}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, oaStampBackground: e.target.checked }))}
+                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+                    />
+                    <Label htmlFor="wp-stamp-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                      Add white background behind annexure labels and page numbers
+                    </Label>
+                  </div>
+
+                  {/* True Copy stamp */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="checkbox"
+                      id="wp-place-truecopy"
+                      checked={settings.oaPlaceTrueCopyText}
+                      disabled={!settings.oaSignaturePng}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, oaPlaceTrueCopyText: e.target.checked }))}
+                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0 disabled:opacity-40"
+                    />
+                    <Label htmlFor="wp-place-truecopy" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                      Stamp &ldquo;True Copy&rdquo; with the advocate&rsquo;s signature on every annexure page{!settings.oaSignaturePng && " (upload a signature above first)"}
+                    </Label>
+                  </div>
+                  {settings.oaPlaceTrueCopyText && (
+                    <div className="space-y-3 pl-6 border-l border-border ml-1.5">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">True Copy position</Label>
+                        <RadioGroup
+                          value={settings.oaTrueCopyPosition}
+                          onValueChange={(value) => setSettings((prev) => ({ ...prev, oaTrueCopyPosition: value as SettingsData['oaTrueCopyPosition'] }))}
+                          className="flex gap-4 pt-0.5"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <RadioGroupItem value="left" id="wp-truecopy-left" />
+                            <Label htmlFor="wp-truecopy-left" className="text-xs font-normal cursor-pointer">Bottom-left</Label>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <RadioGroupItem value="center" id="wp-truecopy-center" />
+                            <Label htmlFor="wp-truecopy-center" className="text-xs font-normal cursor-pointer">Bottom-centre</Label>
+                          </div>
+                        </RadioGroup>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="wp-truecopy-bg"
+                          checked={settings.oaTrueCopyBackground}
+                          onChange={(e) => setSettings((prev) => ({ ...prev, oaTrueCopyBackground: e.target.checked }))}
+                          className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+                        />
+                        <Label htmlFor="wp-truecopy-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
+                          Add white background behind the True Copy stamp
+                        </Label>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Horizontal margin (pt)</Label>
+                          <Input type="number" min={0} max={216} step={1} value={settings.oaTrueCopyMarginXPt} onChange={(e) => setSettings((prev) => ({ ...prev, oaTrueCopyMarginXPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Bottom margin (pt)</Label>
+                          <Input type="number" min={0} max={216} step={1} value={settings.oaTrueCopyMarginBottomPt} onChange={(e) => setSettings((prev) => ({ ...prev, oaTrueCopyMarginBottomPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">The True Copy signature renders at half the configured signature width. In bottom-centre mode the horizontal margin is ignored.</p>
+                    </div>
+                  )}
+                </div>
+
+
+                <p className="text-[10px] text-muted-foreground italic">
+                  Page margins and body text formatting for the OA follow your Writ Petition (HC) settings.
+                </p>
+              </div>
+            )}
+
             {/* ── SHORTCUTS ── */}
             {selectedSection === 'shortcuts' && (
               <div className="space-y-5">
@@ -1901,6 +2997,14 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     <span className="text-xs text-muted-foreground">Paperbooks (PDFs),</span>
                     <span className="text-xs tabular-nums font-semibold">{usageCounts === null ? "…" : usageCounts.docxGenerated}</span>
                     <span className="text-xs text-muted-foreground">Drafts (Docx)</span>
+                  </div>
+                </div>
+
+                {/* Devices / seats */}
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Devices</p>
+                  <div className="p-2.5 rounded-md bg-muted/40 border">
+                    <ManageDevices compact />
                   </div>
                 </div>
 
@@ -2018,7 +3122,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
 
         {/* Footer */}
         <div className="shrink-0 flex justify-end gap-2 pt-2 border-t">
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => handleOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave}>Save Settings</Button>
         </div>
       </DialogContent>
@@ -2102,6 +3206,61 @@ export function getSettings(): SettingsData {
     defaultAorCode: "",
     wpNumbering: DEFAULT_WP_NUMBERING,
     wpFiledBy: DEFAULT_WP_FILED_BY,
+    wpSignaturePng: "",
+    wpSignatureW: 0,
+    wpSignatureH: 0,
+    wpPlaceSignatureInPaperbook: false,
+    wpSignatureSizePx: 120,
+    slpMarginTopIn: 1.5,
+    slpMarginRightIn: 1,
+    slpMarginBottomIn: 1,
+    slpMarginLeftIn: 1.5,
+    wpMarginTopIn: 1.5,
+    wpMarginRightIn: 1,
+    wpMarginBottomIn: 1,
+    wpMarginLeftIn: 1.5,
+    wpOutputFont: 'Times New Roman',
+    wpOutputFontSizePt: 14,
+    wpOutputLineSpacing: 1.5,
+    wpOutputParaBeforePt: 0,
+    wpOutputParaAfterPt: 12,
+    wpFiledByLeftPct: 40,
+    wpFiledByLayout: normalizeWpFiledByLayout(null),
+    wpStampFont: 'times' as const,
+    wpPageNumberSizePt: 20,
+    wpPageNumberMarginTopPt: 54,
+    wpPageNumberMarginRightPt: 54,
+    wpAnnexureLabelSizePt: 14,
+    wpAnnexureLabelMarginPt: 14.4,
+    wpAnnexureLabelPosition: 'center' as const,
+    wpStampBackground: false,
+    wpPlaceTrueCopyText: false,
+    wpTrueCopyPosition: 'left' as const,
+    wpTrueCopyBackground: false,
+    wpTrueCopyMarginXPt: 36,
+    wpTrueCopyMarginBottomPt: 36,
+    oaBench: DEFAULT_OA_BENCH,
+    oaFiledBy: DEFAULT_WP_FILED_BY,
+    oaFiledByLeftPct: 40,
+    oaFiledByLayout: normalizeWpFiledByLayout(null),
+    oaSignaturePng: "",
+    oaSignatureW: 0,
+    oaSignatureH: 0,
+    oaPlaceSignatureInPaperbook: false,
+    oaSignatureSizePx: 120,
+    oaStampFont: 'times',
+    oaPageNumberSizePt: 20,
+    oaPageNumberMarginTopPt: 54,
+    oaPageNumberMarginRightPt: 54,
+    oaAnnexureLabelSizePt: 14,
+    oaAnnexureLabelMarginPt: 14.4,
+    oaAnnexureLabelPosition: 'center',
+    oaStampBackground: false,
+    oaPlaceTrueCopyText: false,
+    oaTrueCopyPosition: 'left',
+    oaTrueCopyBackground: false,
+    oaTrueCopyMarginXPt: 36,
+    oaTrueCopyMarginBottomPt: 36,
   };
 
   if (typeof window === "undefined") return defaults;
@@ -2172,6 +3331,68 @@ export function getSettings(): SettingsData {
           email: parsed.wpFiledBy?.email ?? "",
           phone: parsed.wpFiledBy?.phone ?? "",
         },
+        wpSignaturePng: parsed.wpSignaturePng ?? "",
+        wpSignatureW: parsed.wpSignatureW ?? 0,
+        wpSignatureH: parsed.wpSignatureH ?? 0,
+        wpPlaceSignatureInPaperbook: parsed.wpPlaceSignatureInPaperbook ?? false,
+        wpSignatureSizePx: parsed.wpSignatureSizePx ?? 120,
+        slpMarginTopIn: parsed.slpMarginTopIn ?? 1.5,
+        slpMarginRightIn: parsed.slpMarginRightIn ?? 1,
+        slpMarginBottomIn: parsed.slpMarginBottomIn ?? 1,
+        slpMarginLeftIn: parsed.slpMarginLeftIn ?? 1.5,
+        wpMarginTopIn: parsed.wpMarginTopIn ?? 1.5,
+        wpMarginRightIn: parsed.wpMarginRightIn ?? 1,
+        wpMarginBottomIn: parsed.wpMarginBottomIn ?? 1,
+        wpMarginLeftIn: parsed.wpMarginLeftIn ?? 1.5,
+        wpOutputFont: parsed.wpOutputFont || 'Times New Roman',
+        wpOutputFontSizePt: parsed.wpOutputFontSizePt ?? 14,
+        wpOutputLineSpacing: parsed.wpOutputLineSpacing ?? 1.5,
+        wpOutputParaBeforePt: parsed.wpOutputParaBeforePt ?? 0,
+        wpOutputParaAfterPt: parsed.wpOutputParaAfterPt ?? 12,
+        wpFiledByLeftPct: parsed.wpFiledByLeftPct ?? 40,
+        wpFiledByLayout: normalizeWpFiledByLayout(parsed.wpFiledByLayout),
+        wpStampFont: (['times', 'helvetica', 'courier'].includes(parsed.wpStampFont) ? parsed.wpStampFont : 'times') as 'times' | 'helvetica' | 'courier',
+        wpPageNumberSizePt: parsed.wpPageNumberSizePt ?? 20,
+        wpPageNumberMarginTopPt: parsed.wpPageNumberMarginTopPt ?? 54,
+        wpPageNumberMarginRightPt: parsed.wpPageNumberMarginRightPt ?? 54,
+        wpAnnexureLabelSizePt: parsed.wpAnnexureLabelSizePt ?? 14,
+        wpAnnexureLabelMarginPt: parsed.wpAnnexureLabelMarginPt ?? 14.4,
+        wpAnnexureLabelPosition: (parsed.wpAnnexureLabelPosition === 'right' ? 'right' : 'center') as 'center' | 'right',
+        wpStampBackground: parsed.wpStampBackground ?? false,
+        wpPlaceTrueCopyText: parsed.wpPlaceTrueCopyText ?? false,
+        wpTrueCopyPosition: (parsed.wpTrueCopyPosition === 'center' ? 'center' : 'left') as 'left' | 'center',
+        wpTrueCopyBackground: parsed.wpTrueCopyBackground ?? false,
+        wpTrueCopyMarginXPt: parsed.wpTrueCopyMarginXPt ?? 36,
+        wpTrueCopyMarginBottomPt: parsed.wpTrueCopyMarginBottomPt ?? 36,
+        oaBench: parsed.oaBench || DEFAULT_OA_BENCH,
+        oaFiledBy: {
+          name: parsed.oaFiledBy?.name ?? "",
+          firm: parsed.oaFiledBy?.firm ?? "",
+          address: parsed.oaFiledBy?.address ?? "",
+          enrolmentNo: parsed.oaFiledBy?.enrolmentNo ?? "",
+          email: parsed.oaFiledBy?.email ?? "",
+          phone: parsed.oaFiledBy?.phone ?? "",
+        },
+        oaFiledByLeftPct: parsed.oaFiledByLeftPct ?? 40,
+        oaFiledByLayout: normalizeWpFiledByLayout(parsed.oaFiledByLayout),
+        oaSignaturePng: parsed.oaSignaturePng ?? "",
+        oaSignatureW: parsed.oaSignatureW ?? 0,
+        oaSignatureH: parsed.oaSignatureH ?? 0,
+        oaPlaceSignatureInPaperbook: parsed.oaPlaceSignatureInPaperbook ?? false,
+        oaSignatureSizePx: parsed.oaSignatureSizePx ?? 120,
+        oaStampFont: ['times', 'helvetica', 'courier'].includes(parsed.oaStampFont) ? parsed.oaStampFont : 'times',
+        oaPageNumberSizePt: parsed.oaPageNumberSizePt ?? 20,
+        oaPageNumberMarginTopPt: parsed.oaPageNumberMarginTopPt ?? 54,
+        oaPageNumberMarginRightPt: parsed.oaPageNumberMarginRightPt ?? 54,
+        oaAnnexureLabelSizePt: parsed.oaAnnexureLabelSizePt ?? 14,
+        oaAnnexureLabelMarginPt: parsed.oaAnnexureLabelMarginPt ?? 14.4,
+        oaAnnexureLabelPosition: (parsed.oaAnnexureLabelPosition === 'right' ? 'right' : 'center'),
+        oaStampBackground: parsed.oaStampBackground ?? false,
+        oaPlaceTrueCopyText: parsed.oaPlaceTrueCopyText ?? false,
+        oaTrueCopyPosition: (parsed.oaTrueCopyPosition === 'center' ? 'center' : 'left'),
+        oaTrueCopyBackground: parsed.oaTrueCopyBackground ?? false,
+        oaTrueCopyMarginXPt: parsed.oaTrueCopyMarginXPt ?? 36,
+        oaTrueCopyMarginBottomPt: parsed.oaTrueCopyMarginBottomPt ?? 36,
       };
     } catch (err) {
       console.error("Failed to parse settings:", err);
@@ -2181,8 +3402,75 @@ export function getSettings(): SettingsData {
   return defaults;
 }
 
+// ── One-time seed: SLP settings → other document types ──────────────────────
+// Commercial users have only ever customised the SLP tool, so on the first
+// launch after this update we copy their SLP settings into the corresponding
+// keys for the other court/document types (currently the Writ Petition / HC
+// keys). This only overwrites a target key that is STILL AT ITS DEFAULT — so a
+// user who deliberately tuned a WP setting keeps it, and everyone else gets
+// their SLP choices as the starting point until they diverge a type manually.
+// Guarded by a flag so it runs exactly once; later per-type edits always stick.
+//
+// [slpKey, targetKey, targetDefault]
+const SLP_TO_WP_SEED: [string, string, unknown][] = [
+  // Document formatting
+  ["outputFont", "wpOutputFont", "Times New Roman"],
+  ["outputFontSizePt", "wpOutputFontSizePt", 14],
+  ["outputLineSpacing", "wpOutputLineSpacing", 1.5],
+  ["outputParaAfterPt", "wpOutputParaAfterPt", 12],
+  // Page margins
+  ["slpMarginTopIn", "wpMarginTopIn", 1.5],
+  ["slpMarginRightIn", "wpMarginRightIn", 1],
+  ["slpMarginBottomIn", "wpMarginBottomIn", 1],
+  ["slpMarginLeftIn", "wpMarginLeftIn", 1.5],
+  // Advocate signature
+  ["aorSignaturePng", "wpSignaturePng", ""],
+  ["aorSignatureW", "wpSignatureW", 0],
+  ["aorSignatureH", "wpSignatureH", 0],
+  ["signatureSizePx", "wpSignatureSizePx", 120],
+  ["placeSignatureInPaperbook", "wpPlaceSignatureInPaperbook", false],
+  // Annexure labelling
+  ["annexureLabelSize", "wpAnnexureLabelSizePt", 14],
+  ["annexureLabelMarginPt", "wpAnnexureLabelMarginPt", 14.4],
+  // Pagination
+  ["pageNumberSizePt", "wpPageNumberSizePt", 20],
+  ["pageNumberMarginTopPt", "wpPageNumberMarginTopPt", 54],
+  ["pageNumberMarginRightPt", "wpPageNumberMarginRightPt", 54],
+  // True-copy stamp
+  ["trueCopyMarginXPt", "wpTrueCopyMarginXPt", 36],
+  ["trueCopyMarginBottomPt", "wpTrueCopyMarginBottomPt", 36],
+  ["trueCopyPosition", "wpTrueCopyPosition", "left"],
+  ["placeTrueCopyText", "wpPlaceTrueCopyText", false],
+  ["trueCopyBackground", "wpTrueCopyBackground", false],
+];
+
+export function seedSettingsFromSlpOnce() {
+  if (typeof window === "undefined") return;
+  const FLAG = "drafto-settings-seeded-from-slp-v1";
+  try {
+    if (localStorage.getItem(FLAG)) return;
+    // Only meaningful for users with existing (customised) settings; a fresh
+    // install starts at defaults everywhere.
+    if (localStorage.getItem(SETTINGS_KEY)) {
+      const cur = getSettings() as unknown as Record<string, unknown>;
+      let changed = false;
+      for (const [slpKey, targetKey, targetDefault] of SLP_TO_WP_SEED) {
+        if (cur[targetKey] === targetDefault && cur[slpKey] !== undefined) {
+          cur[targetKey] = cur[slpKey];
+          changed = true;
+        }
+      }
+      if (changed) localStorage.setItem(SETTINGS_KEY, JSON.stringify(cur));
+    }
+    localStorage.setItem(FLAG, "1");
+  } catch (err) {
+    console.error("Settings seed failed:", err);
+  }
+}
+
 // Initialize font size on app load
 if (typeof window !== "undefined") {
+  seedSettingsFromSlpOnce();
   const settings = getSettings();
   applyUiFont(settings.uiFont);
   applyUiFontSize(settings.uiFontSize);

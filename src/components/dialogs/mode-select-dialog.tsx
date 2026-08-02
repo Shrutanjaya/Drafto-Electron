@@ -8,8 +8,9 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Landmark, Scale } from "lucide-react";
+import { Landmark, Scale, Building2 } from "lucide-react";
 import type { DraftoProject } from "@/lib/schema";
+import { OA_ENABLED } from "@/lib/oa/oa-enabled";
 
 interface ModeSelectDialogProps {
   open: boolean;
@@ -60,6 +61,22 @@ export function ModeSelectDialog({ open, onSelect }: ModeSelectDialogProps) {
               High Court of Delhi at New Delhi
             </span>
           </Button>
+          {OA_ENABLED && (
+            <Button
+              type="button"
+              variant="outline"
+              className="flex h-auto flex-col items-start gap-1 whitespace-normal p-4 text-left"
+              onClick={() => onSelect("OriginalApplicationCAT")}
+            >
+              <span className="flex items-center gap-2 font-semibold">
+                <Building2 className="h-4 w-4 shrink-0" />
+                Original Application
+              </span>
+              <span className="text-xs font-normal text-muted-foreground">
+                Central Administrative Tribunal
+              </span>
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>
