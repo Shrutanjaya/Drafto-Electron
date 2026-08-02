@@ -6,6 +6,7 @@ import {
 } from '@/lib/firebase/entitlement-service';
 import { resolveEntitlement } from '@/lib/entitlement/entitlement';
 import { SIM_ENABLED, subscribeSim } from '@/lib/dev/sim-entitlement';
+import { ENTITLEMENT_ENABLED } from '@/lib/entitlement/entitlement-enabled';
 
 /** Where the in-app "Manage subscription" / "Renew" buttons send the user. */
 export const MANAGE_SUBSCRIPTION_URL = 'https://drafto.quindoph.com/account';
