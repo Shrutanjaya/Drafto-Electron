@@ -158,10 +158,11 @@ export function LoDTable() {
   
   const courtType = useWatch({ control: form.control, name: "courtType" });
   const annexureNumberingMap = useMemo(() => {
-    // WP mode uses the generator's own ordering (impugned-order annexures sort
-    // to P-1…), so the on-screen numbers always match the generated documents
-    // and re-sort live when the IO checkbox is toggled.
-    if (courtType === "WritPetitionDHC") {
+    // The HC writ and the CAT OA both use the generator's own ordering
+    // (impugned-order annexures sort to P-1 / A-1…), so the on-screen numbers
+    // always match the generated documents and re-sort live when the IO
+    // checkbox is toggled.
+    if (courtType === "WritPetitionDHC" || courtType === "OriginalApplicationCAT") {
       return new Map<string, number>(wpAnnexureOrderFromLods(allLods).map(e => [e.annex.id, e.pNumber]));
     }
 

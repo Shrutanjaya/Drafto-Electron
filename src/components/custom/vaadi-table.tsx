@@ -104,13 +104,18 @@ const SortableCard = ({
   throughPlaceholder?: string;
   showDeponentDetails?: boolean;
 }) => {
+  const form = useFormContext<DraftoProject>();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     zIndex: isDragging ? 1 : undefined,
   };
-  const roleLabel = name.endsWith('respondents') ? 'Respondent' : 'Petitioner';
+  // Before a tribunal the petitioning party is the Applicant.
+  const courtType = form.watch("courtType");
+  const roleLabel = name.endsWith('respondents')
+    ? 'Respondent'
+    : (courtType === "OriginalApplicationCAT" ? 'Applicant' : 'Petitioner');
 
   return (
     <div
