@@ -7,7 +7,7 @@ import { differenceInDays, format } from "date-fns";
 import { standardIaList } from "@/lib/ia-list";
 import { createListingProforma } from "@/lib/proforma-helpers";
 import { parseHtml } from "@/lib/html-to-docx";
-import { checklistQueries, CHECKLIST_DECLARATION } from "@/lib/checklist-queries";
+import { getChecklistQueries, CHECKLIST_DECLARATION } from "@/lib/checklist-queries";
 import { PDFDocument, rgb, StandardFonts, PDFName, PDFDict, PDFArray, PDFRef, PDFString, PDFNumber, PDFRawStream, decodePDFRawStream, degrees } from 'pdf-lib';
 import { convertDocxToPdf as ipcConvertDocxToPdf } from "@/lib/ipc/pdf";
 
@@ -2729,6 +2729,8 @@ const trimTrailingBlankPages = (pdf: PDFDocument): number => {
 
 export async function generateAdvocateChecklistDocx(projectData: DraftoProject, includeSignature = false) {
     const { checklist } = projectData;
+    // Point 1 reads "SLP (Crl.)" in a criminal SLP, "SLP (C)" otherwise.
+    const checklistQueries = getChecklistQueries(projectData.caseType);
 
     // Checklist-specific formatting (font size / line spacing / paragraph spacing)
     const cf = getChecklistFormatting();

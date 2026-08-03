@@ -28,6 +28,16 @@ export const checklistQueries: { name: string; label: string; options: Checklist
     { name: "q15_paperbooksCured", label: "All the paperbooks to be filed after curing the defects shall be in order.", options: ["Yes", "No"] },
 ];
 
+// Point 1 names the petition by its type, which differs between a civil SLP —
+// "SLP (C)" — and a criminal one — "SLP (Crl.)". Everything else in the
+// checklist is common to both, so only that one label is swapped.
+export const getChecklistQueries = (caseType?: "Civil" | "Criminal") =>
+    caseType === "Criminal"
+        ? checklistQueries.map((q) =>
+              q.name === "q1_form28" ? { ...q, label: q.label.replace("SLP (C)", "SLP (Crl.)") } : q
+          )
+        : checklistQueries;
+
 // The attestation the advocate ticks at the top of the checklist before filing.
 export const CHECKLIST_DECLARATION =
     "I have personally verified that the petition and its contents conform with the Supreme Court Rules, 2013, all checklist requirements are met, and all necessary documents for the hearing are filed.";

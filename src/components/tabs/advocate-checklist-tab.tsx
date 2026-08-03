@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useFormContext } from "react-hook-form";
+import { useFormContext, useWatch } from "react-hook-form";
 import {
   FormControl,
   FormField,
@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { DraftoProject } from "@/lib/schema";
-import { checklistQueries, CHECKLIST_DECLARATION } from "@/lib/checklist-queries";
+import { getChecklistQueries, CHECKLIST_DECLARATION } from "@/lib/checklist-queries";
 
 type ChecklistKey = keyof DraftoProject['checklist'];
 type ChecklistValue = "Yes" | "No" | "NA";
@@ -53,6 +53,9 @@ const getNumericPrefix = (name: string): number | null => {
 
 export function AdvocateChecklistTab() {
   const form = useFormContext<DraftoProject>();
+  // Point 1 reads "SLP (Crl.)" in a criminal SLP, "SLP (C)" otherwise.
+  const caseType = useWatch({ control: form.control, name: "caseType" });
+  const checklistQueries = getChecklistQueries(caseType);
 
   return (
     <div className="space-y-2">
