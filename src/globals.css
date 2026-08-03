@@ -71,7 +71,10 @@ textarea::placeholder {
     --muted: 0 0% 93%;
     --muted-foreground: 222.2 47.4% 45%;
     --accent: 122 39% 49%;
-    --accent-foreground: 0 0% 100%;
+    /* Text drawn on top of the green hover/selection highlight. White on this
+       green reads at ~2.6:1 and washes out; a near-black forest green keeps the
+       label as dark as the surrounding text (and matches what dark mode does). */
+    --accent-foreground: 122 45% 14%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
     --border: 0 0% 89.8%;
@@ -143,7 +146,7 @@ textarea::placeholder {
   --muted: 0 0% 93%;
   --muted-foreground: 222.2 47.4% 45%;
   --accent: 122 39% 49%;
-  --accent-foreground: 0 0% 100%;
+  --accent-foreground: 122 45% 14%;
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 89.8%;
