@@ -18,6 +18,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useToast } from "@/hooks/use-toast";
 import { getGenerationCounts, type UsageCounts } from "@/lib/firebase/usage-service";
 import { ManageDevices } from "@/components/auth/manage-devices";
+import { useEntitlement } from "@/providers/entitlement-provider";
+import { ENTITLEMENT_ENABLED } from "@/lib/entitlement/entitlement-enabled";
+import { FORUM_LABEL, type Plan, type EntitlementReason } from "@/lib/entitlement/entitlement";
 import { OA_BENCHES, DEFAULT_OA_BENCH } from "@/lib/oa/oa-benches";
 import { WP_NUMBER_STYLES, DEFAULT_WP_NUMBERING, type WpNumbering, DEFAULT_WP_FILED_BY, type WpFiledBy, type WpFiledByLayoutItem, type WpFiledByCaps, WP_FILED_BY_ITEM_LABELS, normalizeWpFiledByLayout, wpFiledByLines } from "@/lib/wp/wp-settings";
 import type { EnumStyle } from "@/lib/wp/wp-numbering";
@@ -389,9 +392,236 @@ function SettingsNavRow({ label, selected, onClick, tag }: { label: string; sele
     </button>
   );
 }
+// ─── Compact settings layout ───────────────────────────────────────────────
+// Every settings page follows one grammar: a group heading, then one setting
+// per line — label on the left, controls on the right. Nothing is explained in
+// prose; anything that needs a note carries an (i) tooltip instead.
+
+function InfoTip({ text, about }: { text: React.ReactNode; about?: string }) {
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="shrink-0 text-muted-foreground/70 hover:text-foreground"
+            aria-label={about ? `About ${about}` : "More information"}
+          >
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent
+          side="right"
+          align="start"
+          className="max-w-[300px] whitespace-pre-line text-xs font-normal leading-relaxed"
+        >
+          {text}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+const BetaTag = () => (
+  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+    Beta
+  </span>
+);
+
+function SettingsGroup({
+  title,
+  info,
+  beta,
+  icon,
+  children,
+}: { title: string; info?: React.ReactNode; beta?: boolean; icon?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1.5 border-b pb-1">
+        {icon}
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">{title}</p>
+        {beta && <BetaTag />}
+        {info && <InfoTip text={info} about={title} />}
+      </div>
+      <div className="space-y-1">{children}</div>
+    </div>
+  );
+}
+
+// One setting on one line. The label column is fixed so every row lines up.
+function SettingRow({
+  label,
+  info,
+  htmlFor,
+  children,
+}: { label?: string; info?: React.ReactNode; htmlFor?: string; children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-[28px] items-center gap-2">
+      {label !== undefined && (
+        <div className="flex w-[164px] shrink-0 items-center gap-1">
+          <Label htmlFor={htmlFor} className="text-xs font-normal text-muted-foreground">{label}</Label>
+          {info && <InfoTip text={info} about={label} />}
+        </div>
+      )}
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">{children}</div>
+    </div>
+  );
+}
+
+// A checkbox setting: box first, then the label it turns on.
+function CheckRow({
+  id,
+  checked,
+  onChange,
+  label,
+  info,
+  disabled,
+}: {
+  id: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  info?: React.ReactNode;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex min-h-[28px] items-center gap-2">
+      <input
+        type="checkbox"
+        id={id}
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-3.5 w-3.5 shrink-0 rounded border-gray-300 disabled:opacity-40"
+      />
+      <Label htmlFor={id} className="cursor-pointer text-xs font-normal text-muted-foreground">{label}</Label>
+      {info && <InfoTip text={info} about={label} />}
+    </div>
+  );
+}
+
+// Segmented control — the [This] [That] pairs used for either/or choices.
+function SegGroup<T extends string>({
+  value,
+  onChange,
+  options,
+}: { value: T; onChange: (v: T) => void; options: { value: T; label: string; icon?: React.ReactNode }[] }) {
+  return (
+    <div className="inline-flex rounded-md border bg-muted/40 p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onChange(o.value)}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors",
+            value === o.value
+              ? "bg-primary font-medium text-primary-foreground dark:text-white"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {o.icon}
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Unit or qualifier printed beside a field ("pt", "inches", "seconds"…).
+const Unit = ({ children }: { children: React.ReactNode }) => (
+  <span className="text-xs text-muted-foreground">{children}</span>
+);
+
+// Amber notice box. Used for the liability/consent texts that must stay visible
+// on the page rather than move into a tooltip — they are legal notices, not
+// feature explanations.
+function NoticeBox({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-md border border-amber-300 bg-amber-50 p-2 dark:border-amber-700/60 dark:bg-amber-900/20">
+      <p className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+        <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {title}
+      </p>
+      <p className="mt-0.5 text-[11px] leading-relaxed text-amber-800/90 dark:text-amber-200/90">{children}</p>
+    </div>
+  );
+}
+
+// ─── Subscription display ──────────────────────────────────────────────────
+// Plans are sold by how many fora they cover; the Early-Bird plans predate that
+// and were priced by device count.
+const PLAN_LABEL: Record<string, string> = {
+  niche: "Niche — one court",
+  dual: "Dual — two courts",
+  max: "Max — every court",
+  solo: "Early Bird — Solo",
+  chamber: "Early Bird — Chamber",
+  enterprise: "Early Bird — Enterprise",
+};
+
+const planLabel = (plan: Plan): string =>
+  (plan && PLAN_LABEL[plan]) || (plan ? String(plan) : "No plan on record");
+
+// What the entitlement resolver concluded, in the customer's words.
+const REASON_LABEL: Record<EntitlementReason, { label: string; tone: 'ok' | 'warn' | 'bad' }> = {
+  'active': { label: "Active", tone: 'ok' },
+  'trial': { label: "Trial", tone: 'ok' },
+  'override': { label: "Manual access", tone: 'ok' },
+  'cancelled-period-remaining': { label: "Cancelled — runs to period end", tone: 'warn' },
+  'grace-payment-failed': { label: "Payment failed — grace period", tone: 'warn' },
+  'lapsed': { label: "Lapsed — read-only", tone: 'bad' },
+  'payment-failed': { label: "Payment failed — read-only", tone: 'bad' },
+  'no-subscription': { label: "No subscription — read-only", tone: 'bad' },
+};
+
+function EntitlementChip({ reason }: { reason: EntitlementReason }) {
+  const meta = REASON_LABEL[reason] ?? { label: String(reason), tone: 'warn' as const };
+  return (
+    <span
+      className={cn(
+        "rounded-full border px-2 py-0.5 text-[10px] font-medium",
+        meta.tone === 'ok'
+          ? "border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400"
+          : meta.tone === 'warn'
+            ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+            : "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400",
+      )}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+// The terms every Mayur user accepts by switching it on.
+const MayurTermsNote = () => (
+  <NoticeBox title="Terms of use">
+    By using Mayur AI, you agree that you are fully responsible for the content generated by Mayur AI, and shall
+    hold neither the developer nor Quindoph Legal Solutions Pvt. Ltd. liable for any such content. You agree that
+    nothing generated by Mayur AI shall be used or filed by you without independent vetting and verification. You
+    further agree that Mayur is currently in its Beta/experimental phase and its outputs may be erratic, and also
+    that it requires a pre-existing Claude CLI Installation and Claude Pro or Max Subscription.
+  </NoticeBox>
+);
+
+// Shown with every signature setting. Deliberately left on the page rather than
+// tucked into a tooltip — it is a liability notice, not a feature explanation.
+const SignatureLiabilityNote = () => (
+  <NoticeBox title="Important">
+    Please note that Drafto merely assists you in collating the paperbook and electronically placing your
+    signatures on it. The responsibility for the contents of the paperbook continues to rest with you, and we
+    urge you to examine the paperbook comprehensively before it is filed.
+  </NoticeBox>
+);
 
 export function SettingsDialog({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
+  // Subscription facts for the Support page (plan, status, covered courts).
+  const {
+    entitlement,
+    loading: entLoading,
+    refresh: refreshEntitlement,
+    openManageSubscription,
+  } = useEntitlement();
   const [open, setOpen] = useState(false);
   const [selectedSection, setSelectedSection] = useState<SettingsSection>('interface');
   const [showAdvancedVolume, setShowAdvancedVolume] = useState(false);
@@ -684,7 +914,6 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           wpVakFontSizePt: parsed.wpVakFontSizePt ?? 11,
           wpVakLineSpacing: parsed.wpVakLineSpacing ?? 1,
           wpVakParaSpacingPt: parsed.wpVakParaSpacingPt ?? 4,
-        oaForceLastPageBreak: parsed.oaForceLastPageBreak ?? true,
           oaForceLastPageBreak: parsed.oaForceLastPageBreak ?? true,
         });
         applyUiFont(parsed.uiFont || DEFAULT_UI_FONT);
@@ -827,8 +1056,9 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
 
   const signatureInputRef = useRef<HTMLInputElement>(null);
   const wpSignatureInputRef = useRef<HTMLInputElement>(null);
+  const oaSignatureInputRef = useRef<HTMLInputElement>(null);
 
-  // Shared PNG-upload flow for both signature slots (SLP AoR / WP advocate).
+  // Shared PNG-upload flow for every signature slot (SLP AoR / WP / CAT advocate).
   const readSignaturePng = (
     e: React.ChangeEvent<HTMLInputElement>,
     apply: (dataUrl: string, w: number, h: number) => void,
@@ -857,24 +1087,238 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   const handleWpSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) =>
     readSignaturePng(e, (dataUrl, w, h) => setSettings((prev) => ({ ...prev, wpSignaturePng: dataUrl, wpSignatureW: w, wpSignatureH: h })));
 
-  // Four page-margin inputs (inches), shared by the SLP and WP margin blocks.
+  const handleOaSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) =>
+    readSignaturePng(e, (dataUrl, w, h) => setSettings((prev) => ({ ...prev, oaSignaturePng: dataUrl, oaSignatureW: w, oaSignatureH: h })));
+
+  // Compact numeric field bound to a settings key. Clamps as the user types,
+  // exactly as the individual inputs used to.
+  const numField = (
+    key: keyof SettingsData,
+    o: { min: number; max?: number; step?: number; int?: boolean; width?: string; id?: string },
+  ) => (
+    <Input
+      id={o.id}
+      type="number"
+      min={o.min}
+      max={o.max}
+      step={o.step ?? 1}
+      value={settings[key] as number}
+      onChange={(e) => {
+        const raw = o.int ? parseInt(e.target.value, 10) : parseFloat(e.target.value);
+        const bounded = Number.isNaN(raw) ? o.min : Math.max(o.min, o.max === undefined ? raw : Math.min(o.max, raw));
+        setSettings((prev) => ({ ...prev, [key]: bounded }));
+      }}
+      className={cn("h-7 text-xs", o.width ?? "w-20")}
+    />
+  );
+
+  // Four page-margin inputs (inches), shared by the SLP, WP and OA pages.
   const marginInputs = (keys: { top: keyof SettingsData; right: keyof SettingsData; bottom: keyof SettingsData; left: keyof SettingsData }) => (
-    <div className="grid grid-cols-4 gap-3">
+    <>
       {([["Top", keys.top], ["Right", keys.right], ["Bottom", keys.bottom], ["Left", keys.left]] as [string, keyof SettingsData][]).map(([label, key]) => (
-        <div key={key as string} className="space-y-1">
-          <Label className="text-xs text-muted-foreground">{label} (in)</Label>
-          <Input
-            type="number"
-            min={0.2}
-            max={3}
-            step={0.1}
-            value={settings[key] as number}
-            onChange={(e) => setSettings((prev) => ({ ...prev, [key]: Math.min(3, Math.max(0.2, parseFloat(e.target.value) || 0.2)) }))}
-            className="h-7 text-xs"
-          />
-        </div>
+        <React.Fragment key={key as string}>
+          <Unit>{label}</Unit>
+          {numField(key, { min: 0.2, max: 3, step: 0.1, width: "w-14" })}
+        </React.Fragment>
       ))}
+      <Unit>inches</Unit>
+    </>
+  );
+
+  // Signature slot: preview, upload/replace, remove. Shared by all three
+  // document types so they behave identically.
+  const signatureSlot = (o: {
+    png: string;
+    inputRef: React.RefObject<HTMLInputElement>;
+    onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    onRemove: () => void;
+  }) => (
+    <>
+      <input ref={o.inputRef} type="file" accept="image/png" onChange={o.onUpload} className="hidden" />
+      {o.png ? (
+        <div className="flex items-center justify-center rounded border bg-white p-1" style={{ width: 84, height: 40 }}>
+          <img src={o.png} alt="Signature" className="max-h-full max-w-full object-contain" />
+        </div>
+      ) : (
+        <div className="flex items-center justify-center rounded border border-dashed text-[10px] text-muted-foreground" style={{ width: 84, height: 40 }}>
+          None
+        </div>
+      )}
+      <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => o.inputRef.current?.click()}>
+        {o.png ? "Replace" : "Upload"}
+      </Button>
+      {o.png && (
+        <Button type="button" variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={o.onRemove}>
+          Remove
+        </Button>
+      )}
+    </>
+  );
+
+  // Advocate-details designer (order, "| next" joins, per-item styling), shared
+  // by the WP and OA "Filed by" blocks.
+  const filedByDesigner = (layout: WpFiledByLayoutItem[], apply: (next: WpFiledByLayoutItem[]) => void) => (
+    <div className="space-y-1">
+      {layout.map((item, i, arr) => {
+        const update = (patch: Partial<WpFiledByLayoutItem>) =>
+          apply(layout.map((it, j) => (j === i ? { ...it, ...patch } : it)));
+        const move = (dir: -1 | 1) => {
+          const a = [...layout];
+          const t = i + dir;
+          if (t < 0 || t >= a.length) return;
+          [a[i], a[t]] = [a[t], a[i]];
+          apply(a);
+        };
+        const fmtBtn = (label: string, active: boolean, onClick: () => void, cls = "") => (
+          <button
+            type="button"
+            onClick={onClick}
+            className={`h-6 w-6 rounded border text-[11px] leading-none ${cls} ${active ? "bg-primary text-primary-foreground border-primary" : "bg-background text-muted-foreground hover:bg-muted"}`}
+          >
+            {label}
+          </button>
+        );
+        return (
+          <div key={item.id} className="flex items-center gap-1.5 rounded-md border px-2 py-1">
+            <span className="flex flex-col">
+              <button type="button" disabled={i === 0} onClick={() => move(-1)} className="text-muted-foreground hover:text-foreground disabled:opacity-25"><ArrowUp className="h-3 w-3" /></button>
+              <button type="button" disabled={i === arr.length - 1} onClick={() => move(1)} className="text-muted-foreground hover:text-foreground disabled:opacity-25"><ArrowDown className="h-3 w-3" /></button>
+            </span>
+            <span className="flex-grow text-xs">{WP_FILED_BY_ITEM_LABELS[item.id]}</span>
+            {fmtBtn("B", item.bold, () => update({ bold: !item.bold }), "font-bold")}
+            {fmtBtn("I", item.italics, () => update({ italics: !item.italics }), "italic")}
+            {fmtBtn("U", item.underline, () => update({ underline: !item.underline }), "underline")}
+            <Select value={item.caps} onValueChange={(v) => update({ caps: v as WpFiledByCaps })}>
+              <SelectTrigger className="h-6 w-[92px] px-1.5 text-[10px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none" className="text-xs">Normal</SelectItem>
+                <SelectItem value="allCaps" className="text-xs">ALL CAPS</SelectItem>
+                <SelectItem value="smallCaps" className="text-xs" style={{ fontVariant: 'small-caps' }}>Small Caps</SelectItem>
+              </SelectContent>
+            </Select>
+            {i < arr.length - 1 ? (
+              <label className="flex cursor-pointer items-center gap-1 text-[10px] text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={item.joinWithNext}
+                  onChange={(e) => update({ joinWithNext: e.target.checked })}
+                  className="h-3 w-3 rounded border-gray-300"
+                />
+                <span className="font-mono">| next</span>
+              </label>
+            ) : (
+              <span className="w-[52px]" />
+            )}
+          </div>
+        );
+      })}
     </div>
+  );
+
+  // Docx-approximating preview of the "Filed by" block, shared by WP and OA.
+  // The box maps the docx content width (A4 8.27" less the configured left/right
+  // margins) onto a fixed pixel width.
+  const filedByPreview = (o: {
+    leftPct: number;
+    layout: WpFiledByLayoutItem[];
+    filedBy: WpFiledBy;
+    signaturePng: string;
+    signatureW: number;
+    signatureH: number;
+    signatureSizePx: number;
+    placeSignature: boolean;
+    font: string;
+    fontSizePt: number;
+    marginLeftIn: number;
+    marginRightIn: number;
+  }) => {
+    const contentIn = Math.max(3, 8.27 - o.marginLeftIn - o.marginRightIn);
+    const boxPx = 430;
+    const pxPerIn = boxPx / contentIn;
+    const fontPx = Math.max(6, (o.fontSizePt / 72) * pxPerIn);
+    const showSig = !!o.signaturePng && o.placeSignature && o.signatureW > 0;
+    const sigW = showSig ? (o.signatureSizePx / 96) * pxPerIn : 0;
+    const sigH = showSig ? sigW * (o.signatureH / o.signatureW) : 0;
+    const overlapPx = (6 / 72) * pxPerIn; // signature dips 6pt into the name line
+    const fb = o.filedBy;
+    // Empty fields show greyed placeholders so the layout can be designed before
+    // the defaults are filled in.
+    const realVals = {
+      firm: fb.firm || "", address: fb.address || "",
+      enrolmentNo: fb.enrolmentNo ? `Enrl. No.: ${fb.enrolmentNo}` : "",
+      email: fb.email || "", phone: fb.phone || "",
+    };
+    const placeholders = { firm: "[Firm]", address: "[Address]", enrolmentNo: "Enrl. No.: [xx/xxxx]", email: "[email]", phone: "[phone]" };
+    const previewVals = Object.fromEntries(
+      (Object.keys(realVals) as (keyof typeof realVals)[]).map((k) => [k, realVals[k] || placeholders[k]])
+    ) as typeof realVals;
+    const fbLines = wpFiledByLines(o.layout, previewVals);
+    const partStyle = (it: WpFiledByLayoutItem, isPlaceholder: boolean): React.CSSProperties => ({
+      fontWeight: it.bold ? 700 : 400,
+      fontStyle: it.italics ? 'italic' : 'normal',
+      textDecoration: it.underline ? 'underline' : 'none',
+      textTransform: it.caps === 'allCaps' ? 'uppercase' : 'none',
+      fontVariant: it.caps === 'smallCaps' ? 'small-caps' : 'normal',
+      opacity: isPlaceholder ? 0.45 : 1,
+    });
+    return (
+      <div className="overflow-hidden rounded border bg-white p-2 text-black" style={{ width: boxPx + 18, fontFamily: o.font, fontSize: fontPx, lineHeight: 1.25 }}>
+        <div className="flex" style={{ width: boxPx }}>
+          <div style={{ width: `${o.leftPct}%`, flexShrink: 0 }}>
+            <div>Filed on: __.__.____</div>
+            <div>Place: New Delhi</div>
+          </div>
+          <div style={{ width: `${100 - o.leftPct}%`, flexShrink: 0, minWidth: 0 }}>
+            <div>Filed by:</div>
+            <div style={{ position: 'relative', marginTop: showSig ? Math.max(4, sigH - overlapPx) : fontPx * 0.6 }}>
+              {showSig && (
+                <img src={o.signaturePng} alt="signature" style={{ position: 'absolute', left: 0, bottom: fontPx * 1.1 - overlapPx, width: sigW, height: sigH }} />
+              )}
+              <div style={{ fontWeight: 700 }}>{fb.name || "[Advocate name]"}</div>
+            </div>
+            {fbLines.map((line, li) => (
+              <div key={li} style={{ whiteSpace: 'pre-line' }}>
+                {line.map((part, pi) => (
+                  <React.Fragment key={part.item.id}>
+                    {pi > 0 && <span> | </span>}
+                    <span style={partStyle(part.item, !realVals[part.item.id])}>{part.text}</span>
+                  </React.Fragment>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // The five one-line "Filed by" defaults plus the address box, shared by WP and OA.
+  const filedByFields = (filedBy: WpFiledBy, apply: (patch: Partial<WpFiledBy>) => void) => (
+    <>
+      {([
+        ["name", "Advocate name"],
+        ["firm", "Firm / Chamber"],
+        ["enrolmentNo", "Enrolment No."],
+        ["phone", "Phone"],
+        ["email", "Email"],
+      ] as [keyof WpFiledBy, string][]).map(([key, label]) => (
+        <SettingRow key={String(key)} label={label}>
+          <Input
+            className="h-7 max-w-[280px] text-xs"
+            value={filedBy?.[key] ?? ""}
+            onChange={(e) => apply({ [key]: e.target.value } as Partial<WpFiledBy>)}
+          />
+        </SettingRow>
+      ))}
+      <SettingRow label="Address">
+        <Textarea
+          rows={2}
+          className="max-w-[280px] text-xs"
+          value={filedBy?.address ?? ""}
+          onChange={(e) => apply({ address: e.target.value })}
+        />
+      </SettingRow>
+    </>
   );
 
   const handleUpdate = async () => {
@@ -1018,198 +1462,300 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           {/* Right content */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
 
-            {/* ── APPEARANCE ── */}
+            {/* ── INTERFACE ── */}
             {selectedSection === 'interface' && (
-              <div className="space-y-4">
-                {/* Theme */}
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Mode</p>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant={theme === 'light' ? 'default' : 'outline'}
-                      size="sm"
-                      className="h-8 gap-1.5 text-xs"
-                      onClick={() => setTheme('light')}
-                    >
-                      <Sun className="h-3.5 w-3.5" /> Light
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={theme === 'dark' ? 'default' : 'outline'}
-                      size="sm"
-                      className="h-8 gap-1.5 text-xs"
-                      onClick={() => setTheme('dark')}
-                    >
-                      <Moon className="h-3.5 w-3.5" /> Dark
-                    </Button>
-                  </div>
-                </div>
+              <div className="space-y-1">
+                <SettingRow label="Mode">
+                  <SegGroup
+                    value={theme}
+                    onChange={(v) => setTheme(v)}
+                    options={[
+                      { value: 'light', label: 'Light', icon: <Sun className="h-3.5 w-3.5" /> },
+                      { value: 'dark', label: 'Dark', icon: <Moon className="h-3.5 w-3.5" /> },
+                    ]}
+                  />
+                </SettingRow>
 
-                {/* Interface Font + Size */}
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Interface Font</p>
-                  <p className="text-xs text-muted-foreground">Font &amp; text size used across Drafto's interface. Does not affect the generated document.</p>
-                  <div className="flex gap-2">
-                    <Select
-                      value={settings.uiFont}
-                      onValueChange={(value) => { setSettings((prev) => ({ ...prev, uiFont: value })); applyUiFont(value); }}
-                    >
-                      <SelectTrigger className="h-8 w-[200px] text-xs" style={{ fontFamily: settings.uiFont }}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SYSTEM_FONTS.map((f) => (
-                          <SelectItem key={f.value} value={f.value} className="text-xs" style={{ fontFamily: f.value }}>{f.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={String(settings.uiFontSize)}
-                      onValueChange={(value) => { const n = parseInt(value, 10); setSettings((prev) => ({ ...prev, uiFontSize: n })); applyUiFontSize(n); }}
-                    >
-                      <SelectTrigger className="h-8 w-[90px] text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {UI_FONT_SIZES.map((s) => (
-                          <SelectItem key={s} value={String(s)} className="text-xs">{s} px</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                <SettingRow
+                  label="Interface Font"
+                  info="Font and text size used across Drafto's own interface. Does not affect the generated document."
+                >
+                  <Select
+                    value={settings.uiFont}
+                    onValueChange={(value) => { setSettings((prev) => ({ ...prev, uiFont: value })); applyUiFont(value); }}
+                  >
+                    <SelectTrigger className="h-7 w-[190px] text-xs" style={{ fontFamily: settings.uiFont }}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SYSTEM_FONTS.map((f) => (
+                        <SelectItem key={f.value} value={f.value} className="text-xs" style={{ fontFamily: f.value }}>{f.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={String(settings.uiFontSize)}
+                    onValueChange={(value) => { const n = parseInt(value, 10); setSettings((prev) => ({ ...prev, uiFontSize: n })); applyUiFontSize(n); }}
+                  >
+                    <SelectTrigger className="h-7 w-[84px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {UI_FONT_SIZES.map((s) => (<SelectItem key={s} value={String(s)} className="text-xs">{s} px</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                </SettingRow>
 
-                {/* Editing Font + Size */}
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Editing Font</p>
-                  <p className="text-xs text-muted-foreground">Font &amp; text size for the text you type — form fields and the rich-text editor. For the best view, keep this at or below the interface size. Does not affect the generated document.</p>
-                  <div className="flex gap-2">
-                    <Select
-                      value={settings.inputFont}
-                      onValueChange={(value) => { setSettings((prev) => ({ ...prev, inputFont: value })); applyInputFont(value); }}
-                    >
-                      <SelectTrigger className="h-8 w-[200px] text-xs" style={{ fontFamily: settings.inputFont }}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SYSTEM_FONTS.map((f) => (
-                          <SelectItem key={f.value} value={f.value} className="text-xs" style={{ fontFamily: f.value }}>{f.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={String(settings.inputFontSize)}
-                      onValueChange={(value) => { const n = parseInt(value, 10); setSettings((prev) => ({ ...prev, inputFontSize: n })); applyInputFontSize(n); }}
-                    >
-                      <SelectTrigger className="h-8 w-[90px] text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {INPUT_FONT_SIZES.map((s) => (
-                          <SelectItem key={s} value={String(s)} className="text-xs">{s} px</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                <SettingRow
+                  label="Editor Font"
+                  info="Font and text size for the text you type — form fields and the rich-text editor. For the best view, keep this at or below the interface size. Does not affect the generated document."
+                >
+                  <Select
+                    value={settings.inputFont}
+                    onValueChange={(value) => { setSettings((prev) => ({ ...prev, inputFont: value })); applyInputFont(value); }}
+                  >
+                    <SelectTrigger className="h-7 w-[190px] text-xs" style={{ fontFamily: settings.inputFont }}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SYSTEM_FONTS.map((f) => (
+                        <SelectItem key={f.value} value={f.value} className="text-xs" style={{ fontFamily: f.value }}>{f.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={String(settings.inputFontSize)}
+                    onValueChange={(value) => { const n = parseInt(value, 10); setSettings((prev) => ({ ...prev, inputFontSize: n })); applyInputFontSize(n); }}
+                  >
+                    <SelectTrigger className="h-7 w-[84px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {INPUT_FONT_SIZES.map((s) => (<SelectItem key={s} value={String(s)} className="text-xs">{s} px</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                </SettingRow>
 
-                {/* Restore Appearance Defaults */}
-                <div className="pt-1">
-                  <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={restoreAppearanceDefaults}>
+                <SettingRow
+                  label="Default Petition View"
+                  info="Applied when a new project is created. The Split / Nav toggle in the toolbar switches views at any time."
+                >
+                  <SegGroup
+                    value={settings.slpTabView}
+                    onChange={(v: SlpTabView) => setSettings((prev) => ({ ...prev, slpTabView: v }))}
+                    options={[
+                      { value: 'splitter', label: 'Split' },
+                      { value: 'navigation', label: 'Navigation' },
+                    ]}
+                  />
+                </SettingRow>
+
+                <SettingRow label="Notification Duration" htmlFor="toast-duration" info="How long pop-up messages stay on screen.">
+                  <Input
+                    id="toast-duration"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={settings.toastDuration}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, toastDuration: Math.max(1, parseInt(e.target.value) || 1) }))}
+                    className="h-7 w-16 text-right text-xs"
+                  />
+                  <Unit>seconds</Unit>
+                </SettingRow>
+
+                <SettingRow label="Autosave Duration" htmlFor="autosave-interval" info="How often the open project is saved automatically.">
+                  <Input
+                    id="autosave-interval"
+                    type="number"
+                    min={0}
+                    step={10}
+                    value={settings.autosaveInterval}
+                    onChange={(e) => setSettings((prev) => ({ ...prev, autosaveInterval: Math.max(0, parseInt(e.target.value) || 0) }))}
+                    className="h-7 w-16 text-right text-xs"
+                  />
+                  <Unit>seconds (0 = off)</Unit>
+                </SettingRow>
+
+                <SettingRow
+                  label="Text Highlights"
+                  info="Export: highlights applied in the editor are carried into the DOCX and PDF. Don't export: they stay on screen only."
+                >
+                  <SegGroup
+                    value={settings.exportHighlight ? 'export' : 'keep'}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, exportHighlight: v === 'export' }))}
+                    options={[
+                      { value: 'export', label: 'Export' },
+                      { value: 'keep', label: "Don't Export" },
+                    ]}
+                  />
+                </SettingRow>
+
+                <div className="flex items-center gap-2 pt-3">
+                  <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={restoreAppearanceDefaults}>
                     Restore Defaults
                   </Button>
-                  <p className="mt-1 text-[10px] text-muted-foreground">Resets Mode, Fonts and Sizes to Light, Arial, 16&nbsp;px (interface) and 12&nbsp;px (editing). Click Save to keep.</p>
+                  <InfoTip
+                    about="Restore Defaults"
+                    text="Resets Mode, Fonts and Sizes to Light, Arial, 16 px (interface) and 12 px (editor). Click Save to keep."
+                  />
                 </div>
               </div>
             )}
 
-            {/* ── USER DEFAULTS ── */}
             {/* ── CUSTOMIZE ── */}
             {selectedSection === 'customize' && (
-              <div className="space-y-5">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-primary" />
-                    <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Mayur</p>
-                    <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Beta</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    <span className="font-medium">Mayur</span> is Drafto's drafting assistant. Drafto itself provides no AI — Mayur runs on your own <span className="font-medium">Claude Code</span> subscription, appearing as a chat box at the bottom-right of Drafto. Talk to it, or point it at a folder of raw PDFs and ask it to help fill in your project. Your credentials never leave your machine — Drafto runs the <code className="px-1 rounded bg-muted text-[11px]">claude</code> command you already have installed. Neither Quindoph nor the developer is liable for any data you share to Claude CLI through Mayur. Drafto neither captures nor stores the said data which is processed by Claude alone.
-                  </p>
+              <div className="space-y-4">
+                <SettingsGroup
+                  title="Mayur"
+                  beta
+                  icon={<Sparkles className="h-3.5 w-3.5 text-primary" />}
+                  info={"Mayur is Drafto's drafting assistant. Drafto itself provides no AI — Mayur runs on your own Claude Code subscription and appears as a chat box at the bottom-right of Drafto. Talk to it, or point it at a folder of raw PDFs and ask it to help fill in your project.\n\nYour credentials never leave your machine: Drafto runs the `claude` command you already have installed. Neither Quindoph nor the developer is liable for any data you share with the Claude CLI through Mayur, and Drafto neither captures nor stores that data — it is processed by Claude alone.\n\nMayur can read files you point it to and suggest field values, but it will not overwrite your work without confirmation. Always review its suggestions before saving."}
+                >
+                  <CheckRow
+                    id="ai-plugin-enabled"
+                    checked={settings.aiPluginEnabled}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, aiPluginEnabled: v }))}
+                    label="Enable Mayur (the chat box in Drafto)"
+                  />
+                  <MayurTermsNote />
+                </SettingsGroup>
 
-                  <p className="text-xs font-bold text-foreground leading-relaxed">
-                    By using Mayur AI, you agree that you are fully responsible for the content generated by Mayur AI, and shall hold neither the developer nor Quindoph Legal Solutions Pvt. Ltd. liable for any such content. You agree that nothing generated by Mayur AI shall be used or filed by you without independent vetting and verification. You further agree that Mayur is currently in its Beta/experimental phase and its outputs may be erratic, and also that it requires a pre-existing Claude CLI Installation and Claude Pro or Max Subscription.
-                  </p>
+                {settings.aiPluginEnabled && (
+                  <>
+                    <SettingsGroup
+                      title="Status"
+                      info="Mayur needs the Claude Code CLI installed and signed in. Node.js is only needed for the npm install route."
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">
+                          {aiPrereq === null && !aiChecking ? "Not checked yet." : "Prerequisites on this machine"}
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-6 gap-1 px-2 text-[11px]"
+                          onClick={checkAiPrereqs}
+                          disabled={aiChecking}
+                        >
+                          {aiChecking ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                          {aiChecking ? "Checking…" : "Re-check"}
+                        </Button>
+                      </div>
 
-                  {/* Enable toggle */}
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="ai-plugin-enabled"
-                      checked={settings.aiPluginEnabled}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, aiPluginEnabled: e.target.checked }))}
-                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
-                    />
-                    <Label htmlFor="ai-plugin-enabled" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                      Enable Mayur (the chat box in Drafto)
-                    </Label>
-                  </div>
-
-                  {settings.aiPluginEnabled && (
-                    <div className="space-y-3 pl-6 border-l border-border ml-1.5">
-                      {/* Prerequisites status */}
-                      <div className="rounded-md border bg-muted/30 p-2.5 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-semibold text-foreground">Prerequisites</p>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-6 gap-1 text-[11px] px-2"
-                            onClick={checkAiPrereqs}
-                            disabled={aiChecking}
-                          >
-                            {aiChecking ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                            {aiChecking ? "Checking…" : "Re-check"}
-                          </Button>
-                        </div>
-
-                        {aiPrereq === null && !aiChecking && (
-                          <p className="text-[11px] text-muted-foreground">Click "Re-check" to scan your machine.</p>
-                        )}
-
-                        {aiPrereq && (
-                          <div className="space-y-1.5">
+                      {aiPrereq && (
+                        <div className="space-y-1.5">
+                          <PrereqRow
+                            ok={aiPrereq.claude.found}
+                            label="Claude Code CLI"
+                            detail={aiPrereq.claude.found ? (aiPrereq.claude.version || "found") : "not found on PATH"}
+                          />
+                          <PrereqRow
+                            ok={aiPrereq.node.found}
+                            label="Node.js"
+                            detail={aiPrereq.node.found ? (aiPrereq.node.version || "found") : "not found on PATH"}
+                            warnOnly
+                          />
+                          {aiPrereq.claude.found && aiPrereq.loggedIn !== null && (
                             <PrereqRow
-                              ok={aiPrereq.claude.found}
-                              label="Claude Code CLI"
-                              detail={aiPrereq.claude.found ? (aiPrereq.claude.version || "found") : "not found on PATH"}
+                              ok={aiPrereq.loggedIn === true}
+                              label="Signed in"
+                              detail={aiPrereq.loggedIn ? "authenticated" : "not signed in"}
                             />
-                            <PrereqRow
-                              ok={aiPrereq.node.found}
-                              label="Node.js"
-                              detail={aiPrereq.node.found ? (aiPrereq.node.version || "found") : "not found on PATH"}
-                              warnOnly
-                            />
-                            {aiPrereq.claude.found && aiPrereq.loggedIn !== null && (
-                              <PrereqRow
-                                ok={aiPrereq.loggedIn === true}
-                                label="Signed in"
-                                detail={aiPrereq.loggedIn ? "authenticated" : "not signed in — use the Sign in button below"}
+                          )}
+
+                          {!aiPrereq.claude.found ? (
+                            <p className="flex items-center gap-1 pt-1 text-[11px] text-amber-700 dark:text-amber-300">
+                              <AlertCircle className="h-3 w-3 shrink-0" /> Install Claude Code below, then Re-check.
+                            </p>
+                          ) : aiPrereq.loggedIn !== true ? (
+                            <div className="flex flex-wrap items-center gap-2 pt-1">
+                              <Button type="button" size="sm" className="h-7 gap-1.5 text-[11px]" onClick={handleAiLogin}>
+                                <Sparkles className="h-3.5 w-3.5" /> Sign in to Claude Code
+                              </Button>
+                              <Button type="button" size="sm" variant="outline" className="h-7 gap-1.5 text-[11px]" onClick={handleRelaunch}>
+                                <RefreshCw className="h-3.5 w-3.5" /> Relaunch Drafto
+                              </Button>
+                              <InfoTip
+                                about="signing in"
+                                text={"Installed but not signed in. The button opens a Terminal and your browser to sign in — click it again if the browser didn't open last time.\n\nIf Mayur still shows as not ready afterwards, relaunch Drafto."}
                               />
-                            )}
-
-                            {!aiPrereq.claude.found ? (
-                              <p className="text-[11px] text-amber-700 dark:text-amber-300 pt-1 flex items-center gap-1">
-                                <AlertCircle className="h-3 w-3" /> Install Claude Code (step 1 below), then Re-check.
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-2 pt-1">
+                              <p className="flex items-center gap-1 text-[11px] text-green-600 dark:text-green-400">
+                                <CheckCircle className="h-3 w-3 shrink-0" /> Ready — connected and signed in.
                               </p>
-                            ) : aiPrereq.loggedIn !== true ? (
-                              <div className="pt-1 space-y-1.5">
-                                <p className="text-[11px] text-amber-700 dark:text-amber-300 flex items-start gap-1">
-                                  <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
-                                  <span>Claude Code is installed but not signed in. Click below — it opens a Terminal and your browser to sign in. If the browser didn't open last time, click it again.</span>
+                              <Button type="button" size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[10px] text-muted-foreground" onClick={handleAiLogin}>
+                                <Sparkles className="h-3 w-3" /> Sign in again
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </SettingsGroup>
+
+                    <SettingsGroup
+                      title="Model"
+                      info={"Leave on Default and each task picks a sensible model automatically — Haiku for extraction (Memo, List of Dates), Sonnet for drafting (Grounds). Choosing one here overrides that for every task.\n\nA bigger model uses your Claude allowance faster, and Opus may require a Max plan."}
+                    >
+                      <SettingRow label="Model">
+                        <Select
+                          value={settings.aiModel}
+                          onValueChange={(v: AiModel) => setSettings((prev) => ({ ...prev, aiModel: v }))}
+                        >
+                          <SelectTrigger className="h-7 w-[260px] text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="default" className="text-xs">Default (your CLI's model)</SelectItem>
+                            <SelectItem value="haiku" className="text-xs">Haiku — fastest, lightest usage</SelectItem>
+                            <SelectItem value="sonnet" className="text-xs">Sonnet — balanced (recommended)</SelectItem>
+                            <SelectItem value="opus" className="text-xs">Opus — strongest, heaviest usage</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </SettingRow>
+                    </SettingsGroup>
+
+                    <div className="space-y-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setInstallOpen((v) => !v)}
+                        className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground dark:text-slate-300"
+                      >
+                        <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", installOpen && "rotate-90")} />
+                        Installation
+                      </button>
+
+                      {installOpen && (
+                        <div className="space-y-3">
+                          {/* One-click install */}
+                          <div className="space-y-1.5 rounded-md border border-primary/30 bg-primary/5 p-2">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-[11px] font-medium text-foreground">Don't have Claude Code yet?</p>
+                              <InfoTip
+                                about="one-click install"
+                                text={"Drafto downloads and runs Anthropic's official Claude Code installer (from claude.ai) on your computer. It installs the `claude` command in your user account — no admin rights — and needs an internet connection.\n\nAfterwards you sign in with your own Claude account (Pro/Max plan or API credits) in your browser. Your credentials never go to Drafto."}
+                              />
+                            </div>
+                            {installState !== 'running' && !showInstallConsent && installState !== 'done' && (
+                              <Button type="button" size="sm" className="h-7 gap-1.5 text-[11px]" onClick={() => setShowInstallConsent(true)}>
+                                <Download className="h-3.5 w-3.5" /> Install Claude Code (one-click)
+                              </Button>
+                            )}
+                            {showInstallConsent && installState !== 'running' && (
+                              <div className="space-y-1.5">
+                                <p className="text-[11px] leading-relaxed text-foreground">
+                                  Drafto will download and run Anthropic's official installer, then open sign-in in your browser. Proceed?
                                 </p>
+                                <div className="flex gap-2">
+                                  <Button type="button" size="sm" className="h-7 text-[11px]" onClick={() => { setShowInstallConsent(false); runInstallClaude(); }}>Yes, install</Button>
+                                  <Button type="button" size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setShowInstallConsent(false)}>Cancel</Button>
+                                </div>
+                              </div>
+                            )}
+                            {installState === 'running' && (
+                              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Installing Claude Code…</div>
+                            )}
+                            {installState === 'done' && (
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-1.5 text-[11px] text-green-600 dark:text-green-400">
+                                  <CheckCircle className="h-3.5 w-3.5 shrink-0" /> Installed. Next: sign in, then relaunch Drafto.
+                                </div>
                                 <div className="flex flex-wrap gap-2">
                                   <Button type="button" size="sm" className="h-7 gap-1.5 text-[11px]" onClick={handleAiLogin}>
                                     <Sparkles className="h-3.5 w-3.5" /> Sign in to Claude Code
@@ -1218,145 +1764,49 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                                     <RefreshCw className="h-3.5 w-3.5" /> Relaunch Drafto
                                   </Button>
                                 </div>
-                                <p className="text-[10px] text-muted-foreground">After signing in, if Mayur still shows as not ready, click Relaunch Drafto.</p>
-                              </div>
-                            ) : (
-                              <div className="pt-1 space-y-1.5">
-                                <p className="text-[11px] text-green-600 dark:text-green-400 flex items-center gap-1">
-                                  <CheckCircle className="h-3 w-3" /> Ready — the AI assistant is connected and signed in.
-                                </p>
-                                <Button type="button" size="sm" variant="ghost" className="h-6 gap-1 text-[10px] text-muted-foreground px-1.5" onClick={handleAiLogin}>
-                                  <Sparkles className="h-3 w-3" /> Sign in again
-                                </Button>
                               </div>
                             )}
+                            {installLog.length > 0 && (
+                              <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/60 p-1.5 text-[10px] leading-snug">{installLog.join("\n")}</pre>
+                            )}
                           </div>
-                        )}
-                      </div>
 
-                      {/* Installation (collapsible — declutter once set up) */}
-                      <button
-                        type="button"
-                        onClick={() => setInstallOpen((v) => !v)}
-                        className="flex items-center gap-1 text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide hover:text-foreground"
-                      >
-                        <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", installOpen && "rotate-90")} />
-                        Installation
-                      </button>
-                      {installOpen && (
-                      <div className="space-y-3">
-                      {/* One-click install */}
-                      <div className="rounded-md border border-primary/30 bg-primary/5 p-2 space-y-1.5">
-                        <p className="text-[11px] text-foreground leading-relaxed">
-                          <span className="font-medium">Don't have Claude Code yet?</span> Install it in one click — Drafto runs Anthropic's official installer for you, then opens sign-in.
-                        </p>
-                        {installState !== 'running' && !showInstallConsent && installState !== 'done' && (
-                          <Button type="button" size="sm" className="h-7 text-[11px] gap-1.5" onClick={() => setShowInstallConsent(true)}>
-                            <Download className="h-3.5 w-3.5" /> Install Claude Code (one-click)
-                          </Button>
-                        )}
-                        {showInstallConsent && installState !== 'running' && (
+                          {/* Manual route */}
                           <div className="space-y-1.5">
-                            <p className="text-[11px] text-foreground leading-relaxed">
-                              <span className="font-semibold">Before you proceed —</span> Drafto will download and run Anthropic's official Claude Code installer (from <code className="px-1 rounded bg-muted text-[10px]">claude.ai</code>) on your computer. It installs the <code className="px-1 rounded bg-muted text-[10px]">claude</code> command in your user account (no admin rights), and needs an internet connection. Afterwards you'll sign in with your own Claude account (Pro/Max plan or API credits) in your browser — your credentials never go to Drafto. Proceed?
-                            </p>
-                            <div className="flex gap-2">
-                              <Button type="button" size="sm" className="h-7 text-[11px]" onClick={() => { setShowInstallConsent(false); runInstallClaude(); }}>Yes, install</Button>
-                              <Button type="button" size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setShowInstallConsent(false)}>Cancel</Button>
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Prefer to do it yourself?</p>
+                              <InfoTip
+                                about="manual installation"
+                                text={"Already use Claude Code? Skip step 1 — just make sure it is signed in.\n\nIf the npm install fails with a \"permission denied / EACCES\" error, use the curl installer instead; it avoids the system folder that causes that.\n\nSigning in through the Claude Desktop app does NOT count — the CLI needs its own sign-in, and an active Claude Pro/Max plan or API credits."}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <p className="text-[11px] text-muted-foreground">1. Install the CLI:</p>
+                              <code className="block select-all rounded bg-muted px-1.5 py-1 text-[11px]">curl -fsSL https://claude.ai/install.sh | bash</code>
+                              <code className="block select-all rounded bg-muted px-1.5 py-1 text-[11px]">npm install -g @anthropic-ai/claude-code</code>
+                              <p className="text-[11px] text-muted-foreground">2. Sign in (or use the button above):</p>
+                              <code className="block select-all rounded bg-muted px-1.5 py-1 text-[11px]">claude auth login</code>
                             </div>
                           </div>
-                        )}
-                        {installState === 'running' && (
-                          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Installing Claude Code…</div>
-                        )}
-                        {installState === 'done' && (
-                          <div className="space-y-1.5">
-                            <div className="flex items-center gap-1.5 text-[11px] text-green-600 dark:text-green-400"><CheckCircle className="h-3.5 w-3.5" /> Installed. Next: sign in, then relaunch Drafto.</div>
-                            <p className="text-[10px] text-muted-foreground leading-relaxed">If the sign-in browser didn't open, click Sign in. Once signed in, Relaunch Drafto so it picks up the newly installed CLI.</p>
-                            <div className="flex flex-wrap gap-2">
-                              <Button type="button" size="sm" className="h-7 gap-1.5 text-[11px]" onClick={handleAiLogin}>
-                                <Sparkles className="h-3.5 w-3.5" /> Sign in to Claude Code
-                              </Button>
-                              <Button type="button" size="sm" variant="outline" className="h-7 gap-1.5 text-[11px]" onClick={handleRelaunch}>
-                                <RefreshCw className="h-3.5 w-3.5" /> Relaunch Drafto
-                              </Button>
-                            </div>
-                          </div>
-                        )}
-                        {installLog.length > 0 && (
-                          <pre className="max-h-32 overflow-auto rounded bg-muted/60 p-1.5 text-[10px] leading-snug whitespace-pre-wrap break-words">{installLog.join("\n")}</pre>
-                        )}
-                      </div>
 
-                      {/* What the user must install (manual fallback) */}
-                      <div className="space-y-1.5">
-                        <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Prefer to do it yourself?</p>
-                        <p className="text-[11px] text-muted-foreground leading-relaxed">Already use Claude Code? You can skip step 1 — just make sure it's logged in (step 2).</p>
-                        <ol className="text-[11px] text-muted-foreground space-y-1.5 list-decimal pl-4 leading-relaxed">
-                          <li>
-                            <span className="font-medium text-foreground">Claude Code CLI.</span> Recommended install (no admin rights needed):
-                            <code className="block mt-0.5 px-1.5 py-1 rounded bg-muted text-[11px] select-all">curl -fsSL https://claude.ai/install.sh | bash</code>
-                            <span className="block mt-0.5">
-                              Prefer npm? <code className="px-1 rounded bg-muted text-[11px] select-all">npm install -g @anthropic-ai/claude-code</code> — but if it fails with a "permission denied / EACCES" error, use the installer above instead (it avoids the system folder that causes that).
-                            </span>
-                          </li>
-                          <li>
-                            <span className="font-medium text-foreground">Sign in to Claude Code.</span> Easiest: use the <span className="font-medium">Sign in to Claude Code</span> button that appears above when you're not signed in — it opens a Terminal and runs the sign-in for you, then your browser opens to approve it.
-                            <span className="block mt-0.5">
-                              To do it by hand instead: open the macOS <span className="font-medium text-foreground">Terminal</span> app (⌘Space, type "Terminal", Enter), then run:
-                            </span>
-                            <code className="block mt-0.5 px-1.5 py-1 rounded bg-muted text-[11px] select-all">claude auth login</code>
-                            <span className="block mt-0.5">and follow the browser prompt. (Requires an active Claude Pro/Max plan or API credits.) Note: signing in through the Claude Desktop app does <span className="italic">not</span> count — this CLI needs its own sign-in.</span>
-                          </li>
-                          <li>An <span className="font-medium text-foreground">internet connection</span> (the CLI talks to Anthropic).</li>
-                        </ol>
-                      </div>
-
-                      {/* Optional binary path override */}
-                      <div className="space-y-1.5">
-                        <Label htmlFor="ai-claude-path" className="text-xs text-muted-foreground">
-                          <code className="text-[11px]">claude</code> binary path <span className="text-[10px]">(optional — leave blank to auto-detect)</span>
-                        </Label>
-                        <Input
-                          id="ai-claude-path"
-                          value={settings.aiClaudeBinaryPath}
-                          onChange={(e) => setSettings((prev) => ({ ...prev, aiClaudeBinaryPath: e.target.value }))}
-                          placeholder={settings.aiClaudeBinaryPath ? "" : "e.g. /opt/homebrew/bin/claude"}
-                          className="h-7 text-xs"
-                        />
-                        <p className="text-[10px] text-muted-foreground">Set this only if Drafto can't find <code className="text-[10px]">claude</code> automatically.</p>
-                      </div>
-                      </div>
+                          <SettingRow
+                            label="claude binary path"
+                            htmlFor="ai-claude-path"
+                            info="Optional. Leave blank to auto-detect; set it only if Drafto can't find the `claude` command by itself."
+                          >
+                            <Input
+                              id="ai-claude-path"
+                              value={settings.aiClaudeBinaryPath}
+                              onChange={(e) => setSettings((prev) => ({ ...prev, aiClaudeBinaryPath: e.target.value }))}
+                              placeholder="e.g. /opt/homebrew/bin/claude"
+                              className="h-7 max-w-[280px] text-xs"
+                            />
+                          </SettingRow>
+                        </div>
                       )}
-
-                      {/* Model selector */}
-                      <div className="space-y-1.5">
-                        <Label className="text-xs text-muted-foreground">Model</Label>
-                        <Select
-                          value={settings.aiModel}
-                          onValueChange={(v: AiModel) => setSettings((prev) => ({ ...prev, aiModel: v }))}
-                        >
-                          <SelectTrigger className="h-7 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="default" className="text-xs">Default (your CLI's model)</SelectItem>
-                            <SelectItem value="haiku" className="text-xs">Haiku — fastest, lightest usage</SelectItem>
-                            <SelectItem value="sonnet" className="text-xs">Sonnet — balanced (recommended)</SelectItem>
-                            <SelectItem value="opus" className="text-xs">Opus — strongest, heaviest usage</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <p className="text-[10px] text-muted-foreground">
-                          Leave on <span className="font-medium">Default</span> and each task picks a sensible model automatically (Haiku for extraction like Memo/List of Dates, Sonnet for drafting like Grounds). Choose a specific model here to override that for every task. A bigger model uses your Claude allowance faster, and Opus may require a Max plan.
-                        </p>
-                      </div>
-
-                      <p className="text-[10px] text-muted-foreground italic leading-relaxed">
-                        Pro-Tip: The assistant can read files you point it to and suggest field values, but it will not overwrite your work without your confirmation. Always review its suggestions before saving.
-                      </p>
                     </div>
-                  )}
-                </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -1416,999 +1866,174 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
               </div>
             )}
 
-            {/* ── WORKSPACE ── */}
-            {selectedSection === 'interface' && (
-              <div className="space-y-4">
-                {/* Default Petition View — controls the default on new project; real-time switching via the header toggle */}
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Default Petition View</p>
-                  <p className="text-xs text-muted-foreground">Applied when creating a new project. Use the Split / Nav toggle in the toolbar to switch views on the fly.</p>
-                  <RadioGroup
-                    value={settings.slpTabView}
-                    onValueChange={(value: SlpTabView) => setSettings((prev) => ({ ...prev, slpTabView: value }))}
-                    className="flex gap-3"
-                  >
-                    <div className="flex items-center gap-1">
-                      <RadioGroupItem value="splitter" id="slp-view-splitter" />
-                      <Label htmlFor="slp-view-splitter" className="text-xs font-normal cursor-pointer">Splitter</Label>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <RadioGroupItem value="navigation" id="slp-view-navigation" />
-                      <Label htmlFor="slp-view-navigation" className="text-xs font-normal cursor-pointer">Navigation</Label>
-                    </div>
-                  </RadioGroup>
-                </div>
 
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Notifications</p>
-                  <p className="text-xs text-muted-foreground">How long pop-up messages stay on screen.</p>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id="toast-duration"
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={settings.toastDuration}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, toastDuration: Math.max(1, parseInt(e.target.value) || 1) }))}
-                      className="h-7 w-16 text-xs text-right"
-                    />
-                    <Label htmlFor="toast-duration" className="text-xs text-muted-foreground">seconds</Label>
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Autosave Interval</p>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id="autosave-interval"
-                      type="number"
-                      min={0}
-                      step={10}
-                      value={settings.autosaveInterval}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, autosaveInterval: Math.max(0, parseInt(e.target.value) || 0) }))}
-                      className="h-7 w-16 text-xs text-right"
-                    />
-                    <Label htmlFor="autosave-interval" className="text-xs text-muted-foreground">seconds (0 = disabled)</Label>
-                  </div>
-                </div>
-
-                {/* Export Highlights (common to all document types) */}
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Highlights</p>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="export-highlight"
-                      checked={settings.exportHighlight}
-                      onChange={(e) => {
-                        // Save-gated like every other setting so Cancel discards it.
-                        setSettings((prev) => ({ ...prev, exportHighlight: e.target.checked }));
-                      }}
-                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
-                    />
-                    <Label htmlFor="export-highlight" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                      Export text highlights to DOCX and PDF (off = highlights stay on-screen only)
-                    </Label>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── SPECIAL LEAVE PETITION (SC) — formatting ── */}
-            {selectedSection === 'slp' && (
-              <div className="space-y-6">
-
-                {/* Output Text Formatting */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Output Text Formatting</p>
-                    <TooltipProvider delayDuration={150}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="About output formatting">
-                            <Info className="h-3.5 w-3.5" />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" className="max-w-[280px] text-xs font-normal leading-relaxed whitespace-pre-line">
-                          For best results, Times New Roman at 14&nbsp;pt with 1.5 line spacing and 12&nbsp;pt after-paragraph spacing is strongly recommended.
-                          {"\n\n"}
-                          To preserve the paperbook structure, these settings are not fully reflected in the Cover Page, Listing Proforma, Index and Office Report on Limitation — only the font type is applied to those sections; their size and spacing remain fixed.
-                          {"\n\n"}
-                          Also, please make sure the chosen font is installed on your computer. If it isn't, the document may appear in a different, substitute font.
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                  <p className="text-xs text-muted-foreground">Font, size and spacing applied to the body text of the generated SLP. (Defaults: Times New Roman, 14&nbsp;pt, 1.5&nbsp;line spacing, 12&nbsp;pt after each paragraph.)</p>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1 col-span-2">
-                      <Label className="text-xs text-muted-foreground">Font</Label>
-                      <Select
-                        value={settings.outputFont}
-                        onValueChange={(v) => setSettings((prev) => ({ ...prev, outputFont: v }))}
-                      >
-                        <SelectTrigger className="h-7 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {OUTPUT_FONTS.map((f) => (
-                            <SelectItem key={f} value={f} className="text-xs" style={{ fontFamily: f }}>{f}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Font size (pt)</Label>
-                      <Input
-                        type="number"
-                        min={8}
-                        max={24}
-                        step={0.5}
-                        value={settings.outputFontSizePt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, outputFontSizePt: Math.min(24, Math.max(8, parseFloat(e.target.value) || 14)) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Line spacing</Label>
-                      <Select
-                        value={String(settings.outputLineSpacing)}
-                        onValueChange={(v) => setSettings((prev) => ({ ...prev, outputLineSpacing: parseFloat(v) }))}
-                      >
-                        <SelectTrigger className="h-7 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
-                          <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
-                          <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
-                          <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-1 col-span-2">
-                      <Label className="text-xs text-muted-foreground">Spacing after each paragraph (pt)</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={36}
-                        step={1}
-                        value={settings.outputParaAfterPt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, outputParaAfterPt: Math.min(36, Math.max(0, parseFloat(e.target.value) || 0)) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Page margins (SLP) */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Page margins</p>
-                  <p className="text-xs text-muted-foreground">Margins for every generated SLP document, in inches. (Defaults: 1.5&quot; top/left, 1&quot; bottom/right. The Advocate&rsquo;s Checklist keeps its own top/left margins.)</p>
-                  {marginInputs({ top: 'slpMarginTopIn', right: 'slpMarginRightIn', bottom: 'slpMarginBottomIn', left: 'slpMarginLeftIn' })}
-                </div>
-
-                {/* Quotes */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Quotes</p>
-                  <p className="text-xs text-muted-foreground">Line spacing applied to text formatted as a Quote. Quoted blocks are wrapped in quotation marks and italicised on export.</p>
-                  <RadioGroup
-                    value={settings.quoteLineSpacing}
-                    onValueChange={(value: QuoteLineSpacing) => setSettings((prev) => ({ ...prev, quoteLineSpacing: value }))}
-                    className="flex gap-4 pt-1"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <RadioGroupItem value="default" id="quote-spacing-default" />
-                      <Label htmlFor="quote-spacing-default" className="text-xs font-normal cursor-pointer">Default spacing</Label>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <RadioGroupItem value="single" id="quote-spacing-single" />
-                      <Label htmlFor="quote-spacing-single" className="text-xs font-normal cursor-pointer">Single spacing</Label>
-                    </div>
-                  </RadioGroup>
-                </div>
-
-              </div>
-            )}
-
-            {/* ── SPECIAL LEAVE PETITION (SC) — Advocate-on-Record details ── */}
+            {/* ── SPECIAL LEAVE PETITION (SC) ── */}
             {selectedSection === 'slp' && (
               <div className="space-y-4">
-                <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Advocate-on-Record (AoR) Details</p>
-                <p className="text-xs text-muted-foreground">
-                  These values are filled into every new project automatically — including the blank project created when Drafto launches. Changing them here does not alter projects you've already created.
-                </p>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="default-aor-name" className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">AoR Name</Label>
-                  <Input
-                    id="default-aor-name"
-                    value={settings.defaultAorName}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorName: e.target.value }))}
-                    placeholder="Advocate-on-Record name"
-                    className="h-7 text-xs"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="default-aor-code" className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">AoR Code</Label>
-                  <Input
-                    id="default-aor-code"
-                    value={settings.defaultAorCode}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorCode: e.target.value }))}
-                    placeholder="AoR registration code"
-                    className="h-7 text-xs"
-                  />
-                </div>
-
-                <p className="text-[10px] text-muted-foreground italic">
-                  The AI assistant will not overwrite these fields unless you explicitly ask it to.
-                </p>
-              </div>
-            )}
-
-            {/* ── WRIT PETITION (HC) ── */}
-            {selectedSection === 'wp' && (
-              <div className="space-y-6">
-                {/* Filed-by defaults */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">“Filed by” defaults</p>
-                  <p className="text-xs text-muted-foreground">Pre-filled into the “Filed by” block of every new writ petition, so you don’t re-enter them each time. Per-petition edits in the Preliminary tab override these.</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    {([
-                      ["name", "Advocate name"],
-                      ["firm", "Firm / Chamber"],
-                      ["enrolmentNo", "Enrolment No."],
-                      ["phone", "Phone"],
-                      ["email", "Email"],
-                    ] as [keyof WpFiledBy, string][]).map(([key, label]) => (
-                      <div key={key} className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">{label}</Label>
-                        <Input
-                          className="h-7 text-xs"
-                          value={settings.wpFiledBy?.[key] ?? ""}
-                          onChange={(e) => setSettings((prev) => ({ ...prev, wpFiledBy: { ...(prev.wpFiledBy ?? DEFAULT_WP_FILED_BY), [key]: e.target.value } }))}
-                        />
-                      </div>
-                    ))}
-                    <div className="col-span-2 space-y-1">
-                      <Label className="text-xs text-muted-foreground">Address</Label>
-                      <Textarea
-                        rows={2}
-                        className="text-xs"
-                        value={settings.wpFiledBy?.address ?? ""}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, wpFiledBy: { ...(prev.wpFiledBy ?? DEFAULT_WP_FILED_BY), address: e.target.value } }))}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Advocate signature (Filed-by blocks, PDF path only) */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Advocate Signature</p>
-                    <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Beta</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Placed above the advocate&rsquo;s name in every &ldquo;Filed&nbsp;by&rdquo; block of the writ-petition paperbook. Applied only during PDF generation — plain .docx exports never carry it. This is separate from the SLP AoR signature.
-                  </p>
-                  <p className="text-xs text-muted-foreground italic">
-                    Pro-Tip: For the cleanest appearance, use a signature with a transparent background and minimal white margins.
-                  </p>
-
-                  <div className="rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700/60 dark:bg-amber-900/20 p-2.5">
-                    <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                      <AlertCircle className="h-3.5 w-3.5 shrink-0" /> Important
-                    </p>
-                    <p className="text-xs text-amber-800/90 dark:text-amber-200/90 mt-1 leading-relaxed">
-                      Please note that Drafto merely assists you in collating the paperbook and electronically placing your signatures on it. The responsibility for the contents of the paperbook continues to rest with you, and we urge you to examine the paperbook comprehensively before it is filed.
-                    </p>
-                  </div>
-
-                  <input
-                    ref={wpSignatureInputRef}
-                    type="file"
-                    accept="image/png"
-                    onChange={handleWpSignatureUpload}
-                    className="hidden"
-                  />
-
-                  <div className="flex items-center gap-3">
-                    {settings.wpSignaturePng ? (
-                      <div className="flex items-center justify-center border rounded bg-white p-1" style={{ width: 96, height: 48 }}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={settings.wpSignaturePng} alt="Advocate signature" className="max-w-full max-h-full object-contain" />
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-center border border-dashed rounded text-[10px] text-muted-foreground" style={{ width: 96, height: 48 }}>
-                        No signature
-                      </div>
-                    )}
-                    <div className="flex flex-col gap-1.5">
-                      <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => wpSignatureInputRef.current?.click()}>
-                        {settings.wpSignaturePng ? "Replace PNG" : "Upload PNG"}
-                      </Button>
-                      {settings.wpSignaturePng && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-xs text-muted-foreground"
-                          onClick={() => setSettings((prev) => ({ ...prev, wpSignaturePng: "", wpSignatureW: 0, wpSignatureH: 0 }))}
-                        >
-                          Remove
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="wp-place-signature"
-                      checked={settings.wpPlaceSignatureInPaperbook}
-                      disabled={!settings.wpSignaturePng}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, wpPlaceSignatureInPaperbook: e.target.checked }))}
-                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0 disabled:opacity-40"
-                    />
-                    <Label htmlFor="wp-place-signature" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                      Place the signature above the advocate&rsquo;s name in every &ldquo;Filed by&rdquo; block
-                    </Label>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs text-muted-foreground">Signature width</Label>
-                      <span className="text-xs font-semibold tabular-nums w-12 text-right">{settings.wpSignatureSizePx}&nbsp;px</span>
-                    </div>
-                    <Slider
-                      min={48}
-                      max={240}
-                      step={4}
-                      value={[settings.wpSignatureSizePx]}
-                      onValueChange={([v]) => setSettings((prev) => ({ ...prev, wpSignatureSizePx: v }))}
-                      className="w-full"
-                    />
-                    {settings.wpSignaturePng && settings.wpSignatureW > 0 && (
-                      <div className="flex items-center justify-center border rounded bg-white p-2 mt-1">
-                        {/* Live size preview at the chosen width */}
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={settings.wpSignaturePng}
-                          alt="signature size preview"
-                          style={{
-                            width: settings.wpSignatureSizePx,
-                            height: settings.wpSignatureSizePx * (settings.wpSignatureH / settings.wpSignatureW),
-                          }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Paperbook stamps: annexure labels, page numbers, True Copy */}
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Annexure Labels &amp; Page Numbers</p>
-                  <p className="text-xs text-muted-foreground">Stamped onto the paperbook during PDF generation. The annexure label appears on the first page of each annexure; page numbers on every numbered page. Stamps stay upright on rotated/scanned pages.</p>
-
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Stamp font</Label>
-                    <Select value={settings.wpStampFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, wpStampFont: v as SettingsData['wpStampFont'] }))}>
-                      <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                <SettingsGroup
+                  title="Output text formatting"
+                  info={"Body text of the generated SLP. Defaults: Times New Roman, 14 pt, 1.5 line spacing, 12 pt after each paragraph — strongly recommended.\n\nTo preserve the paperbook structure, these settings are not fully reflected in the Cover Page, Listing Proforma, Index and Office Report on Limitation — only the font type is applied there; their size and spacing stay fixed.\n\nMake sure the chosen font is installed on your computer, or the document may appear in a substitute font."}
+                >
+                  <SettingRow label="Font">
+                    <Select value={settings.outputFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, outputFont: v }))}>
+                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="times" className="text-xs" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
-                        <SelectItem value="helvetica" className="text-xs" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
-                        <SelectItem value="courier" className="text-xs" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
+                        {OUTPUT_FONTS.map((f) => (<SelectItem key={f} value={f} className="text-xs" style={{ fontFamily: f }}>{f}</SelectItem>))}
                       </SelectContent>
                     </Select>
-                  </div>
+                  </SettingRow>
+                  <SettingRow label="Size & line spacing">
+                    {numField('outputFontSizePt', { min: 8, max: 24, step: 0.5, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                    <Select value={String(settings.outputLineSpacing)} onValueChange={(v) => setSettings((prev) => ({ ...prev, outputLineSpacing: parseFloat(v) }))}>
+                      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
+                        <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
+                        <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
+                        <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow label="Space after paragraph">
+                    {numField('outputParaAfterPt', { min: 0, max: 36, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                </SettingsGroup>
 
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Page number size (pt)</Label>
-                      <Input type="number" min={8} max={48} step={1} value={settings.wpPageNumberSizePt} onChange={(e) => setSettings((prev) => ({ ...prev, wpPageNumberSizePt: Math.min(48, Math.max(8, parseFloat(e.target.value) || 20)) }))} className="h-7 text-xs" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Top margin (pt)</Label>
-                      <Input type="number" min={0} max={216} step={1} value={settings.wpPageNumberMarginTopPt} onChange={(e) => setSettings((prev) => ({ ...prev, wpPageNumberMarginTopPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Right margin (pt)</Label>
-                      <Input type="number" min={0} max={216} step={1} value={settings.wpPageNumberMarginRightPt} onChange={(e) => setSettings((prev) => ({ ...prev, wpPageNumberMarginRightPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
-                    </div>
-                  </div>
+                <SettingsGroup
+                  title="Page margins"
+                  info={"Margins for every generated SLP document. Defaults: 1.5\" top and left, 1\" bottom and right. The Advocate's Checklist keeps its own top/left margins."}
+                >
+                  <SettingRow>
+                    {marginInputs({ top: 'slpMarginTopIn', right: 'slpMarginRightIn', bottom: 'slpMarginBottomIn', left: 'slpMarginLeftIn' })}
+                  </SettingRow>
+                </SettingsGroup>
 
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Annexure label size (pt)</Label>
-                      <Input type="number" min={8} max={32} step={1} value={settings.wpAnnexureLabelSizePt} onChange={(e) => setSettings((prev) => ({ ...prev, wpAnnexureLabelSizePt: Math.min(32, Math.max(8, parseFloat(e.target.value) || 14)) }))} className="h-7 text-xs" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Label top margin (pt)</Label>
-                      <Input type="number" min={0} max={216} step={0.1} value={settings.wpAnnexureLabelMarginPt} onChange={(e) => setSettings((prev) => ({ ...prev, wpAnnexureLabelMarginPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Label position</Label>
-                      <Select value={settings.wpAnnexureLabelPosition} onValueChange={(v) => setSettings((prev) => ({ ...prev, wpAnnexureLabelPosition: v as SettingsData['wpAnnexureLabelPosition'] }))}>
-                        <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="center" className="text-xs">Top-centre</SelectItem>
-                          <SelectItem value="right" className="text-xs">Top-right (under the page number)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">In top-right mode the label uses the page number&rsquo;s margins and its own top margin is ignored.</p>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="wp-stamp-bg"
-                      checked={settings.wpStampBackground}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, wpStampBackground: e.target.checked }))}
-                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+                <SettingsGroup
+                  title="Quotes"
+                  info="Line spacing applied to text formatted as a Quote. Quoted blocks are wrapped in quotation marks and italicised on export."
+                >
+                  <SettingRow label="Quote line spacing">
+                    <SegGroup
+                      value={settings.quoteLineSpacing}
+                      onChange={(v: QuoteLineSpacing) => setSettings((prev) => ({ ...prev, quoteLineSpacing: v }))}
+                      options={[{ value: 'default', label: 'Default' }, { value: 'single', label: 'Single' }]}
                     />
-                    <Label htmlFor="wp-stamp-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                      Add white background behind annexure labels and page numbers
-                    </Label>
-                  </div>
+                  </SettingRow>
+                </SettingsGroup>
 
-                  {/* True Copy stamp */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <input
-                      type="checkbox"
-                      id="wp-place-truecopy"
-                      checked={settings.wpPlaceTrueCopyText}
-                      disabled={!settings.wpSignaturePng}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, wpPlaceTrueCopyText: e.target.checked }))}
-                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0 disabled:opacity-40"
+                <SettingsGroup
+                  title="Advocate-on-Record (AoR) details"
+                  info={"Filled into every new project automatically, including the blank project created when Drafto launches. Changing them here does not alter projects you have already created.\n\nThe AI assistant will not overwrite these fields unless you explicitly ask it to."}
+                >
+                  <SettingRow label="AoR name" htmlFor="default-aor-name">
+                    <Input
+                      id="default-aor-name"
+                      value={settings.defaultAorName}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorName: e.target.value }))}
+                      placeholder="Advocate-on-Record name"
+                      className="h-7 max-w-[280px] text-xs"
                     />
-                    <Label htmlFor="wp-place-truecopy" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                      Stamp &ldquo;True Copy&rdquo; with the advocate&rsquo;s signature on every annexure page{!settings.wpSignaturePng && " (upload a signature above first)"}
-                    </Label>
-                  </div>
-                  {settings.wpPlaceTrueCopyText && (
-                    <div className="space-y-3 pl-6 border-l border-border ml-1.5">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs text-muted-foreground">True Copy position</Label>
-                        <RadioGroup
-                          value={settings.wpTrueCopyPosition}
-                          onValueChange={(value) => setSettings((prev) => ({ ...prev, wpTrueCopyPosition: value as SettingsData['wpTrueCopyPosition'] }))}
-                          className="flex gap-4 pt-0.5"
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <RadioGroupItem value="left" id="wp-truecopy-left" />
-                            <Label htmlFor="wp-truecopy-left" className="text-xs font-normal cursor-pointer">Bottom-left</Label>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <RadioGroupItem value="center" id="wp-truecopy-center" />
-                            <Label htmlFor="wp-truecopy-center" className="text-xs font-normal cursor-pointer">Bottom-centre</Label>
-                          </div>
-                        </RadioGroup>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          id="wp-truecopy-bg"
-                          checked={settings.wpTrueCopyBackground}
-                          onChange={(e) => setSettings((prev) => ({ ...prev, wpTrueCopyBackground: e.target.checked }))}
-                          className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
-                        />
-                        <Label htmlFor="wp-truecopy-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                          Add white background behind the True Copy stamp
-                        </Label>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Horizontal margin (pt)</Label>
-                          <Input type="number" min={0} max={216} step={1} value={settings.wpTrueCopyMarginXPt} onChange={(e) => setSettings((prev) => ({ ...prev, wpTrueCopyMarginXPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Bottom margin (pt)</Label>
-                          <Input type="number" min={0} max={216} step={1} value={settings.wpTrueCopyMarginBottomPt} onChange={(e) => setSettings((prev) => ({ ...prev, wpTrueCopyMarginBottomPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
-                        </div>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground">The True Copy signature renders at half the configured signature width. In bottom-centre mode the horizontal margin is ignored.</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Filed-by table layout + preview */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">&ldquo;Filed by&rdquo; table layout</p>
-                  <p className="text-xs text-muted-foreground">Width of the left column (Filed on / Place); the advocate details take the rest. The preview approximates the docx output, including the signature at its configured size.</p>
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs text-muted-foreground">Left column width</Label>
-                    <span className="text-xs font-semibold tabular-nums w-16 text-right">{settings.wpFiledByLeftPct}% / {100 - settings.wpFiledByLeftPct}%</span>
-                  </div>
-                  <Slider
-                    min={10}
-                    max={70}
-                    step={1}
-                    value={[settings.wpFiledByLeftPct]}
-                    onValueChange={([v]) => setSettings((prev) => ({ ...prev, wpFiledByLeftPct: v }))}
-                    className="w-full"
-                  />
-
-                  {/* Advocate-details designer: order, "|" joins, per-item styling */}
-                  <p className="pt-1 text-xs text-muted-foreground">Order and style of the details under the advocate&rsquo;s name. &ldquo;<span className="font-mono">|&nbsp;next</span>&rdquo; keeps an item on the same line as the one below it, separated by &ldquo;&nbsp;|&nbsp;&rdquo;.</p>
-                  <div className="space-y-1">
-                    {settings.wpFiledByLayout.map((item, i, arr) => {
-                      const update = (patch: Partial<WpFiledByLayoutItem>) =>
-                        setSettings((prev) => ({ ...prev, wpFiledByLayout: prev.wpFiledByLayout.map((it, j) => (j === i ? { ...it, ...patch } : it)) }));
-                      const move = (dir: -1 | 1) =>
-                        setSettings((prev) => {
-                          const a = [...prev.wpFiledByLayout];
-                          const t = i + dir;
-                          if (t < 0 || t >= a.length) return prev;
-                          [a[i], a[t]] = [a[t], a[i]];
-                          return { ...prev, wpFiledByLayout: a };
-                        });
-                      const fmtBtn = (label: string, active: boolean, onClick: () => void, cls = "") => (
-                        <button
-                          type="button"
-                          onClick={onClick}
-                          className={`h-6 w-6 rounded border text-[11px] leading-none ${cls} ${active ? "bg-primary text-primary-foreground border-primary" : "bg-background text-muted-foreground hover:bg-muted"}`}
-                        >
-                          {label}
-                        </button>
-                      );
-                      return (
-                        <div key={item.id} className="flex items-center gap-1.5 rounded-md border px-2 py-1">
-                          <span className="flex flex-col">
-                            <button type="button" disabled={i === 0} onClick={() => move(-1)} className="text-muted-foreground hover:text-foreground disabled:opacity-25"><ArrowUp className="h-3 w-3" /></button>
-                            <button type="button" disabled={i === arr.length - 1} onClick={() => move(1)} className="text-muted-foreground hover:text-foreground disabled:opacity-25"><ArrowDown className="h-3 w-3" /></button>
-                          </span>
-                          <span className="flex-grow text-xs">{WP_FILED_BY_ITEM_LABELS[item.id]}</span>
-                          {fmtBtn("B", item.bold, () => update({ bold: !item.bold }), "font-bold")}
-                          {fmtBtn("I", item.italics, () => update({ italics: !item.italics }), "italic")}
-                          {fmtBtn("U", item.underline, () => update({ underline: !item.underline }), "underline")}
-                          <Select value={item.caps} onValueChange={(v) => update({ caps: v as WpFiledByCaps })}>
-                            <SelectTrigger className="h-6 w-[92px] text-[10px] px-1.5"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none" className="text-xs">Normal</SelectItem>
-                              <SelectItem value="allCaps" className="text-xs">ALL CAPS</SelectItem>
-                              <SelectItem value="smallCaps" className="text-xs" style={{ fontVariant: 'small-caps' }}>Small Caps</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {i < arr.length - 1 ? (
-                            <label className="flex cursor-pointer items-center gap-1 text-[10px] text-muted-foreground">
-                              <input
-                                type="checkbox"
-                                checked={item.joinWithNext}
-                                onChange={(e) => update({ joinWithNext: e.target.checked })}
-                                className="h-3 w-3 rounded border-gray-300"
-                              />
-                              <span className="font-mono">| next</span>
-                            </label>
-                          ) : (
-                            <span className="w-[52px]" />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {(() => {
-                    // Preview scale: the box maps the docx content width (A4 8.27"
-                    // minus the configured left/right margins) to a fixed pixel width.
-                    const contentIn = Math.max(3, 8.27 - settings.wpMarginLeftIn - settings.wpMarginRightIn);
-                    const boxPx = 430;
-                    const pxPerIn = boxPx / contentIn;
-                    const fontPx = Math.max(6, (settings.wpOutputFontSizePt / 72) * pxPerIn);
-                    const showSig = !!settings.wpSignaturePng && settings.wpPlaceSignatureInPaperbook && settings.wpSignatureW > 0;
-                    const sigW = showSig ? (settings.wpSignatureSizePx / 96) * pxPerIn : 0;
-                    const sigH = showSig ? sigW * (settings.wpSignatureH / settings.wpSignatureW) : 0;
-                    const overlapPx = (6 / 72) * pxPerIn; // signature dips 6pt into the name line
-                    const fb = settings.wpFiledBy;
-                    // Layout-driven lines; empty fields show greyed placeholders so
-                    // the layout can be designed before the defaults are filled in.
-                    const realVals = {
-                      firm: fb.firm || "", address: fb.address || "",
-                      enrolmentNo: fb.enrolmentNo ? `Enrl. No.: ${fb.enrolmentNo}` : "",
-                      email: fb.email || "", phone: fb.phone || "",
-                    };
-                    const placeholders = { firm: "[Firm]", address: "[Address]", enrolmentNo: "Enrl. No.: [xx/xxxx]", email: "[email]", phone: "[phone]" };
-                    const previewVals = Object.fromEntries(
-                      (Object.keys(realVals) as (keyof typeof realVals)[]).map((k) => [k, realVals[k] || placeholders[k]])
-                    ) as typeof realVals;
-                    const fbLines = wpFiledByLines(settings.wpFiledByLayout, previewVals);
-                    const partStyle = (it: WpFiledByLayoutItem, isPlaceholder: boolean): React.CSSProperties => ({
-                      fontWeight: it.bold ? 700 : 400,
-                      fontStyle: it.italics ? 'italic' : 'normal',
-                      textDecoration: it.underline ? 'underline' : 'none',
-                      textTransform: it.caps === 'allCaps' ? 'uppercase' : 'none',
-                      fontVariant: it.caps === 'smallCaps' ? 'small-caps' : 'normal',
-                      opacity: isPlaceholder ? 0.45 : 1,
-                    });
-                    return (
-                      <div className="rounded border bg-white p-2 text-black overflow-hidden" style={{ width: boxPx + 18, fontFamily: settings.wpOutputFont, fontSize: fontPx, lineHeight: 1.25 }}>
-                        <div className="flex" style={{ width: boxPx }}>
-                          <div style={{ width: `${settings.wpFiledByLeftPct}%`, flexShrink: 0 }}>
-                            <div>Filed on: __.__.____</div>
-                            <div>Place: New Delhi</div>
-                          </div>
-                          <div style={{ width: `${100 - settings.wpFiledByLeftPct}%`, flexShrink: 0, minWidth: 0 }}>
-                            <div>Filed by:</div>
-                            <div style={{ position: 'relative', marginTop: showSig ? Math.max(4, sigH - overlapPx) : fontPx * 0.6 }}>
-                              {showSig && (
-                                /* eslint-disable-next-line @next/next/no-img-element */
-                                <img src={settings.wpSignaturePng} alt="signature" style={{ position: 'absolute', left: 0, bottom: fontPx * 1.1 - overlapPx, width: sigW, height: sigH }} />
-                              )}
-                              <div style={{ fontWeight: 700 }}>{fb.name || "[Advocate name]"}</div>
-                            </div>
-                            {fbLines.map((line, li) => (
-                              <div key={li} style={{ whiteSpace: 'pre-line' }}>
-                                {line.map((part, pi) => (
-                                  <React.Fragment key={part.item.id}>
-                                    {pi > 0 && <span> | </span>}
-                                    <span style={partStyle(part.item, !realVals[part.item.id])}>{part.text}</span>
-                                  </React.Fragment>
-                                ))}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-
-
-                {/* Vakalatnama formatting */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Vakalatnama formatting</p>
-                  <p className="text-xs text-muted-foreground">The vakalatnama uses its own smaller, tighter formatting so it fits on a single page. (Defaults: 11&nbsp;pt, single line spacing, 4&nbsp;pt after each paragraph.)</p>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Font size (pt)</Label>
-                      <Input type="number" min={6} max={24} step={0.5} className="h-7 text-xs"
-                        value={settings.wpVakFontSizePt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, wpVakFontSizePt: Math.min(24, Math.max(6, parseFloat(e.target.value) || 11)) }))} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Line spacing</Label>
-                      <Input type="number" min={1} max={3} step={0.05} className="h-7 text-xs"
-                        value={settings.wpVakLineSpacing}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, wpVakLineSpacing: Math.min(3, Math.max(1, parseFloat(e.target.value) || 1)) }))} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">After para (pt)</Label>
-                      <Input type="number" min={0} max={36} step={1} className="h-7 text-xs"
-                        value={settings.wpVakParaSpacingPt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, wpVakParaSpacingPt: Math.min(36, Math.max(0, parseFloat(e.target.value) || 0)) }))} />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Page margins (WP) */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Page margins</p>
-                  <p className="text-xs text-muted-foreground">Margins for every generated writ-petition document, in inches. (Defaults: 1.5&quot; top/left, 1&quot; bottom/right — the top margin leaves room for the stamped page number.)</p>
-                  {marginInputs({ top: 'wpMarginTopIn', right: 'wpMarginRightIn', bottom: 'wpMarginBottomIn', left: 'wpMarginLeftIn' })}
-                </div>
-
-                {/* Output text formatting (WP) */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Output text formatting</p>
-                  <p className="text-xs text-muted-foreground">Font, size and spacing applied to the body text of the generated writ petition. (Defaults: Times New Roman, 14&nbsp;pt, 1.5&nbsp;line spacing, 0&nbsp;pt before / 12&nbsp;pt after each paragraph.)</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1 col-span-2">
-                      <Label className="text-xs text-muted-foreground">Font</Label>
-                      <Select
-                        value={settings.wpOutputFont}
-                        onValueChange={(v) => setSettings((prev) => ({ ...prev, wpOutputFont: v }))}
-                      >
-                        <SelectTrigger className="h-7 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {OUTPUT_FONTS.map((f) => (
-                            <SelectItem key={f} value={f} className="text-xs" style={{ fontFamily: f }}>{f}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Font size (pt)</Label>
-                      <Input
-                        type="number"
-                        min={8}
-                        max={24}
-                        step={0.5}
-                        value={settings.wpOutputFontSizePt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, wpOutputFontSizePt: Math.min(24, Math.max(8, parseFloat(e.target.value) || 14)) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Line spacing</Label>
-                      <Select
-                        value={String(settings.wpOutputLineSpacing)}
-                        onValueChange={(v) => setSettings((prev) => ({ ...prev, wpOutputLineSpacing: parseFloat(v) }))}
-                      >
-                        <SelectTrigger className="h-7 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
-                          <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
-                          <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
-                          <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Spacing before each paragraph (pt)</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={36}
-                        step={1}
-                        value={settings.wpOutputParaBeforePt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, wpOutputParaBeforePt: Math.min(36, Math.max(0, parseFloat(e.target.value) || 0)) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Spacing after each paragraph (pt)</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={36}
-                        step={1}
-                        value={settings.wpOutputParaAfterPt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, wpOutputParaAfterPt: Math.min(36, Math.max(0, parseFloat(e.target.value) || 0)) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Sub-paragraph numbering */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Sub-paragraph numbering</p>
-                  <p className="text-xs text-muted-foreground">First-level lettering for each section. Deeper levels follow a fixed cascade automatically.</p>
-                  <div className="grid grid-cols-3 gap-3">
-                    {([
-                      ["facts", "Facts"],
-                      ["grounds", "Grounds"],
-                      ["prayers", "Prayers"],
-                    ] as [keyof WpNumbering, string][]).map(([key, label]) => (
-                      <div key={key} className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">{label}</Label>
-                        <Select
-                          value={settings.wpNumbering?.[key] ?? DEFAULT_WP_NUMBERING[key]}
-                          onValueChange={(v) => setSettings((prev) => ({ ...prev, wpNumbering: { ...(prev.wpNumbering ?? DEFAULT_WP_NUMBERING), [key]: v as EnumStyle } }))}
-                        >
-                          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            {WP_NUMBER_STYLES.map((s) => (
-                              <SelectItem key={s.value} value={s.value} className="text-xs">{s.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── PAPERBOOK ── */}
-            {/* ── SPECIAL LEAVE PETITION (SC) — paperbook: annexure, pagination, true-copy, volume splitting & checklist (SC-only) ── */}
-            {selectedSection === 'slp' && (
-              <div className="space-y-6">
-
-                {/* Annexure Labels */}
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Annexure Labels</p>
-                  <p className="text-xs text-muted-foreground">The "Annexure P-X" label stamped on the first page of each annexure.</p>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="annexure-bg"
-                      checked={settings.annexureLabelBackground}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, annexureLabelBackground: e.target.checked }))}
-                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+                  </SettingRow>
+                  <SettingRow label="AoR code" htmlFor="default-aor-code">
+                    <Input
+                      id="default-aor-code"
+                      value={settings.defaultAorCode}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorCode: e.target.value }))}
+                      placeholder="AoR registration code"
+                      className="h-7 max-w-[280px] text-xs"
                     />
-                    <Label htmlFor="annexure-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                      Add white background behind Annexure Labels (also applies to Page Numbers)
-                    </Label>
-                  </div>
+                  </SettingRow>
+                </SettingsGroup>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs text-muted-foreground">Label text size</Label>
-                      <span className="text-xs font-semibold tabular-nums w-6 text-right">{settings.annexureLabelSize}</span>
-                    </div>
+                <SettingsGroup
+                  title="Annexure labels"
+                  info={"The \"Annexure P-X\" label stamped on the first page of each annexure. Defaults: size 14, margin 14.4 pt (0.2 inch) from the top edge. 72 pt = 1 inch."}
+                >
+                  <SettingRow label="Label text size">
                     <Slider
                       min={10}
                       max={24}
                       step={1}
                       value={[settings.annexureLabelSize]}
                       onValueChange={([v]) => setSettings((prev) => ({ ...prev, annexureLabelSize: v }))}
-                      className="w-full"
+                      className="w-[170px]"
                     />
-                    <div className="flex justify-between text-[10px] text-muted-foreground">
-                      <span>10</span><span>Default: 14</span><span>24</span>
-                    </div>
-                  </div>
+                    <span className="text-xs font-semibold tabular-nums">{settings.annexureLabelSize}</span>
+                  </SettingRow>
+                  <SettingRow label="Margin from top edge">
+                    {numField('annexureLabelMarginPt', { min: 0, max: 144, step: 1, width: 'w-20' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                  <CheckRow
+                    id="annexure-bg"
+                    checked={settings.annexureLabelBackground}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, annexureLabelBackground: v }))}
+                    label="White background behind annexure labels and page numbers"
+                  />
+                </SettingsGroup>
 
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Label margin from top edge (pt)</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={144}
-                      step={1}
-                      value={settings.annexureLabelMarginPt}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, annexureLabelMarginPt: Math.min(144, Math.max(0, parseFloat(e.target.value) || 0)) }))}
-                      className="h-7 text-xs w-28"
-                    />
-                    <p className="text-[10px] text-muted-foreground">Default: 14.4 pt (0.2 inch). 72 pt = 1 inch.</p>
-                  </div>
-                </div>
+                <SettingsGroup
+                  title="Page numbers"
+                  info="Size and position of the page numbers stamped at the top-right of each paginated page. Defaults: 20 pt size, 54 pt (0.75 inch) top and right margins."
+                >
+                  <SettingRow label="Text size">
+                    {numField('pageNumberSizePt', { min: 8, max: 36, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                  <SettingRow label="Margins">
+                    <Unit>Top</Unit>
+                    {numField('pageNumberMarginTopPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                    <Unit>Right</Unit>
+                    {numField('pageNumberMarginRightPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                </SettingsGroup>
 
-                {/* Page Numbers */}
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Page Numbers</p>
-                  <p className="text-xs text-muted-foreground">Size and position of the page numbers stamped on the top-right of each paginated page.</p>
+                <SettingsGroup
+                  title="Advocate's checklist"
+                  info={"Tighten these to keep the checklist from spilling over several pages in the PDF paperbook.\n\nDefaults: 14 pt font, 1.5 line spacing, 6 pt paragraph spacing, and 1 inch top and left margins (set 1.5 to match the other documents)."}
+                >
+                  <SettingRow label="Size & line spacing">
+                    {numField('checklistFontSizePt', { min: 6, max: 18, step: 0.5, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                    <Select value={String(settings.checklistLineSpacing)} onValueChange={(v) => setSettings((prev) => ({ ...prev, checklistLineSpacing: parseFloat(v) }))}>
+                      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
+                        <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
+                        <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
+                        <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow label="Space after paragraph">
+                    {numField('checklistParaSpacingPt', { min: 0, max: 18, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                  <SettingRow label="Margins">
+                    <Unit>Top</Unit>
+                    {numField('checklistMarginTopInches', { min: 0.5, max: 2, step: 0.1, width: 'w-16' })}
+                    <Unit>Left</Unit>
+                    {numField('checklistMarginLeftInches', { min: 0.5, max: 2, step: 0.1, width: 'w-16' })}
+                    <Unit>inches</Unit>
+                  </SettingRow>
+                </SettingsGroup>
 
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Text size (pt)</Label>
-                      <Input
-                        type="number"
-                        min={8}
-                        max={36}
-                        step={1}
-                        value={settings.pageNumberSizePt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, pageNumberSizePt: Math.min(36, Math.max(8, parseFloat(e.target.value) || 20)) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Top margin (pt)</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={216}
-                        step={1}
-                        value={settings.pageNumberMarginTopPt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, pageNumberMarginTopPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Right margin (pt)</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={216}
-                        step={1}
-                        value={settings.pageNumberMarginRightPt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, pageNumberMarginRightPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">Defaults: 20 pt size, 54 pt (0.75 inch) top and right margins.</p>
-                </div>
-
-                {/* Advocate's Checklist */}
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Advocate's Checklist</p>
-                  <p className="text-xs text-muted-foreground">Tighten these to keep the checklist from spilling over several pages in the PDF paperbook.</p>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Font size (pt)</Label>
-                      <Input
-                        type="number"
-                        min={6}
-                        max={18}
-                        step={0.5}
-                        value={settings.checklistFontSizePt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, checklistFontSizePt: Math.min(18, Math.max(6, parseFloat(e.target.value) || 14)) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Line spacing</Label>
-                      <Select
-                        value={String(settings.checklistLineSpacing)}
-                        onValueChange={(v) => setSettings((prev) => ({ ...prev, checklistLineSpacing: parseFloat(v) }))}
-                      >
-                        <SelectTrigger className="h-7 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
-                          <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
-                          <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
-                          <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Para spacing (pt)</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        max={18}
-                        step={1}
-                        value={settings.checklistParaSpacingPt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, checklistParaSpacingPt: Math.min(18, Math.max(0, parseFloat(e.target.value) || 0)) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">Defaults: 14 pt font, 1.5 line spacing, 6 pt paragraph spacing.</p>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Top margin (inches)</Label>
-                      <Input
-                        type="number"
-                        min={0.5}
-                        max={2}
-                        step={0.1}
-                        value={settings.checklistMarginTopInches}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, checklistMarginTopInches: Math.min(2, Math.max(0.5, parseFloat(e.target.value) || 1)) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Left margin (inches)</Label>
-                      <Input
-                        type="number"
-                        min={0.5}
-                        max={2}
-                        step={0.1}
-                        value={settings.checklistMarginLeftInches}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, checklistMarginLeftInches: Math.min(2, Math.max(0.5, parseFloat(e.target.value) || 1)) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">Defaults: 1 inch top and left. Set to 1.5 to match the other documents.</p>
-                </div>
-
-                {/* Volume Splitting */}
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Volume Splitting</p>
-                  <p className="text-xs text-muted-foreground">Paperbooks exceeding the first threshold are automatically split into volumes. Each additional threshold adds another volume.</p>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">First threshold (pages)</Label>
-                      <Input
-                        type="number"
-                        min={100}
-                        step={50}
-                        value={settings.volumeSplitThreshold}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, volumeSplitThreshold: Math.max(100, parseInt(e.target.value) || 400) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Subsequent step (pages)</Label>
-                      <Input
-                        type="number"
-                        min={50}
-                        step={50}
-                        value={settings.volumeStepSize}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, volumeStepSize: Math.max(50, parseInt(e.target.value) || 200) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                  </div>
-
+                <SettingsGroup
+                  title="Volume splitting"
+                  info="Paperbooks exceeding the first threshold are automatically split into volumes. Each additional threshold adds another volume."
+                >
+                  <SettingRow label="First threshold">
+                    {numField('volumeSplitThreshold', { min: 100, step: 50, int: true, width: 'w-20' })}
+                    <Unit>pages</Unit>
+                  </SettingRow>
+                  <SettingRow label="Subsequent step">
+                    {numField('volumeStepSize', { min: 50, step: 50, int: true, width: 'w-20' })}
+                    <Unit>pages</Unit>
+                  </SettingRow>
                   <button
                     type="button"
                     onClick={() => setShowAdvancedVolume((v) => !v)}
@@ -2416,717 +2041,619 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   >
                     {showAdvancedVolume ? "Hide advanced options" : "Show advanced options"}
                   </button>
-
                   {showAdvancedVolume && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Keep components ≤ ___ pages intact across volume boundaries</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        step={5}
-                        value={settings.maxComponentSplitPages}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, maxComponentSplitPages: Math.max(1, parseInt(e.target.value) || 50) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Retain in current volume if ≤ ___ pages would spill over</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        step={5}
-                        value={settings.minVolumeTailPages}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, minVolumeTailPages: Math.max(1, parseInt(e.target.value) || 20) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Push to next volume if ≤ ___ pages would remain in current</Label>
-                      <Input
-                        type="number"
-                        min={1}
-                        step={5}
-                        value={settings.minVolumeHeadPages}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, minVolumeHeadPages: Math.max(1, parseInt(e.target.value) || 20) }))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="col-span-2 space-y-1">
-                      <Label className="text-xs text-muted-foreground">Output format</Label>
-                      <RadioGroup
-                        value={settings.separateVolumePdfs ? 'separate' : 'consolidated'}
-                        onValueChange={(v) => setSettings((prev) => ({ ...prev, separateVolumePdfs: v === 'separate' }))}
-                        className="flex gap-4 pt-1"
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <RadioGroupItem value="separate" id="vol-separate" />
-                          <Label htmlFor="vol-separate" className="text-xs font-normal cursor-pointer">Separate PDFs per volume</Label>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <RadioGroupItem value="consolidated" id="vol-consolidated" />
-                          <Label htmlFor="vol-consolidated" className="text-xs font-normal cursor-pointer">Single consolidated PDF</Label>
-                        </div>
-                      </RadioGroup>
-                    </div>
-                  </div>
-                  )}
-                </div>
-
-                {/* AoR Signature & True Copy (Beta) */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">AoR Signature &amp; True Copy</p>
-                    <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Beta</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    The signature is placed above the AoR's name in every "Filed&nbsp;by" block. The True Copy mark (a small signature above the words "True&nbsp;Copy") is stamped at the bottom-left of every annexure page.
-                  </p>
-                  <p className="text-xs text-muted-foreground italic">
-                    Pro-Tip: For the cleanest appearance, use a signature with a transparent background and minimal white margins.
-                  </p>
-
-                  <div className="rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700/60 dark:bg-amber-900/20 p-2.5">
-                    <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                      <AlertCircle className="h-3.5 w-3.5 shrink-0" /> Important
-                    </p>
-                    <p className="text-xs text-amber-800/90 dark:text-amber-200/90 mt-1 leading-relaxed">
-                      Please note that Drafto merely assists you in collating the paperbook and electronically placing your signatures on it. The responsibility for the contents of the paperbook continues to rest with you, and we urge you to examine the paperbook comprehensively before it is filed.
-                    </p>
-                  </div>
-
-                  <input
-                    ref={signatureInputRef}
-                    type="file"
-                    accept="image/png"
-                    onChange={handleSignatureUpload}
-                    className="hidden"
-                  />
-
-                  <div className="flex items-center gap-3">
-                    {settings.aorSignaturePng ? (
-                      <div className="flex items-center justify-center border rounded bg-white p-1" style={{ width: 96, height: 48 }}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={settings.aorSignaturePng} alt="AoR signature" className="max-w-full max-h-full object-contain" />
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-center border border-dashed rounded text-[10px] text-muted-foreground" style={{ width: 96, height: 48 }}>
-                        No signature
-                      </div>
-                    )}
-                    <div className="flex flex-col gap-1.5">
-                      <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => signatureInputRef.current?.click()}>
-                        {settings.aorSignaturePng ? "Replace PNG" : "Upload PNG"}
-                      </Button>
-                      {settings.aorSignaturePng && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-xs text-muted-foreground"
-                          onClick={() => setSettings((prev) => ({ ...prev, aorSignaturePng: "", aorSignatureW: 0, aorSignatureH: 0 }))}
-                        >
-                          Remove
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="place-signature"
-                      checked={settings.placeSignatureInPaperbook}
-                      disabled={!settings.aorSignaturePng}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, placeSignatureInPaperbook: e.target.checked }))}
-                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0 disabled:opacity-40"
-                    />
-                    <Label htmlFor="place-signature" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                      Place AoR signature above the name in every "Filed by" block
-                    </Label>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="place-truecopy"
-                      checked={settings.placeTrueCopyText}
-                      disabled={!settings.aorSignaturePng}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, placeTrueCopyText: e.target.checked }))}
-                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0 disabled:opacity-40"
-                    />
-                    <Label htmlFor="place-truecopy" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                      Stamp "True Copy" (with small signature) on every annexure page
-                    </Label>
-                  </div>
-
-                  {settings.placeTrueCopyText && (
-                    <div className="space-y-3 pl-6 border-l border-border ml-1.5">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs text-muted-foreground">True Copy position</Label>
-                        <RadioGroup
-                          value={settings.trueCopyPosition}
-                          onValueChange={(value: TrueCopyPosition) => setSettings((prev) => ({ ...prev, trueCopyPosition: value }))}
-                          className="flex gap-4 pt-0.5"
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <RadioGroupItem value="left" id="truecopy-left" />
-                            <Label htmlFor="truecopy-left" className="text-xs font-normal cursor-pointer">Bottom-left</Label>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <RadioGroupItem value="center" id="truecopy-center" />
-                            <Label htmlFor="truecopy-center" className="text-xs font-normal cursor-pointer">Bottom-centre</Label>
-                          </div>
-                        </RadioGroup>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          id="truecopy-bg"
-                          checked={settings.trueCopyBackground}
-                          onChange={(e) => setSettings((prev) => ({ ...prev, trueCopyBackground: e.target.checked }))}
-                          className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+                    <div className="ml-1.5 space-y-1 border-l pl-4">
+                      <SettingRow label="Keep intact" info="A component no longer than this is never split across a volume boundary.">
+                        {numField('maxComponentSplitPages', { min: 1, step: 5, int: true, width: 'w-20' })}
+                        <Unit>pages or fewer</Unit>
+                      </SettingRow>
+                      <SettingRow label="Retain in volume" info="If this much or less would spill into the next volume, the component stays in the current one.">
+                        {numField('minVolumeTailPages', { min: 1, step: 5, int: true, width: 'w-20' })}
+                        <Unit>pages or fewer</Unit>
+                      </SettingRow>
+                      <SettingRow label="Push to next volume" info="If this much or less would be left in the current volume, the component moves to the next one.">
+                        {numField('minVolumeHeadPages', { min: 1, step: 5, int: true, width: 'w-20' })}
+                        <Unit>pages or fewer</Unit>
+                      </SettingRow>
+                      <SettingRow label="Output format">
+                        <SegGroup
+                          value={settings.separateVolumePdfs ? 'separate' : 'consolidated'}
+                          onChange={(v) => setSettings((prev) => ({ ...prev, separateVolumePdfs: v === 'separate' }))}
+                          options={[{ value: 'separate', label: 'Separate PDFs' }, { value: 'consolidated', label: 'Single PDF' }]}
                         />
-                        <Label htmlFor="truecopy-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                          Add white background behind the True Copy stamp
-                        </Label>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Horizontal margin (pt)</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            max={216}
-                            step={1}
-                            value={settings.trueCopyMarginXPt}
-                            onChange={(e) => setSettings((prev) => ({ ...prev, trueCopyMarginXPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))}
-                            className="h-7 text-xs"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Bottom margin (pt)</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            max={216}
-                            step={1}
-                            value={settings.trueCopyMarginBottomPt}
-                            onChange={(e) => setSettings((prev) => ({ ...prev, trueCopyMarginBottomPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))}
-                            className="h-7 text-xs"
-                          />
-                        </div>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground">Defaults: 36 pt (0.5 inch) on both. In bottom-centre mode the horizontal margin is ignored.</p>
+                      </SettingRow>
                     </div>
                   )}
+                </SettingsGroup>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs text-muted-foreground">Signature width</Label>
-                      <span className="text-xs font-semibold tabular-nums w-12 text-right">{settings.signatureSizePx}&nbsp;px</span>
-                    </div>
+                <SettingsGroup
+                  title="AoR signature & True Copy"
+                  beta
+                  info={"The signature is placed above the AoR's name in every \"Filed by\" block. The True Copy mark — a small signature above the words \"True Copy\" — is stamped on every annexure page at half the signature width.\n\nPro-tip: use a PNG with a transparent background and minimal white margins."}
+                >
+                  <SettingRow label="Signature (PNG)">
+                    {signatureSlot({
+                      png: settings.aorSignaturePng,
+                      inputRef: signatureInputRef,
+                      onUpload: handleSignatureUpload,
+                      onRemove: () => setSettings((prev) => ({ ...prev, aorSignaturePng: "", aorSignatureW: 0, aorSignatureH: 0 })),
+                    })}
+                  </SettingRow>
+                  <SettingRow label="Signature width">
                     <Slider
                       min={48}
                       max={240}
                       step={4}
                       value={[settings.signatureSizePx]}
                       onValueChange={([v]) => setSettings((prev) => ({ ...prev, signatureSizePx: v }))}
-                      className="w-full"
+                      className="w-[170px]"
                     />
-                    {settings.aorSignaturePng && settings.aorSignatureW > 0 && (
-                      <div className="flex items-center justify-center border rounded bg-white p-2 mt-1">
-                        {/* Live size preview at the chosen width */}
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={settings.aorSignaturePng}
-                          alt="signature size preview"
-                          style={{
-                            width: settings.signatureSizePx,
-                            height: settings.signatureSizePx * (settings.aorSignatureH / settings.aorSignatureW),
-                          }}
+                    <span className="text-xs font-semibold tabular-nums">{settings.signatureSizePx}&nbsp;px</span>
+                  </SettingRow>
+                  {settings.aorSignaturePng && settings.aorSignatureW > 0 && (
+                    <div className="flex items-center justify-center rounded border bg-white p-2">
+                      <img
+                        src={settings.aorSignaturePng}
+                        alt="signature size preview"
+                        style={{
+                          width: settings.signatureSizePx,
+                          height: settings.signatureSizePx * (settings.aorSignatureH / settings.aorSignatureW),
+                        }}
+                      />
+                    </div>
+                  )}
+                  <CheckRow
+                    id="place-signature"
+                    disabled={!settings.aorSignaturePng}
+                    checked={settings.placeSignatureInPaperbook}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, placeSignatureInPaperbook: v }))}
+                    label={'Place the signature above the AoR name in every "Filed by" block'}
+                  />
+                  <CheckRow
+                    id="place-truecopy"
+                    disabled={!settings.aorSignaturePng}
+                    checked={settings.placeTrueCopyText}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, placeTrueCopyText: v }))}
+                    label={'Stamp "True Copy" with a small signature on every annexure page'}
+                  />
+                  {settings.placeTrueCopyText && (
+                    <div className="ml-1.5 space-y-1 border-l pl-4">
+                      <SettingRow label="True Copy position">
+                        <SegGroup
+                          value={settings.trueCopyPosition}
+                          onChange={(v: TrueCopyPosition) => setSettings((prev) => ({ ...prev, trueCopyPosition: v }))}
+                          options={[{ value: 'left', label: 'Bottom-left' }, { value: 'center', label: 'Bottom-centre' }]}
                         />
-                      </div>
-                    )}
-                    <p className="text-[10px] text-muted-foreground">The True Copy signature is rendered at half this width.</p>
-                  </div>
-                </div>
+                      </SettingRow>
+                      <SettingRow label="True Copy margins" info="Defaults: 36 pt (0.5 inch) on both. In bottom-centre mode the horizontal margin is ignored.">
+                        <Unit>Horizontal</Unit>
+                        {numField('trueCopyMarginXPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                        <Unit>Bottom</Unit>
+                        {numField('trueCopyMarginBottomPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                        <Unit>pt</Unit>
+                      </SettingRow>
+                      <CheckRow
+                        id="truecopy-bg"
+                        checked={settings.trueCopyBackground}
+                        onChange={(v) => setSettings((prev) => ({ ...prev, trueCopyBackground: v }))}
+                        label="White background behind the True Copy stamp"
+                      />
+                    </div>
+                  )}
+                  <SignatureLiabilityNote />
+                </SettingsGroup>
 
               </div>
             )}
 
-            {/* ── ORIGINAL APPLICATION (CAT) ── */}
-            {selectedSection === 'oa' && (
+            {/* ── WRIT PETITION (HC) ── */}
+            {selectedSection === 'wp' && (
               <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Bench</p>
-                  <p className="text-xs text-muted-foreground">The Tribunal Bench printed in the OA header (and used for "Registrar, &lt;Bench&gt;" references).</p>
-                  <select
-                    value={settings.oaBench || DEFAULT_OA_BENCH}
-                    onChange={(e) => setSettings((prev) => ({ ...prev, oaBench: e.target.value }))}
-                    className="h-8 w-full max-w-sm rounded-md border bg-background px-2 text-xs"
-                  >
-                    {(["Regular", "Circuit"] as const).map((group) => (
-                      <optgroup key={group} label={group === "Regular" ? "Regular Benches" : "Circuit Benches"}>
-                        {OA_BENCHES.filter((b) => b.group === group).map((b) => (
-                          <option key={b.value} value={b.value}>{b.header}</option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                </div>
-                {/* Filed-by defaults */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Advocate Details (“Filed by”)</p>
-                  <p className="text-xs text-muted-foreground">Pre-filled into the “Filed by” block of every new Original Application. Per-case edits override these.</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    {([
-                      ["name", "Advocate name"],
-                      ["firm", "Firm / Chamber"],
-                      ["enrolmentNo", "Enrolment No."],
-                      ["phone", "Phone"],
-                      ["email", "Email"],
-                    ] as [keyof WpFiledBy, string][]).map(([key, label]) => (
-                      <div key={key} className="space-y-1">
-                        <Label className="text-xs text-muted-foreground">{label}</Label>
-                        <Input
-                          className="h-7 text-xs"
-                          value={settings.oaFiledBy?.[key] ?? ""}
-                          onChange={(e) => setSettings((prev) => ({ ...prev, oaFiledBy: { ...(prev.oaFiledBy ?? DEFAULT_WP_FILED_BY), [key]: e.target.value } }))}
-                        />
-                      </div>
-                    ))}
-                    <div className="col-span-2 space-y-1">
-                      <Label className="text-xs text-muted-foreground">Address</Label>
-                      <Textarea
-                        rows={2}
-                        className="text-xs"
-                        value={settings.oaFiledBy?.address ?? ""}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, oaFiledBy: { ...(prev.oaFiledBy ?? DEFAULT_WP_FILED_BY), address: e.target.value } }))}
-                      />
-                    </div>
-                  </div>
-                </div>
 
-                {/* Filed-by table layout + preview (CAT) */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">&ldquo;Filed by&rdquo; table layout</p>
-                  <p className="text-xs text-muted-foreground">Width of the left column (Filed on / Place); the advocate details take the rest. The preview approximates the docx output, including the signature at its configured size.</p>
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs text-muted-foreground">Left column width</Label>
-                    <span className="text-xs font-semibold tabular-nums w-16 text-right">{settings.oaFiledByLeftPct}% / {100 - settings.oaFiledByLeftPct}%</span>
-                  </div>
-                  <Slider
-                    min={10}
-                    max={70}
-                    step={1}
-                    value={[settings.oaFiledByLeftPct]}
-                    onValueChange={([v]) => setSettings((prev) => ({ ...prev, oaFiledByLeftPct: v }))}
-                    className="w-full"
-                  />
+                <SettingsGroup
+                  title={'"Filed by" defaults'}
+                  info={"Pre-filled into the \"Filed by\" block of every new writ petition. Per-petition edits in the Preliminary tab override these."}
+                >
+                  {filedByFields(
+                    settings.wpFiledBy ?? DEFAULT_WP_FILED_BY,
+                    (patch) => setSettings((prev) => ({ ...prev, wpFiledBy: { ...(prev.wpFiledBy ?? DEFAULT_WP_FILED_BY), ...patch } })),
+                  )}
+                </SettingsGroup>
 
-                  {/* Advocate-details designer: order, "|" joins, per-item styling */}
-                  <p className="pt-1 text-xs text-muted-foreground">Order and style of the details under the advocate&rsquo;s name. &ldquo;<span className="font-mono">|&nbsp;next</span>&rdquo; keeps an item on the same line as the one below it, separated by &ldquo;&nbsp;|&nbsp;&rdquo;.</p>
-                  <div className="space-y-1">
-                    {settings.oaFiledByLayout.map((item, i, arr) => {
-                      const update = (patch: Partial<WpFiledByLayoutItem>) =>
-                        setSettings((prev) => ({ ...prev, oaFiledByLayout: prev.oaFiledByLayout.map((it, j) => (j === i ? { ...it, ...patch } : it)) }));
-                      const move = (dir: -1 | 1) =>
-                        setSettings((prev) => {
-                          const a = [...prev.oaFiledByLayout];
-                          const t = i + dir;
-                          if (t < 0 || t >= a.length) return prev;
-                          [a[i], a[t]] = [a[t], a[i]];
-                          return { ...prev, oaFiledByLayout: a };
-                        });
-                      const fmtBtn = (label: string, active: boolean, onClick: () => void, cls = "") => (
-                        <button
-                          type="button"
-                          onClick={onClick}
-                          className={`h-6 w-6 rounded border text-[11px] leading-none ${cls} ${active ? "bg-primary text-primary-foreground border-primary" : "bg-background text-muted-foreground hover:bg-muted"}`}
-                        >
-                          {label}
-                        </button>
-                      );
-                      return (
-                        <div key={item.id} className="flex items-center gap-1.5 rounded-md border px-2 py-1">
-                          <span className="flex flex-col">
-                            <button type="button" disabled={i === 0} onClick={() => move(-1)} className="text-muted-foreground hover:text-foreground disabled:opacity-25"><ArrowUp className="h-3 w-3" /></button>
-                            <button type="button" disabled={i === arr.length - 1} onClick={() => move(1)} className="text-muted-foreground hover:text-foreground disabled:opacity-25"><ArrowDown className="h-3 w-3" /></button>
-                          </span>
-                          <span className="flex-grow text-xs">{WP_FILED_BY_ITEM_LABELS[item.id]}</span>
-                          {fmtBtn("B", item.bold, () => update({ bold: !item.bold }), "font-bold")}
-                          {fmtBtn("I", item.italics, () => update({ italics: !item.italics }), "italic")}
-                          {fmtBtn("U", item.underline, () => update({ underline: !item.underline }), "underline")}
-                          <Select value={item.caps} onValueChange={(v) => update({ caps: v as WpFiledByCaps })}>
-                            <SelectTrigger className="h-6 w-[92px] text-[10px] px-1.5"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none" className="text-xs">Normal</SelectItem>
-                              <SelectItem value="allCaps" className="text-xs">ALL CAPS</SelectItem>
-                              <SelectItem value="smallCaps" className="text-xs" style={{ fontVariant: 'small-caps' }}>Small Caps</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {i < arr.length - 1 ? (
-                            <label className="flex cursor-pointer items-center gap-1 text-[10px] text-muted-foreground">
-                              <input
-                                type="checkbox"
-                                checked={item.joinWithNext}
-                                onChange={(e) => update({ joinWithNext: e.target.checked })}
-                                className="h-3 w-3 rounded border-gray-300"
-                              />
-                              <span className="font-mono">| next</span>
-                            </label>
-                          ) : (
-                            <span className="w-[52px]" />
-                          )}
-                        </div>
-                      );
+                <SettingsGroup
+                  title="Advocate signature"
+                  beta
+                  info={"Placed above the advocate's name in every \"Filed by\" block of the writ-petition paperbook. Applied during PDF generation only — plain .docx exports never carry it. Separate from the SLP AoR signature.\n\nPro-tip: use a PNG with a transparent background and minimal white margins."}
+                >
+                  <SettingRow label="Signature (PNG)">
+                    {signatureSlot({
+                      png: settings.wpSignaturePng,
+                      inputRef: wpSignatureInputRef,
+                      onUpload: handleWpSignatureUpload,
+                      onRemove: () => setSettings((prev) => ({ ...prev, wpSignaturePng: "", wpSignatureW: 0, wpSignatureH: 0 })),
                     })}
-                  </div>
-                  {(() => {
-                    // Preview scale: the box maps the docx content width (A4 8.27"
-                    // minus the configured left/right margins) to a fixed pixel width.
-                    const contentIn = Math.max(3, 8.27 - settings.wpMarginLeftIn - settings.wpMarginRightIn);
-                    const boxPx = 430;
-                    const pxPerIn = boxPx / contentIn;
-                    const fontPx = Math.max(6, (settings.wpOutputFontSizePt / 72) * pxPerIn);
-                    const showSig = !!settings.oaSignaturePng && settings.oaPlaceSignatureInPaperbook && settings.oaSignatureW > 0;
-                    const sigW = showSig ? (settings.oaSignatureSizePx / 96) * pxPerIn : 0;
-                    const sigH = showSig ? sigW * (settings.oaSignatureH / settings.oaSignatureW) : 0;
-                    const overlapPx = (6 / 72) * pxPerIn; // signature dips 6pt into the name line
-                    const fb = settings.oaFiledBy;
-                    // Layout-driven lines; empty fields show greyed placeholders so
-                    // the layout can be designed before the defaults are filled in.
-                    const realVals = {
-                      firm: fb.firm || "", address: fb.address || "",
-                      enrolmentNo: fb.enrolmentNo ? `Enrl. No.: ${fb.enrolmentNo}` : "",
-                      email: fb.email || "", phone: fb.phone || "",
-                    };
-                    const placeholders = { firm: "[Firm]", address: "[Address]", enrolmentNo: "Enrl. No.: [xx/xxxx]", email: "[email]", phone: "[phone]" };
-                    const previewVals = Object.fromEntries(
-                      (Object.keys(realVals) as (keyof typeof realVals)[]).map((k) => [k, realVals[k] || placeholders[k]])
-                    ) as typeof realVals;
-                    const fbLines = wpFiledByLines(settings.oaFiledByLayout, previewVals);
-                    const partStyle = (it: WpFiledByLayoutItem, isPlaceholder: boolean): React.CSSProperties => ({
-                      fontWeight: it.bold ? 700 : 400,
-                      fontStyle: it.italics ? 'italic' : 'normal',
-                      textDecoration: it.underline ? 'underline' : 'none',
-                      textTransform: it.caps === 'allCaps' ? 'uppercase' : 'none',
-                      fontVariant: it.caps === 'smallCaps' ? 'small-caps' : 'normal',
-                      opacity: isPlaceholder ? 0.45 : 1,
-                    });
-                    return (
-                      <div className="rounded border bg-white p-2 text-black overflow-hidden" style={{ width: boxPx + 18, fontFamily: settings.wpOutputFont, fontSize: fontPx, lineHeight: 1.25 }}>
-                        <div className="flex" style={{ width: boxPx }}>
-                          <div style={{ width: `${settings.oaFiledByLeftPct}%`, flexShrink: 0 }}>
-                            <div>Filed on: __.__.____</div>
-                            <div>Place: New Delhi</div>
-                          </div>
-                          <div style={{ width: `${100 - settings.oaFiledByLeftPct}%`, flexShrink: 0, minWidth: 0 }}>
-                            <div>Filed by:</div>
-                            <div style={{ position: 'relative', marginTop: showSig ? Math.max(4, sigH - overlapPx) : fontPx * 0.6 }}>
-                              {showSig && (
-                                /* eslint-disable-next-line @next/next/no-img-element */
-                                <img src={settings.oaSignaturePng} alt="signature" style={{ position: 'absolute', left: 0, bottom: fontPx * 1.1 - overlapPx, width: sigW, height: sigH }} />
-                              )}
-                              <div style={{ fontWeight: 700 }}>{fb.name || "[Advocate name]"}</div>
-                            </div>
-                            {fbLines.map((line, li) => (
-                              <div key={li} style={{ whiteSpace: 'pre-line' }}>
-                                {line.map((part, pi) => (
-                                  <React.Fragment key={part.item.id}>
-                                    {pi > 0 && <span> | </span>}
-                                    <span style={partStyle(part.item, !realVals[part.item.id])}>{part.text}</span>
-                                  </React.Fragment>
-                                ))}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                {/* Advocate signature (CAT Filed-by, PDF path only) */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Advocate Signature</p>
-                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Beta</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">A transparent PNG placed above the advocate name in the Filed-by block of the generated paper-book.</p>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="oa-place-signature"
-                      checked={settings.oaPlaceSignatureInPaperbook}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, oaPlaceSignatureInPaperbook: e.target.checked }))}
-                      className="h-3.5 w-3.5 shrink-0 rounded border-gray-300"
+                  </SettingRow>
+                  <SettingRow label="Signature width">
+                    <Slider
+                      min={48}
+                      max={240}
+                      step={4}
+                      value={[settings.wpSignatureSizePx]}
+                      onValueChange={([v]) => setSettings((prev) => ({ ...prev, wpSignatureSizePx: v }))}
+                      className="w-[170px]"
                     />
-                    <Label htmlFor="oa-place-signature" className="cursor-pointer text-xs font-normal text-muted-foreground">Place the signature in the paper-book</Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="file"
-                      accept="image/png"
-                      className="text-xs"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                          const dataUrl = String(reader.result || "");
-                          const img = new Image();
-                          img.onload = () => setSettings((prev) => ({ ...prev, oaSignaturePng: dataUrl, oaSignatureW: img.naturalWidth, oaSignatureH: img.naturalHeight }));
-                          img.src = dataUrl;
-                        };
-                        reader.readAsDataURL(file);
-                      }}
-                    />
-                    {settings.oaSignaturePng && (
-                      <Button type="button" variant="ghost" size="sm" className="h-7 text-xs text-destructive" onClick={() => setSettings((prev) => ({ ...prev, oaSignaturePng: "", oaSignatureW: 0, oaSignatureH: 0 }))}>Remove</Button>
-                    )}
-                  </div>
-                  {settings.oaSignaturePng && (
-                    <div className="flex items-center gap-2">
-                      <Label className="text-xs text-muted-foreground">Width</Label>
-                      <Input
-                        type="number"
-                        min={24}
-                        max={400}
-                        value={settings.oaSignatureSizePx}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, oaSignatureSizePx: Math.min(400, Math.max(24, parseInt(e.target.value) || 120)) }))}
-                        className="h-7 w-20 text-xs"
+                    <span className="text-xs font-semibold tabular-nums">{settings.wpSignatureSizePx}&nbsp;px</span>
+                  </SettingRow>
+                  {settings.wpSignaturePng && settings.wpSignatureW > 0 && (
+                    <div className="flex items-center justify-center rounded border bg-white p-2">
+                      <img
+                        src={settings.wpSignaturePng}
+                        alt="signature size preview"
+                        style={{
+                          width: settings.wpSignatureSizePx,
+                          height: settings.wpSignatureSizePx * (settings.wpSignatureH / settings.wpSignatureW),
+                        }}
                       />
-                      <span className="text-xs text-muted-foreground">px</span>
                     </div>
                   )}
-                </div>
+                  <CheckRow
+                    id="wp-place-signature"
+                    disabled={!settings.wpSignaturePng}
+                    checked={settings.wpPlaceSignatureInPaperbook}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, wpPlaceSignatureInPaperbook: v }))}
+                    label={'Place the signature above the advocate name in every "Filed by" block'}
+                  />
+                  <SignatureLiabilityNote />
+                </SettingsGroup>
 
-                {/* Paperbook stamps (CAT): annexure labels, page numbers, True Copy */}
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Annexure Labels &amp; Page Numbers</p>
-                  <p className="text-xs text-muted-foreground">Stamped onto the paperbook during PDF generation. The annexure label appears on the first page of each annexure; page numbers on every numbered page. Stamps stay upright on rotated/scanned pages.</p>
-
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Stamp font</Label>
-                    <Select value={settings.oaStampFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, oaStampFont: v as SettingsData['oaStampFont'] }))}>
-                      <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                <SettingsGroup
+                  title="Annexure labels & page numbers"
+                  info={"Stamped onto the paperbook during PDF generation. The annexure label appears on the first page of each annexure; page numbers on every numbered page. Stamps stay upright on rotated or scanned pages.\n\nIn top-right mode the label uses the page number's margins and its own top margin is ignored."}
+                >
+                  <SettingRow label="Stamp font">
+                    <Select value={settings.wpStampFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, wpStampFont: v as SettingsData['wpStampFont'] }))}>
+                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="times" className="text-xs" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
                         <SelectItem value="helvetica" className="text-xs" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
                         <SelectItem value="courier" className="text-xs" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
                       </SelectContent>
                     </Select>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Page number size (pt)</Label>
-                      <Input type="number" min={8} max={48} step={1} value={settings.oaPageNumberSizePt} onChange={(e) => setSettings((prev) => ({ ...prev, oaPageNumberSizePt: Math.min(48, Math.max(8, parseFloat(e.target.value) || 20)) }))} className="h-7 text-xs" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Top margin (pt)</Label>
-                      <Input type="number" min={0} max={216} step={1} value={settings.oaPageNumberMarginTopPt} onChange={(e) => setSettings((prev) => ({ ...prev, oaPageNumberMarginTopPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Right margin (pt)</Label>
-                      <Input type="number" min={0} max={216} step={1} value={settings.oaPageNumberMarginRightPt} onChange={(e) => setSettings((prev) => ({ ...prev, oaPageNumberMarginRightPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Annexure label size (pt)</Label>
-                      <Input type="number" min={8} max={32} step={1} value={settings.oaAnnexureLabelSizePt} onChange={(e) => setSettings((prev) => ({ ...prev, oaAnnexureLabelSizePt: Math.min(32, Math.max(8, parseFloat(e.target.value) || 14)) }))} className="h-7 text-xs" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Label top margin (pt)</Label>
-                      <Input type="number" min={0} max={216} step={0.1} value={settings.oaAnnexureLabelMarginPt} onChange={(e) => setSettings((prev) => ({ ...prev, oaAnnexureLabelMarginPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Label position</Label>
-                      <Select value={settings.oaAnnexureLabelPosition} onValueChange={(v) => setSettings((prev) => ({ ...prev, oaAnnexureLabelPosition: v as SettingsData['oaAnnexureLabelPosition'] }))}>
-                        <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="center" className="text-xs">Top-centre</SelectItem>
-                          <SelectItem value="right" className="text-xs">Top-right (under the page number)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">In top-right mode the label uses the page number&rsquo;s margins and its own top margin is ignored.</p>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="wp-stamp-bg"
-                      checked={settings.oaStampBackground}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, oaStampBackground: e.target.checked }))}
-                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
-                    />
-                    <Label htmlFor="wp-stamp-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                      Add white background behind annexure labels and page numbers
-                    </Label>
-                  </div>
-
-                  {/* True Copy stamp */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <input
-                      type="checkbox"
-                      id="wp-place-truecopy"
-                      checked={settings.oaPlaceTrueCopyText}
-                      disabled={!settings.oaSignaturePng}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, oaPlaceTrueCopyText: e.target.checked }))}
-                      className="h-3.5 w-3.5 rounded border-gray-300 shrink-0 disabled:opacity-40"
-                    />
-                    <Label htmlFor="wp-place-truecopy" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                      Stamp &ldquo;True Copy&rdquo; with the advocate&rsquo;s signature on every annexure page{!settings.oaSignaturePng && " (upload a signature above first)"}
-                    </Label>
-                  </div>
-                  {settings.oaPlaceTrueCopyText && (
-                    <div className="space-y-3 pl-6 border-l border-border ml-1.5">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs text-muted-foreground">True Copy position</Label>
-                        <RadioGroup
-                          value={settings.oaTrueCopyPosition}
-                          onValueChange={(value) => setSettings((prev) => ({ ...prev, oaTrueCopyPosition: value as SettingsData['oaTrueCopyPosition'] }))}
-                          className="flex gap-4 pt-0.5"
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <RadioGroupItem value="left" id="wp-truecopy-left" />
-                            <Label htmlFor="wp-truecopy-left" className="text-xs font-normal cursor-pointer">Bottom-left</Label>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <RadioGroupItem value="center" id="wp-truecopy-center" />
-                            <Label htmlFor="wp-truecopy-center" className="text-xs font-normal cursor-pointer">Bottom-centre</Label>
-                          </div>
-                        </RadioGroup>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          id="wp-truecopy-bg"
-                          checked={settings.oaTrueCopyBackground}
-                          onChange={(e) => setSettings((prev) => ({ ...prev, oaTrueCopyBackground: e.target.checked }))}
-                          className="h-3.5 w-3.5 rounded border-gray-300 shrink-0"
+                  </SettingRow>
+                  <SettingRow label="Page number size">
+                    {numField('wpPageNumberSizePt', { min: 8, max: 48, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                  <SettingRow label="Page number margins">
+                    <Unit>Top</Unit>
+                    {numField('wpPageNumberMarginTopPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                    <Unit>Right</Unit>
+                    {numField('wpPageNumberMarginRightPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                  <SettingRow label="Annexure label size">
+                    {numField('wpAnnexureLabelSizePt', { min: 8, max: 32, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                  <SettingRow label="Label position">
+                    <Select value={settings.wpAnnexureLabelPosition} onValueChange={(v) => setSettings((prev) => ({ ...prev, wpAnnexureLabelPosition: v as SettingsData['wpAnnexureLabelPosition'] }))}>
+                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="center" className="text-xs">Top-centre</SelectItem>
+                        <SelectItem value="right" className="text-xs">Top-right (under the page number)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow label="Label top margin">
+                    {numField('wpAnnexureLabelMarginPt', { min: 0, max: 216, step: 0.1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                  <CheckRow
+                    id="wp-stamp-bg"
+                    checked={settings.wpStampBackground}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, wpStampBackground: v }))}
+                    label="White background behind annexure labels and page numbers"
+                  />
+                  <CheckRow
+                    id="wp-place-truecopy"
+                    disabled={!settings.wpSignaturePng}
+                    checked={settings.wpPlaceTrueCopyText}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, wpPlaceTrueCopyText: v }))}
+                    label={`Stamp "True Copy" with the advocate's signature on every annexure page${!settings.wpSignaturePng ? " (upload a signature first)" : ""}`}
+                  />
+                  {settings.wpPlaceTrueCopyText && (
+                    <div className="ml-1.5 space-y-1 border-l pl-4">
+                      <SettingRow label="True Copy position">
+                        <SegGroup
+                          value={settings.wpTrueCopyPosition}
+                          onChange={(v) => setSettings((prev) => ({ ...prev, wpTrueCopyPosition: v as SettingsData['wpTrueCopyPosition'] }))}
+                          options={[{ value: 'left', label: 'Bottom-left' }, { value: 'center', label: 'Bottom-centre' }]}
                         />
-                        <Label htmlFor="wp-truecopy-bg" className="text-xs font-normal cursor-pointer text-muted-foreground">
-                          Add white background behind the True Copy stamp
-                        </Label>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Horizontal margin (pt)</Label>
-                          <Input type="number" min={0} max={216} step={1} value={settings.oaTrueCopyMarginXPt} onChange={(e) => setSettings((prev) => ({ ...prev, oaTrueCopyMarginXPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Bottom margin (pt)</Label>
-                          <Input type="number" min={0} max={216} step={1} value={settings.oaTrueCopyMarginBottomPt} onChange={(e) => setSettings((prev) => ({ ...prev, oaTrueCopyMarginBottomPt: Math.min(216, Math.max(0, parseFloat(e.target.value) || 0)) }))} className="h-7 text-xs" />
-                        </div>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground">The True Copy signature renders at half the configured signature width. In bottom-centre mode the horizontal margin is ignored.</p>
+                      </SettingRow>
+                      <SettingRow
+                        label="True Copy margins"
+                        info="The True Copy signature renders at half the configured signature width. In bottom-centre mode the horizontal margin is ignored."
+                      >
+                        <Unit>Horizontal</Unit>
+                        {numField('wpTrueCopyMarginXPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                        <Unit>Bottom</Unit>
+                        {numField('wpTrueCopyMarginBottomPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                        <Unit>pt</Unit>
+                      </SettingRow>
+                      <CheckRow
+                        id="wp-truecopy-bg"
+                        checked={settings.wpTrueCopyBackground}
+                        onChange={(v) => setSettings((prev) => ({ ...prev, wpTrueCopyBackground: v }))}
+                        label="White background behind the True Copy stamp"
+                      />
                     </div>
                   )}
-                </div>
+                </SettingsGroup>
 
-
-
-                {/* Last Page behaviour */}
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Last Page</p>
-                  <div className="flex items-start gap-2">
-                    <input
-                      type="checkbox"
-                      id="oa-force-lastpage"
-                      checked={settings.oaForceLastPageBreak}
-                      onChange={(e) => setSettings((prev) => ({ ...prev, oaForceLastPageBreak: e.target.checked }))}
-                      className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-gray-300"
+                <SettingsGroup
+                  title={'"Filed by" table layout'}
+                  info={"The left column carries Filed on / Place; the advocate details take the rest.\n\nIn the list below, the arrows reorder the details, B / I / U style them, and \"| next\" keeps an item on the same line as the one under it, separated by \" | \".\n\nThe preview approximates the docx output, including the signature at its configured size."}
+                >
+                  <SettingRow label="Left column width">
+                    <Slider
+                      min={10}
+                      max={70}
+                      step={1}
+                      value={[settings.wpFiledByLeftPct]}
+                      onValueChange={([v]) => setSettings((prev) => ({ ...prev, wpFiledByLeftPct: v }))}
+                      className="w-[170px]"
                     />
-                    <Label htmlFor="oa-force-lastpage" className="cursor-pointer text-xs font-normal text-muted-foreground">
-                      Start the Last Page on a fresh page (page break after Para 9)
-                    </Label>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground">
-                    On: Paras 10–12, the Filed-by block and the Verification always begin a new page, so last pages signed in advance drop into the paper-book at a clean boundary. Off: the paragraphs flow on from Para 9. Where several Applicants sign, each additional last page always starts a fresh page.
-                  </p>
-                </div>
+                    <span className="text-xs font-semibold tabular-nums">{settings.wpFiledByLeftPct}% / {100 - settings.wpFiledByLeftPct}%</span>
+                  </SettingRow>
+                  {filedByDesigner(
+                    settings.wpFiledByLayout,
+                    (next) => setSettings((prev) => ({ ...prev, wpFiledByLayout: next })),
+                  )}
+                  {filedByPreview({
+                    leftPct: settings.wpFiledByLeftPct,
+                    layout: settings.wpFiledByLayout,
+                    filedBy: settings.wpFiledBy,
+                    signaturePng: settings.wpSignaturePng,
+                    signatureW: settings.wpSignatureW,
+                    signatureH: settings.wpSignatureH,
+                    signatureSizePx: settings.wpSignatureSizePx,
+                    placeSignature: settings.wpPlaceSignatureInPaperbook,
+                    font: settings.wpOutputFont,
+                    fontSizePt: settings.wpOutputFontSizePt,
+                    marginLeftIn: settings.wpMarginLeftIn,
+                    marginRightIn: settings.wpMarginRightIn,
+                  })}
+                </SettingsGroup>
 
-                {/* Page margins (CAT) */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Page margins</p>
-                  <p className="text-xs text-muted-foreground">Margins for every generated Original Application document, in inches. (Defaults: 1.5&quot; top/left, 1&quot; bottom/right — the top margin leaves room for the stamped page number.)</p>
-                  {marginInputs({ top: 'oaMarginTopIn', right: 'oaMarginRightIn', bottom: 'oaMarginBottomIn', left: 'oaMarginLeftIn' })}
-                </div>
+                <SettingsGroup
+                  title="Vakalatnama formatting"
+                  info="The vakalatnama uses its own smaller, tighter formatting so it fits on a single page. Defaults: 11 pt, single line spacing, 4 pt after each paragraph."
+                >
+                  <SettingRow label="Size & line spacing">
+                    {numField('wpVakFontSizePt', { min: 6, max: 24, step: 0.5, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                    {numField('wpVakLineSpacing', { min: 1, max: 3, step: 0.05, width: 'w-16' })}
+                    <Unit>lines</Unit>
+                  </SettingRow>
+                  <SettingRow label="Space after paragraph">
+                    {numField('wpVakParaSpacingPt', { min: 0, max: 36, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                </SettingsGroup>
 
-                {/* Output text formatting (CAT) */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Output text formatting</p>
-                  <p className="text-xs text-muted-foreground">Font, size and spacing applied to the body text of the generated Original Application. (Defaults: Times New Roman, 14&nbsp;pt, 1.5&nbsp;line spacing, 0&nbsp;pt before / 12&nbsp;pt after each paragraph.)</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="col-span-2 space-y-1">
-                      <Label className="text-xs text-muted-foreground">Font</Label>
-                      <Select value={settings.oaOutputFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, oaOutputFont: v }))}>
-                        <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                <SettingsGroup
+                  title="Page margins"
+                  info={"Margins for every generated writ-petition document. Defaults: 1.5\" top and left, 1\" bottom and right — the top margin leaves room for the stamped page number."}
+                >
+                  <SettingRow>
+                    {marginInputs({ top: 'wpMarginTopIn', right: 'wpMarginRightIn', bottom: 'wpMarginBottomIn', left: 'wpMarginLeftIn' })}
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Output text formatting"
+                  info="Body text of the generated writ petition. Defaults: Times New Roman, 14 pt, 1.5 line spacing, 0 pt before / 12 pt after each paragraph."
+                >
+                  <SettingRow label="Font">
+                    <Select value={settings.wpOutputFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, wpOutputFont: v }))}>
+                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {OUTPUT_FONTS.map((f) => (<SelectItem key={f} value={f} className="text-xs" style={{ fontFamily: f }}>{f}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow label="Size & line spacing">
+                    {numField('wpOutputFontSizePt', { min: 8, max: 24, step: 0.5, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                    <Select value={String(settings.wpOutputLineSpacing)} onValueChange={(v) => setSettings((prev) => ({ ...prev, wpOutputLineSpacing: parseFloat(v) }))}>
+                      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
+                        <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
+                        <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
+                        <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow label="Space around paragraphs">
+                    <Unit>Before</Unit>
+                    {numField('wpOutputParaBeforePt', { min: 0, max: 36, step: 1, width: 'w-16' })}
+                    <Unit>After</Unit>
+                    {numField('wpOutputParaAfterPt', { min: 0, max: 36, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Sub-paragraph numbering"
+                  info="First-level lettering for each section. Deeper levels follow a fixed cascade automatically."
+                >
+                  {([
+                    ["facts", "Facts"],
+                    ["grounds", "Grounds"],
+                    ["prayers", "Prayers"],
+                  ] as [keyof WpNumbering, string][]).map(([key, label]) => (
+                    <SettingRow key={String(key)} label={label}>
+                      <Select
+                        value={settings.wpNumbering?.[key] ?? DEFAULT_WP_NUMBERING[key]}
+                        onValueChange={(v) => setSettings((prev) => ({ ...prev, wpNumbering: { ...(prev.wpNumbering ?? DEFAULT_WP_NUMBERING), [key]: v as EnumStyle } }))}
+                      >
+                        <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {OUTPUT_FONTS.map((f) => (<SelectItem key={f} value={f} className="text-xs">{f}</SelectItem>))}
+                          {WP_NUMBER_STYLES.map((s) => (<SelectItem key={s.value} value={s.value} className="text-xs">{s.label}</SelectItem>))}
                         </SelectContent>
                       </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Font size (pt)</Label>
-                      <Input type="number" min={8} max={24} step={0.5} className="h-7 text-xs"
-                        value={settings.oaOutputFontSizePt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, oaOutputFontSizePt: Math.min(24, Math.max(8, parseFloat(e.target.value) || 14)) }))} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Line spacing</Label>
-                      <Input type="number" min={1} max={3} step={0.05} className="h-7 text-xs"
-                        value={settings.oaOutputLineSpacing}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, oaOutputLineSpacing: Math.min(3, Math.max(1, parseFloat(e.target.value) || 1.5)) }))} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Before para (pt)</Label>
-                      <Input type="number" min={0} max={36} step={1} className="h-7 text-xs"
-                        value={settings.oaOutputParaBeforePt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, oaOutputParaBeforePt: Math.min(36, Math.max(0, parseFloat(e.target.value) || 0)) }))} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">After para (pt)</Label>
-                      <Input type="number" min={0} max={36} step={1} className="h-7 text-xs"
-                        value={settings.oaOutputParaAfterPt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, oaOutputParaAfterPt: Math.min(36, Math.max(0, parseFloat(e.target.value) || 12)) }))} />
-                    </div>
-                  </div>
-                </div>
+                    </SettingRow>
+                  ))}
+                </SettingsGroup>
 
-                {/* Vakalatnama formatting */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Vakalatnama formatting</p>
-                  <p className="text-xs text-muted-foreground">The vakalatnama uses its own smaller, tighter formatting so it fits on a single page. (Defaults: 11&nbsp;pt, single line spacing, 4&nbsp;pt after each paragraph.)</p>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Font size (pt)</Label>
-                      <Input type="number" min={6} max={24} step={0.5} className="h-7 text-xs"
-                        value={settings.oaVakFontSizePt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, oaVakFontSizePt: Math.min(24, Math.max(6, parseFloat(e.target.value) || 11)) }))} />
+              </div>
+            )}
+
+
+            {/* ── ORIGINAL APPLICATION (CAT) ── */}
+            {selectedSection === 'oa' && (
+              <div className="space-y-4">
+
+                <SettingsGroup
+                  title="Bench"
+                  info={"The Tribunal Bench printed in the OA header, and used for \"Registrar, <Bench>\" references."}
+                >
+                  <SettingRow label="Bench">
+                    <select
+                      value={settings.oaBench || DEFAULT_OA_BENCH}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, oaBench: e.target.value }))}
+                      className="h-7 w-full max-w-[320px] rounded-md border bg-background px-2 text-xs"
+                    >
+                      {(["Regular", "Circuit"] as const).map((group) => (
+                        <optgroup key={group} label={group === "Regular" ? "Regular Benches" : "Circuit Benches"}>
+                          {OA_BENCHES.filter((b) => b.group === group).map((b) => (
+                            <option key={b.value} value={b.value}>{b.header}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title={'Advocate details ("Filed by")'}
+                  info={"Pre-filled into the \"Filed by\" block of every new Original Application. Per-case edits override these."}
+                >
+                  {filedByFields(
+                    settings.oaFiledBy ?? DEFAULT_WP_FILED_BY,
+                    (patch) => setSettings((prev) => ({ ...prev, oaFiledBy: { ...(prev.oaFiledBy ?? DEFAULT_WP_FILED_BY), ...patch } })),
+                  )}
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Advocate signature"
+                  beta
+                  info={"Placed above the advocate's name in the \"Filed by\" block of the generated paper-book. Applied during PDF generation only.\n\nPro-tip: use a PNG with a transparent background and minimal white margins."}
+                >
+                  <SettingRow label="Signature (PNG)">
+                    {signatureSlot({
+                      png: settings.oaSignaturePng,
+                      inputRef: oaSignatureInputRef,
+                      onUpload: handleOaSignatureUpload,
+                      onRemove: () => setSettings((prev) => ({ ...prev, oaSignaturePng: "", oaSignatureW: 0, oaSignatureH: 0 })),
+                    })}
+                  </SettingRow>
+                  <SettingRow label="Signature width">
+                    {numField('oaSignatureSizePx', { min: 24, max: 400, step: 1, int: true, width: 'w-20' })}
+                    <Unit>px</Unit>
+                  </SettingRow>
+                  <CheckRow
+                    id="oa-place-signature"
+                    checked={settings.oaPlaceSignatureInPaperbook}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, oaPlaceSignatureInPaperbook: v }))}
+                    label="Place the signature in the paper-book"
+                  />
+                  <SignatureLiabilityNote />
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Annexure labels & page numbers"
+                  info={"Stamped onto the paperbook during PDF generation. The annexure label appears on the first page of each annexure; page numbers on every numbered page. Stamps stay upright on rotated or scanned pages.\n\nIn top-right mode the label uses the page number's margins and its own top margin is ignored."}
+                >
+                  <SettingRow label="Stamp font">
+                    <Select value={settings.oaStampFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, oaStampFont: v as SettingsData['oaStampFont'] }))}>
+                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="times" className="text-xs" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
+                        <SelectItem value="helvetica" className="text-xs" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
+                        <SelectItem value="courier" className="text-xs" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow label="Page number size">
+                    {numField('oaPageNumberSizePt', { min: 8, max: 48, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                  <SettingRow label="Page number margins">
+                    <Unit>Top</Unit>
+                    {numField('oaPageNumberMarginTopPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                    <Unit>Right</Unit>
+                    {numField('oaPageNumberMarginRightPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                  <SettingRow label="Annexure label size">
+                    {numField('oaAnnexureLabelSizePt', { min: 8, max: 32, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                  <SettingRow label="Label position">
+                    <Select value={settings.oaAnnexureLabelPosition} onValueChange={(v) => setSettings((prev) => ({ ...prev, oaAnnexureLabelPosition: v as SettingsData['oaAnnexureLabelPosition'] }))}>
+                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="center" className="text-xs">Top-centre</SelectItem>
+                        <SelectItem value="right" className="text-xs">Top-right (under the page number)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow label="Label top margin">
+                    {numField('oaAnnexureLabelMarginPt', { min: 0, max: 216, step: 0.1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                  <CheckRow
+                    id="oa-stamp-bg"
+                    checked={settings.oaStampBackground}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, oaStampBackground: v }))}
+                    label="White background behind annexure labels and page numbers"
+                  />
+                  <CheckRow
+                    id="oa-place-truecopy"
+                    disabled={!settings.oaSignaturePng}
+                    checked={settings.oaPlaceTrueCopyText}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, oaPlaceTrueCopyText: v }))}
+                    label={`Stamp "True Copy" with the advocate's signature on every annexure page${!settings.oaSignaturePng ? " (upload a signature first)" : ""}`}
+                  />
+                  {settings.oaPlaceTrueCopyText && (
+                    <div className="ml-1.5 space-y-1 border-l pl-4">
+                      <SettingRow label="True Copy position">
+                        <SegGroup
+                          value={settings.oaTrueCopyPosition}
+                          onChange={(v) => setSettings((prev) => ({ ...prev, oaTrueCopyPosition: v as SettingsData['oaTrueCopyPosition'] }))}
+                          options={[{ value: 'left', label: 'Bottom-left' }, { value: 'center', label: 'Bottom-centre' }]}
+                        />
+                      </SettingRow>
+                      <SettingRow
+                        label="True Copy margins"
+                        info="The True Copy signature renders at half the configured signature width. In bottom-centre mode the horizontal margin is ignored."
+                      >
+                        <Unit>Horizontal</Unit>
+                        {numField('oaTrueCopyMarginXPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                        <Unit>Bottom</Unit>
+                        {numField('oaTrueCopyMarginBottomPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                        <Unit>pt</Unit>
+                      </SettingRow>
+                      <CheckRow
+                        id="oa-truecopy-bg"
+                        checked={settings.oaTrueCopyBackground}
+                        onChange={(v) => setSettings((prev) => ({ ...prev, oaTrueCopyBackground: v }))}
+                        label="White background behind the True Copy stamp"
+                      />
                     </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">Line spacing</Label>
-                      <Input type="number" min={1} max={3} step={0.05} className="h-7 text-xs"
-                        value={settings.oaVakLineSpacing}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, oaVakLineSpacing: Math.min(3, Math.max(1, parseFloat(e.target.value) || 1)) }))} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">After para (pt)</Label>
-                      <Input type="number" min={0} max={36} step={1} className="h-7 text-xs"
-                        value={settings.oaVakParaSpacingPt}
-                        onChange={(e) => setSettings((prev) => ({ ...prev, oaVakParaSpacingPt: Math.min(36, Math.max(0, parseFloat(e.target.value) || 0)) }))} />
-                    </div>
-                  </div>
-                </div>
+                  )}
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title={'"Filed by" table layout'}
+                  info={"The left column carries Filed on / Place; the advocate details take the rest.\n\nIn the list below, the arrows reorder the details, B / I / U style them, and \"| next\" keeps an item on the same line as the one under it, separated by \" | \".\n\nThe preview approximates the docx output, including the signature at its configured size."}
+                >
+                  <SettingRow label="Left column width">
+                    <Slider
+                      min={10}
+                      max={70}
+                      step={1}
+                      value={[settings.oaFiledByLeftPct]}
+                      onValueChange={([v]) => setSettings((prev) => ({ ...prev, oaFiledByLeftPct: v }))}
+                      className="w-[170px]"
+                    />
+                    <span className="text-xs font-semibold tabular-nums">{settings.oaFiledByLeftPct}% / {100 - settings.oaFiledByLeftPct}%</span>
+                  </SettingRow>
+                  {filedByDesigner(
+                    settings.oaFiledByLayout,
+                    (next) => setSettings((prev) => ({ ...prev, oaFiledByLayout: next })),
+                  )}
+                  {filedByPreview({
+                    leftPct: settings.oaFiledByLeftPct,
+                    layout: settings.oaFiledByLayout,
+                    filedBy: settings.oaFiledBy,
+                    signaturePng: settings.oaSignaturePng,
+                    signatureW: settings.oaSignatureW,
+                    signatureH: settings.oaSignatureH,
+                    signatureSizePx: settings.oaSignatureSizePx,
+                    placeSignature: settings.oaPlaceSignatureInPaperbook,
+                    font: settings.oaOutputFont,
+                    fontSizePt: settings.oaOutputFontSizePt,
+                    marginLeftIn: settings.oaMarginLeftIn,
+                    marginRightIn: settings.oaMarginRightIn,
+                  })}
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Last page"
+                  info={"On: Paras 10–12, the Filed-by block and the Verification always begin a new page, so last pages signed in advance drop into the paper-book at a clean boundary.\n\nOff: the paragraphs flow on from Para 9.\n\nWhere several Applicants sign, each additional last page always starts a fresh page."}
+                >
+                  <CheckRow
+                    id="oa-force-lastpage"
+                    checked={settings.oaForceLastPageBreak}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, oaForceLastPageBreak: v }))}
+                    label="Start the Last Page on a fresh page (page break after Para 9)"
+                  />
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Page margins"
+                  info={"Margins for every generated Original Application document. Defaults: 1.5\" top and left, 1\" bottom and right — the top margin leaves room for the stamped page number."}
+                >
+                  <SettingRow>
+                    {marginInputs({ top: 'oaMarginTopIn', right: 'oaMarginRightIn', bottom: 'oaMarginBottomIn', left: 'oaMarginLeftIn' })}
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Output text formatting"
+                  info="Body text of the generated Original Application. Defaults: Times New Roman, 14 pt, 1.5 line spacing, 0 pt before / 12 pt after each paragraph."
+                >
+                  <SettingRow label="Font">
+                    <Select value={settings.oaOutputFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, oaOutputFont: v }))}>
+                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {OUTPUT_FONTS.map((f) => (<SelectItem key={f} value={f} className="text-xs" style={{ fontFamily: f }}>{f}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow label="Size & line spacing">
+                    {numField('oaOutputFontSizePt', { min: 8, max: 24, step: 0.5, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                    {numField('oaOutputLineSpacing', { min: 1, max: 3, step: 0.05, width: 'w-16' })}
+                    <Unit>lines</Unit>
+                  </SettingRow>
+                  <SettingRow label="Space around paragraphs">
+                    <Unit>Before</Unit>
+                    {numField('oaOutputParaBeforePt', { min: 0, max: 36, step: 1, width: 'w-16' })}
+                    <Unit>After</Unit>
+                    {numField('oaOutputParaAfterPt', { min: 0, max: 36, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Vakalatnama formatting"
+                  info="The vakalatnama uses its own smaller, tighter formatting so it fits on a single page. Defaults: 11 pt, single line spacing, 4 pt after each paragraph."
+                >
+                  <SettingRow label="Size & line spacing">
+                    {numField('oaVakFontSizePt', { min: 6, max: 24, step: 0.5, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                    {numField('oaVakLineSpacing', { min: 1, max: 3, step: 0.05, width: 'w-16' })}
+                    <Unit>lines</Unit>
+                  </SettingRow>
+                  <SettingRow label="Space after paragraph">
+                    {numField('oaVakParaSpacingPt', { min: 0, max: 36, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                </SettingsGroup>
 
               </div>
             )}
@@ -3160,34 +2687,79 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
             {/* ── SUPPORT ── */}
             {selectedSection === 'support' && (
               <div className="space-y-4">
-                {/* Usage counts */}
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Your Usage</p>
-                  <div className="flex items-center gap-2 p-2.5 rounded-md bg-muted/40 border">
-                    <span className="text-xs tabular-nums font-semibold">{usageCounts === null ? "…" : usageCounts.paperbooksGenerated}</span>
-                    <span className="text-xs text-muted-foreground">Paperbooks (PDFs),</span>
-                    <span className="text-xs tabular-nums font-semibold">{usageCounts === null ? "…" : usageCounts.docxGenerated}</span>
-                    <span className="text-xs text-muted-foreground">Drafts (Docx)</span>
-                  </div>
-                </div>
+                <SettingsGroup title="About">
+                  <SettingRow label="Version">
+                    <span className="text-xs font-semibold tabular-nums">{__APP_VERSION__}</span>
+                    {import.meta.env.DEV && <Unit>(dev build)</Unit>}
+                  </SettingRow>
+                </SettingsGroup>
 
-                {/* Devices / seats */}
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Devices</p>
-                  <div className="p-2.5 rounded-md bg-muted/40 border">
-                    <ManageDevices compact />
-                  </div>
-                </div>
+                {/* Subscription — plan + status, straight from the entitlement layer */}
+                <SettingsGroup
+                  title="Subscription"
+                  info={"Your plan sets how many courts you may hold; which ones is your own choice. Status comes from the last successful check with the billing server, so it can lag a payment by a few minutes — use Re-check after paying.\n\nRead-only means you can still open and read your projects, but not edit them or generate anything."}
+                >
+                  {!ENTITLEMENT_ENABLED ? (
+                    <SettingRow label="Plan">
+                      <span className="text-xs text-muted-foreground">Not enforced in this build.</span>
+                    </SettingRow>
+                  ) : (
+                    <>
+                      <SettingRow label="Plan">
+                        <span className="text-xs font-medium">
+                          {entLoading ? "Checking…" : planLabel(entitlement.plan)}
+                        </span>
+                        {!entLoading && <EntitlementChip reason={entitlement.reason} />}
+                      </SettingRow>
+                      <SettingRow label="Courts covered">
+                        <span className="text-xs text-muted-foreground">
+                          {entLoading
+                            ? "…"
+                            : entitlement.forums.length > 0
+                              ? entitlement.forums.map((f) => FORUM_LABEL[f]).join(" · ")
+                              : "None"}
+                        </span>
+                      </SettingRow>
+                      {entitlement.fromCache && (
+                        <SettingRow label="">
+                          <span className="text-[11px] text-muted-foreground">
+                            Shown from the last check — Drafto could not reach the billing server.
+                          </span>
+                        </SettingRow>
+                      )}
+                      <SettingRow label="">
+                        <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={openManageSubscription}>
+                          <ExternalLink className="h-3.5 w-3.5" /> Manage subscription
+                        </Button>
+                        <Button type="button" variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground" onClick={refreshEntitlement}>
+                          <RefreshCw className="h-3.5 w-3.5" /> Re-check
+                        </Button>
+                      </SettingRow>
+                    </>
+                  )}
+                </SettingsGroup>
 
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Updates</p>
+                <SettingsGroup title="Your usage">
+                  <SettingRow label="Paperbooks (PDF)">
+                    <span className="text-xs font-semibold tabular-nums">{usageCounts === null ? "…" : usageCounts.paperbooksGenerated}</span>
+                  </SettingRow>
+                  <SettingRow label="Drafts (DOCX)">
+                    <span className="text-xs font-semibold tabular-nums">{usageCounts === null ? "…" : usageCounts.docxGenerated}</span>
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup title="Devices">
+                  <ManageDevices compact />
+                </SettingsGroup>
+
+                <SettingsGroup title="Updates">
                   {updateStatus === 'idle' && (
-                    <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={handleUpdate}>
+                    <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={handleUpdate}>
                       <RefreshCw className="h-3.5 w-3.5" /> Check for Updates
                     </Button>
                   )}
                   {updateStatus === 'checking' && (
-                    <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5 text-xs" disabled>
+                    <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 text-xs" disabled>
                       <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking…
                     </Button>
                   )}
@@ -3202,7 +2774,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   {updateStatus === 'available' && (
                     <div className="flex flex-col gap-1.5">
                       <p className="text-xs text-muted-foreground">Version <span className="font-semibold">{updateVersion}</span> is available.</p>
-                      <Button type="button" size="sm" className="h-8 gap-1.5 text-xs w-fit" onClick={handleDownload}>
+                      <Button type="button" size="sm" className="h-7 w-fit gap-1.5 text-xs" onClick={handleDownload}>
                         <Download className="h-3.5 w-3.5" /> Download &amp; Install
                       </Button>
                     </div>
@@ -3210,15 +2782,15 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   {updateStatus === 'downloading' && (
                     <div className="space-y-1">
                       <p className="text-xs text-muted-foreground">Downloading update… {downloadPercent}%</p>
-                      <div className="h-1.5 w-48 rounded-full bg-muted overflow-hidden">
-                        <div className="h-full bg-primary rounded-full transition-all duration-300" style={{ width: `${downloadPercent}%` }} />
+                      <div className="h-1.5 w-48 overflow-hidden rounded-full bg-muted">
+                        <div className="h-full rounded-full bg-primary transition-all duration-300" style={{ width: `${downloadPercent}%` }} />
                       </div>
                     </div>
                   )}
                   {updateStatus === 'downloaded' && (
                     <div className="flex flex-col gap-1.5">
                       <p className="text-xs text-muted-foreground">Update ready. The app will restart to install.</p>
-                      <Button type="button" size="sm" className="h-8 gap-1.5 text-xs w-fit" onClick={handleInstall}>
+                      <Button type="button" size="sm" className="h-7 w-fit gap-1.5 text-xs" onClick={handleInstall}>
                         <RefreshCw className="h-3.5 w-3.5" /> Restart &amp; Install
                       </Button>
                     </div>
@@ -3232,36 +2804,34 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     </div>
                   )}
                   {updateStatus === 'dev' && (
-                    <p className="text-xs text-muted-foreground italic">Updates are not available in development mode.</p>
+                    <p className="text-xs italic text-muted-foreground">Updates are not available in development mode.</p>
                   )}
-                </div>
+                </SettingsGroup>
 
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Legal</p>
+                <SettingsGroup title="Legal">
                   <div className="flex flex-col gap-1">
                     <button
                       type="button"
                       onClick={() => setLicenseOpen(true)}
-                      className="text-xs text-left text-primary underline underline-offset-2 hover:opacity-80 w-fit"
+                      className="w-fit text-left text-xs text-primary underline underline-offset-2 hover:opacity-80"
                     >
                       Software License Agreement
                     </button>
                     <button
                       type="button"
                       onClick={() => setTermsOpen(true)}
-                      className="text-xs text-left text-primary underline underline-offset-2 hover:opacity-80 w-fit"
+                      className="w-fit text-left text-xs text-primary underline underline-offset-2 hover:opacity-80"
                     >
                       Terms &amp; Conditions
                     </button>
                   </div>
-                </div>
+                </SettingsGroup>
 
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Contact</p>
-                  <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={handleReachOut}>
+                <SettingsGroup title="Contact">
+                  <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={handleReachOut}>
                     <ExternalLink className="h-3.5 w-3.5" /> Reach Out
                   </Button>
-                </div>
+                </SettingsGroup>
               </div>
             )}
 
