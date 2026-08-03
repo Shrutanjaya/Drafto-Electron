@@ -50,6 +50,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { FormControl, FormField, FormItem } from "@/components/ui/form";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { pickFile } from "@/lib/utils/pick-file";
+import { format } from "date-fns";
 
 
 // ─── Pre-generation validation ─────────────────────────────────────────────
@@ -888,6 +889,41 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         }
     };
 
+    // ── Non-upload requirements ───────────────────────────────────────────────
+    // A few mandatory inputs aren't files: the Certified Copy Receipt's date, for
+    // instance, is typed in the Applications tab. These used to block the Go
+    // button without appearing anywhere in the list below, so the list looked
+    // complete while generation stayed locked. They now get a row of their own.
+    type DataRequirement = {
+        id: string;
+        label: string;          // shown in the list and in the Go tooltip
+        fix: string;            // where the user supplies it
+        value: string | null;   // the current value, once supplied
+        sectionKey: string;     // section this belongs to
+        afterId?: string;       // list row it sits under
+    };
+
+    const dataRequirements: DataRequirement[] = useMemo(() => {
+        const reqs: DataRequirement[] = [];
+        const cc = (mainFormValues as Partial<DraftoProject>).standardIas?.exemptionCertifiedCopy;
+        // Only when the exemption-from-certified-copy IA is included and the
+        // petitioner has applied — that's the case that puts the receipt (and its
+        // date) into the IA and the Annexure-A description.
+        if (cc?.active && cc?.hasApplied === 'yes') {
+            // Saved projects carry the date as a string, so re-parse before formatting.
+            const parsed = cc.receiptDate ? new Date(cc.receiptDate as any) : null;
+            reqs.push({
+                id: 'certified_copy_receipt_date',
+                label: 'Certified Copy Receipt: date of the receipt',
+                fix: 'Set in Applications tab',
+                value: parsed && !Number.isNaN(parsed.getTime()) ? format(parsed, 'dd.MM.yyyy') : null,
+                sectionKey: 'ias',
+                afterId: 'certified_copy_receipt',
+            });
+        }
+        return reqs;
+    }, [mainFormValues]);
+
     const getMissingUploads = () => {
         if (!watchedItems || watchedItems.length === 0) return [];
     
@@ -924,14 +960,11 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             })
             .map(item => item.label);
 
-        // Check for missing certified copy receipt date
-        if (
-            mainForm.getValues('standardIas.exemptionCertifiedCopy.active') &&
-            mainForm.getValues('standardIas.exemptionCertifiedCopy.hasApplied') === 'yes' &&
-            !mainForm.getValues('standardIas.exemptionCertifiedCopy.receiptDate')
-        ) {
-            missing.push('Certified Copy Receipt: Date not specified (set in IAs tab)');
-        }
+        // Non-file requirements (e.g. the Certified Copy Receipt date) block
+        // generation too, and are listed alongside the missing uploads.
+        dataRequirements
+            .filter(req => !req.value)
+            .forEach(req => missing.push(`${req.label} — ${req.fix.toLowerCase()}`));
 
         return missing;
     };
@@ -952,20 +985,37 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
     const itemStatus = (it: MergeItem): 'ready' | 'mandatory' | 'optional' =>
         mandatoryMissingSet.has(it.label) ? 'mandatory' : optionalMissingSet.has(it.label) ? 'optional' : 'ready';
     // Build ordered sections (preserving merge order — items are already in
-    // paperbook order, so this only inserts headers, never reorders).
-    const sections: { key: string; label: string; status: 'ready' | 'mandatory' | 'optional'; rows: { item: MergeItem; index: number }[] }[] = [];
+    // paperbook order, so this only inserts headers, never reorders). Rows are
+    // either an upload (a merge item) or a non-upload requirement.
+    type ListRow =
+        | { kind: 'item'; item: MergeItem; index: number }
+        | { kind: 'requirement'; req: DataRequirement };
+    const sections: { key: string; label: string; status: 'ready' | 'mandatory' | 'optional'; rows: ListRow[] }[] = [];
     watchedItems.forEach((item, index) => {
         if (!item) return;
         const { key, label } = sectionForId(item.id);
         let sec = sections.find((s) => s.key === key);
         if (!sec) { sec = { key, label, status: 'ready', rows: [] }; sections.push(sec); }
-        sec.rows.push({ item, index });
+        sec.rows.push({ kind: 'item', item, index });
     });
+    // Slot each non-upload requirement directly under the row it belongs to.
+    dataRequirements.forEach((req) => {
+        const sec = sections.find((s) => s.key === req.sectionKey);
+        if (!sec) return; // still surfaced in the Go tooltip
+        const anchor = req.afterId
+            ? sec.rows.findIndex((r) => r.kind === 'item' && r.item.id === req.afterId)
+            : -1;
+        const row: ListRow = { kind: 'requirement', req };
+        if (anchor >= 0) sec.rows.splice(anchor + 1, 0, row);
+        else sec.rows.push(row);
+    });
+    const rowStatus = (r: ListRow): 'ready' | 'mandatory' | 'optional' =>
+        r.kind === 'item' ? itemStatus(r.item) : r.req.value ? 'ready' : 'mandatory';
     for (const sec of sections) {
-        const statuses = sec.rows.map((r) => itemStatus(r.item));
+        const statuses = sec.rows.map(rowStatus);
         sec.status = statuses.includes('mandatory') ? 'mandatory' : statuses.includes('optional') ? 'optional' : 'ready';
     }
-    // Overall readiness for the header (mandatory count excludes the receipt-date note).
+    // Overall readiness for the header.
     const mandatoryCount = missingUploads.length;
     const optionalCount = optionalMissing.length;
     const overallStatus: 'ready' | 'mandatory' | 'optional' =
@@ -1032,7 +1082,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                         </TooltipTrigger>
                         <TooltipContent>
                             <div className="text-xs">
-                                <p className="font-bold">The following mandatory files are missing:</p>
+                                <p className="font-bold">The following mandatory items are missing:</p>
                                 <ul className="list-disc pl-4">
                                     {missingUploads.map(label => <li key={label}>{label}</li>)}
                                 </ul>
@@ -1063,7 +1113,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             )}>
                 <span className="font-medium">
                     {overallStatus === 'mandatory'
-                        ? `Not ready — ${mandatoryCount} upload${mandatoryCount === 1 ? '' : 's'} needed before you can generate.`
+                        ? `Not ready — ${mandatoryCount} item${mandatoryCount === 1 ? '' : 's'} needed before you can generate.`
                         : overallStatus === 'optional'
                             ? `Ready to generate — ${optionalCount} optional upload${optionalCount === 1 ? '' : 's'} still pending.`
                             : 'All set — ready to generate.'}
@@ -1103,7 +1153,34 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                                           </button>
                                         </TableCell>
                                       </TableRow>
-                                      {!collapsed && sec.rows.map(({ item, index }) => {
+                                      {!collapsed && sec.rows.map((row) => {
+                                    // Non-upload requirement (e.g. the receipt date): shown as a
+                                    // row so it can't block generation invisibly, with a pointer
+                                    // to the tab where it's filled in.
+                                    if (row.kind === 'requirement') {
+                                        const req = row.req;
+                                        return (
+                                            <TableRow key={req.id}>
+                                                <TableCell className="text-xs text-muted-foreground">—</TableCell>
+                                                <TableCell className="text-xs">{req.label}</TableCell>
+                                                <TableCell className="text-center">
+                                                    {req.value ? (
+                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400">
+                                                            <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
+                                                            {req.value}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400">
+                                                            <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                                                            {req.fix}
+                                                        </span>
+                                                    )}
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    }
+
+                                    const { item, index } = row;
                                     const currentItem = item;
 
                                     const isLocked = isLockedId(currentItem.id);
