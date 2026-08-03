@@ -160,3 +160,15 @@ export function getOaVakFormatting(): VakFormatting {
     afterPt: s.oaVakParaSpacingPt ?? d.afterPt,
   };
 }
+
+/**
+ * Whether the Last Page (Para 10 onwards) is forced onto a fresh page.
+ *
+ * On (default): a page break after Para 9, so pre-signed last pages drop into
+ * the paper-book at a clean page boundary. Off: the paragraphs simply flow on,
+ * which some users prefer.
+ */
+export function getOaForceLastPageBreak(): boolean {
+  const v = readSettings().oaForceLastPageBreak;
+  return v === undefined ? true : !!v;
+}

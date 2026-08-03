@@ -18,7 +18,7 @@ import { wpAnnexureOrder } from "@/lib/wp/wp-annexures";
 import { factsAnnexureSentenceHtml, inlineHtml } from "@/lib/wp/wp-facts";
 import { oaBench } from "@/lib/oa/oa-benches";
 import { getSettings } from "@/components/dialogs/settings-dialog";
-import { getOaFiledBy, getOaFiledByLayout, getOaFiledByLeftPct, getOaSignature, getOaMarginsIn, getOaOutputFormatting, getOaVakFormatting } from "@/lib/oa/oa-settings";
+import { getOaFiledBy, getOaFiledByLayout, getOaFiledByLeftPct, getOaSignature, getOaMarginsIn, getOaOutputFormatting, getOaVakFormatting, getOaForceLastPageBreak } from "@/lib/oa/oa-settings";
 
 type Child = Paragraph | Table;
 type OaMa = DraftoProject["oa"]["mas"][number];
@@ -331,7 +331,10 @@ function buildOaBody(project: DraftoProject, numbering: any[], mainRef: string):
 
 // Last page (Para 10 → Verification). `applicantIdx` marks it for a specific
 // applicant (multi-applicant signing); null = the sole/default deponent.
-function buildLastPage(project: DraftoProject, applicantIdx: number | null, numbering: any[]): Child[] {
+// `pageBreak` defaults to the Settings choice; standalone components pass false
+// because they already begin their own document.
+function buildLastPage(project: DraftoProject, applicantIdx: number | null, numbering: any[], opts?: { pageBreak?: boolean }): Child[] {
+  const wantBreak = opts?.pageBreak ?? getOaForceLastPageBreak();
   const d = deponentFor(project, applicantIdx ?? undefined);
   const year = new Date().getFullYear();
   // Its own numbering reference starting at 10, so every applicant's last page
@@ -339,7 +342,7 @@ function buildLastPage(project: DraftoProject, applicantIdx: number | null, numb
   const lastRef = newRef();
   numbering.push(decimalDef(lastRef, 10));
   return [
-    new Paragraph({ children: [new PageBreak()] }),
+    ...(wantBreak ? [new Paragraph({ children: [new PageBreak()] })] : []),
     ...oaPara(lastRef, "Application through Registered Post", "N.A.", numbering),
     ...oaPara(lastRef, "Particulars of postal orders in respect of the Application Fee", esc(project.oa.postalOrders?.trim() || ""), numbering),
     ...oaPara(lastRef, "List of Enclosures", "As mentioned in the Index.", numbering),
@@ -611,8 +614,15 @@ export async function generateOaAll(project: DraftoProject) {
   add(buildOaBody(project, numbering, mainRef)); // Paras 1–9 (Last Pages follow)
 
   const p = plurals(project);
-  if (p.multi) { for (let i = 0; i < p.count; i++) children.push(...buildLastPage(project, i, numbering)); }
-  else children.push(...buildLastPage(project, null, numbering));
+  // The first last page honours the Settings choice; any further per-applicant
+  // copies always start fresh, since each is a separate sheet to be signed.
+  if (p.multi) {
+    for (let i = 0; i < p.count; i++) {
+      children.push(...buildLastPage(project, i, numbering, i === 0 ? undefined : { pageBreak: true }));
+    }
+  } else {
+    children.push(...buildLastPage(project, null, numbering));
+  }
 
   add(buildOaVakalatnama(project, numbering));
   if (project.oa.signingMode === "authority") {
@@ -647,7 +657,7 @@ export async function generateOaBodyOnly(project: DraftoProject) {
 export async function generateOaLastPageDoc(project: DraftoProject, applicantIdx: number | null) {
   const numbering: any[] = [];
   // Drop the leading page break — as a standalone component it starts the page.
-  const children = buildLastPage(project, applicantIdx, numbering).slice(1);
+  const children = buildLastPage(project, applicantIdx, numbering, { pageBreak: false });
   return pack(oaDoc(children, numbering), "OA-LastPage.docx");
 }
 export async function generateOaMaDoc(project: DraftoProject, ma: OaMa, opts?: { includeAffidavit?: boolean }) {
@@ -694,11 +704,11 @@ export async function generateOaSigningPagesDoc(project: DraftoProject) {
   if (applicants.length > 1) {
     for (let i = 0; i < applicants.length; i++) {
       brk();
-      children.push(...buildLastPage(project, i, numbering).slice(1));
+      children.push(...buildLastPage(project, i, numbering, { pageBreak: false }));
     }
   } else {
     brk();
-    children.push(...buildLastPage(project, null, numbering).slice(1));
+    children.push(...buildLastPage(project, null, numbering, { pageBreak: false }));
   }
 
   brk();

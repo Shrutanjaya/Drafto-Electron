@@ -194,6 +194,8 @@ interface SettingsData {
   wpVakFontSizePt: number;
   wpVakLineSpacing: number;
   wpVakParaSpacingPt: number;
+  // CAT — force the Last Page (Para 10 onwards) onto a fresh page
+  oaForceLastPageBreak: boolean;
 }
 
 // Fonts offered for the output text formatting
@@ -534,6 +536,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     wpVakFontSizePt: 11,
     wpVakLineSpacing: 1,
     wpVakParaSpacingPt: 4,
+    oaForceLastPageBreak: true,
   });
 
   // Load settings from localStorage on mount
@@ -681,6 +684,8 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           wpVakFontSizePt: parsed.wpVakFontSizePt ?? 11,
           wpVakLineSpacing: parsed.wpVakLineSpacing ?? 1,
           wpVakParaSpacingPt: parsed.wpVakParaSpacingPt ?? 4,
+        oaForceLastPageBreak: parsed.oaForceLastPageBreak ?? true,
+          oaForceLastPageBreak: parsed.oaForceLastPageBreak ?? true,
         });
         applyUiFont(parsed.uiFont || DEFAULT_UI_FONT);
         applyUiFontSize(parsed.uiFontSize ?? DEFAULT_UI_FONT_SIZE);
@@ -3029,6 +3034,26 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
 
 
 
+                {/* Last Page behaviour */}
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Last Page</p>
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      id="oa-force-lastpage"
+                      checked={settings.oaForceLastPageBreak}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, oaForceLastPageBreak: e.target.checked }))}
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-gray-300"
+                    />
+                    <Label htmlFor="oa-force-lastpage" className="cursor-pointer text-xs font-normal text-muted-foreground">
+                      Start the Last Page on a fresh page (page break after Para 9)
+                    </Label>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    On: Paras 10–12, the Filed-by block and the Verification always begin a new page, so last pages signed in advance drop into the paper-book at a clean boundary. Off: the paragraphs flow on from Para 9. Where several Applicants sign, each additional last page always starts a fresh page.
+                  </p>
+                </div>
+
                 {/* Page margins (CAT) */}
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Page margins</p>
@@ -3422,6 +3447,7 @@ export function getSettings(): SettingsData {
     wpVakFontSizePt: 11,
     wpVakLineSpacing: 1,
     wpVakParaSpacingPt: 4,
+    oaForceLastPageBreak: true,
   };
 
   if (typeof window === "undefined") return defaults;
@@ -3569,6 +3595,7 @@ export function getSettings(): SettingsData {
         wpVakFontSizePt: parsed.wpVakFontSizePt ?? 11,
         wpVakLineSpacing: parsed.wpVakLineSpacing ?? 1,
         wpVakParaSpacingPt: parsed.wpVakParaSpacingPt ?? 4,
+        oaForceLastPageBreak: parsed.oaForceLastPageBreak ?? true,
       };
     } catch (err) {
       console.error("Failed to parse settings:", err);
