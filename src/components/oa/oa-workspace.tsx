@@ -26,12 +26,7 @@ import type { DraftoProject } from "@/lib/schema";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 import { oaBench } from "@/lib/oa/oa-benches";
 import { transposeLodToFacts, transposableLodIds, lodFingerprint, appendNewLodRowsToFacts } from "@/lib/wp/wp-facts";
-import { generateOaAll } from "@/lib/oa/oa-actions";
 import { oaMaSchema } from "@/lib/schema";
-import { useCanExport } from "@/providers/entitlement-provider";
-import { useToast } from "@/hooks/use-toast";
-import { getProjectFileName } from "@/components/header";
-import { saveAs } from "file-saver";
 
 const OA_RESIDUARY = "Pass such other/further orders as this Hon’ble Tribunal may deem fit and proper in the facts and circumstances of the case.";
 
@@ -100,8 +95,6 @@ function StylePicker({ name, options }: { name: any; options: { value: string; l
 export function OaWorkspace() {
   const form = useFormContext<DraftoProject>();
   const bench = oaBench(getSettings().oaBench);
-  const { toast } = useToast();
-  const canExport = useCanExport();
 
   const [section, setSection] = useState<OaSection>("synopsis");
   const [viewMode, setViewMode] = useState<"splitter" | "navigation">(getSettings().slpTabView ?? "splitter");
@@ -191,27 +184,6 @@ export function OaWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lod, factsLodIds]);
 
-  const generateOa = async () => {
-    if (!canExport) { toast({ variant: "destructive", title: "Subscription required", description: "Document generation is disabled because your subscription isn’t active." }); return; }
-    try {
-      const res = await generateOaAll(form.getValues());
-      if (!res.success || !res.docx) throw new Error("Generation failed");
-      if (window.electron?.saveDocx) {
-        const saved = await window.electron.saveDocx({
-          fileName: res.fileName,
-          content: res.docx,
-          defaultPath: getSettings().defaultDocxPath || undefined,
-          projectFolder: getProjectFileName(form.getValues()),
-        });
-        if (saved) { toast({ title: "OA generated", description: `Saved to ${saved}` }); return; }
-      }
-      const bytes = Uint8Array.from(atob(res.docx), (c) => c.charCodeAt(0));
-      saveAs(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }), res.fileName);
-      toast({ title: "OA generated", description: res.fileName });
-    } catch (e: any) {
-      toast({ variant: "destructive", title: "Generation failed", description: e?.message || String(e) });
-    }
-  };
 
   // ── Section editors ─────────────────────────────────────────────────────────
   const synopsisEditor = (
@@ -392,7 +364,6 @@ export function OaWorkspace() {
 
   const toolbar = (
     <div className="flex shrink-0 items-center gap-1">
-      <Button type="button" size="sm" className="mr-1 h-7 text-xs" onClick={generateOa} disabled={!canExport}>Generate OA (.docx)</Button>
       <div className="flex-grow" />
       <EditorToolbar />
       <ViewToggle mode={viewMode} onChange={setViewMode} />
