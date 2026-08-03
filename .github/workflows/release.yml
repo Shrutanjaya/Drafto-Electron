@@ -116,7 +116,25 @@ jobs:
         run: choco install tesseract --no-progress -y
 
       - name: Install LibreOffice (bundled as PDF-conversion fallback)
-        run: choco install libreoffice-fresh --no-progress -y
+        # The Document Foundation's download redirector intermittently refuses
+        # connections from the runners ("Unable to connect to the remote
+        # server"), which sank the whole v2.0.0 Windows build even though the
+        # file was there. Retry before giving up, as the Mac DMG step already
+        # does for its own flaky hdiutil.
+        shell: pwsh
+        run: |
+          for ($i = 1; $i -le 3; $i++) {
+            if ($i -eq 1) {
+              choco install libreoffice-fresh --no-progress -y
+            } else {
+              choco install libreoffice-fresh --no-progress -y --force
+            }
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Host "LibreOffice install attempt $i failed; retrying in 30s"
+            Start-Sleep -Seconds 30
+          }
+          Write-Host "LibreOffice install failed after 3 attempts"
+          exit 1
 
       - name: Bundle Python dependencies
         run: .\bundle-deps-win.ps1
