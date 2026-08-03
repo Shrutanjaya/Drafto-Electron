@@ -370,7 +370,9 @@ export const draftoProjectSchema = z.object({
     // for Transfer is triggered.
     jurisdictionPosted: z.boolean().default(false),
     jurisdictionPostedNote: z.string().default(""),
-    jurisdictionCause: z.boolean().default(false),
+    // Ticked by default: the cause of action arising within the Tribunal's
+    // jurisdiction is the usual basis, so a new OA starts with it asserted.
+    jurisdictionCause: z.boolean().default(true),
     jurisdictionCauseNote: z.string().default(""),
     // Para 3 Limitation
     // Para 3 Limitation. "abundantCaution" = no delay asserted, but a
