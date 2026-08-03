@@ -24,6 +24,7 @@ interface ModeOption {
   icon: typeof Scale;
   title: string;
   forum: string;
+  beta?: boolean;
 }
 
 const OPTIONS: ModeOption[] = [
@@ -38,14 +39,23 @@ const OPTIONS: ModeOption[] = [
     icon: Landmark,
     title: "Writ Petition",
     forum: "High Court of Delhi at New Delhi",
+    beta: true,
   },
   {
     courtType: "OriginalApplicationCAT",
     icon: Building2,
     title: "Original Application",
     forum: "Central Administrative Tribunal",
+    beta: true,
   },
 ];
+
+// Same chip as Mayur and Import tracked changes.
+const BetaChip = () => (
+  <span className="rounded bg-amber-100 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+    Beta
+  </span>
+);
 
 // Startup / "New Project" prompt: the user chooses what they want to draft.
 // Controlled open with no onOpenChange — a choice is required to dismiss, so the
@@ -100,6 +110,7 @@ export function ModeSelectDialog({ open, onSelect }: ModeSelectDialogProps) {
                   <span className="flex items-center gap-2 font-semibold">
                     <Icon className="h-4 w-4 shrink-0" />
                     {o.title}
+                    {o.beta && <BetaChip />}
                   </span>
                   <span className="text-xs font-normal text-muted-foreground">
                     {o.forum}
@@ -116,6 +127,7 @@ export function ModeSelectDialog({ open, onSelect }: ModeSelectDialogProps) {
                 <span className="flex items-center gap-2 font-semibold text-muted-foreground">
                   <Icon className="h-4 w-4 shrink-0" />
                   {o.title}
+                  {o.beta && <BetaChip />}
                 </span>
                 <span className="text-xs font-normal text-muted-foreground">
                   {o.forum}
