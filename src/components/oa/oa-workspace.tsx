@@ -430,7 +430,9 @@ export function OaWorkspace() {
         )} />
 
         {/* Multi-applicant signing. Only meaningful with several Applicants. */}
-        <div className="space-y-1.5 rounded-md border bg-muted/20 p-2.5">
+        {/* Neutral grey in both themes — the theme's --muted is blue-tinted in dark
+            mode, which made this card read as an active/selected panel. */}
+        <div className="space-y-1.5 rounded-md border border-neutral-200 bg-neutral-100/60 p-2.5 dark:border-neutral-700 dark:bg-neutral-800/40">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Signing {applicantCount <= 1 && <span className="font-normal normal-case">— applies once there is more than one Applicant</span>}
           </p>
