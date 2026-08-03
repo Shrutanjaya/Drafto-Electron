@@ -105,7 +105,6 @@ export function OaApplications() {
     writeMas(cur);
   };
   const petitioners = useWatch({ control: form.control, name: "petitioners" });
-  const signingMode = useWatch({ control: form.control, name: "oa.signingMode" });
   const applicantCount = (petitioners || []).filter((p: any) => p?.name?.trim()).length;
 
   const [selectedId, setSelectedId] = useState<string>("");
@@ -164,13 +163,6 @@ export function OaApplications() {
               <Button type="button" variant="ghost" size="sm" className="w-full justify-start text-xs text-muted-foreground hover:text-foreground" onClick={() => addKind("custom")}>
                 <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Custom application
               </Button>
-
-              {applicantCount > 1 && (
-                <>
-                  <NavSection label="Signing" hint="How the several Applicants sign the Last Page, Vakalatnama and the MA affidavits." />
-                  <ListRow label="Multi-applicant signing" active selected={selectedId === "__signing"} onClick={() => setSelectedId("__signing")} />
-                </>
-              )}
             </div>
           </ResizablePanel>
 
@@ -179,27 +171,8 @@ export function OaApplications() {
           {/* Right: detail */}
           <ResizablePanel defaultSize={68} minSize={45}>
             <div className="h-full overflow-auto p-3">
-              {selectedId === "__signing" ? (
-                <div className="space-y-3">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Multi-applicant signing</h4>
-                  <FormField control={form.control} name="oa.signingMode" render={({ field }) => (
-                    <RadioGroup value={field.value} onValueChange={field.onChange} className="gap-2">
-                      <div className="flex items-start gap-2"><RadioGroupItem value="each" id="sign-each" className="mt-0.5" /><Label htmlFor="sign-each" className="text-xs font-normal">Each Applicant signs the Last Page, the Vakalatnama and every MA Affidavit.</Label></div>
-                      <div className="flex items-start gap-2"><RadioGroupItem value="authority" id="sign-auth" className="mt-0.5" /><Label htmlFor="sign-auth" className="text-xs font-normal">Each Applicant signs the Last Page, the Vakalatnama and an Authority Letter; the MA Affidavits are signed only by the authorised Applicant.</Label></div>
-                    </RadioGroup>
-                  )} />
-                  {signingMode === "authority" && (
-                    <div className="flex items-center gap-2 text-xs">Authorised Applicant:
-                      <FormField control={form.control} name="oa.authorizedApplicant" render={({ field }) => (
-                        <Select value={String(field.value)} onValueChange={(v) => field.onChange(Number(v))}>
-                          <SelectTrigger className="h-7 w-[140px] px-2 text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>{Array.from({ length: applicantCount }).map((_, i) => <SelectItem key={i} value={String(i + 1)} className="text-xs">Applicant No. {i + 1}</SelectItem>)}</SelectContent>
-                        </Select>
-                      )} />
-                    </div>
-                  )}
-                </div>
-              ) : !ma ? (
+              {!ma ? (
+
                 <p className="text-xs italic text-muted-foreground">No applications yet. Add one from the left, or they appear automatically when triggered.</p>
               ) : (
                 <div className="space-y-3">

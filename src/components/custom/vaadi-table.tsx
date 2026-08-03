@@ -46,6 +46,9 @@ interface VaadiTableProps {
     // icon-only "add" button (no "Add Party" caption).
     throughPlaceholder?: string;
     compactAdd?: boolean;
+    // CAT: each Applicant signs their own last page / vakalatnama / affidavit,
+    // so each needs their own deponent particulars.
+    showDeponentDetails?: boolean;
 }
 
 // Auto-growing single-field cell. The field name is shown as in-field preview
@@ -90,6 +93,7 @@ const SortableCard = ({
   showPosition = true,
   showThrough = false,
   throughPlaceholder,
+  showDeponentDetails = false,
 }: {
   id: string;
   index: number;
@@ -98,6 +102,7 @@ const SortableCard = ({
   showPosition?: boolean;
   showThrough?: boolean;
   throughPlaceholder?: string;
+  showDeponentDetails?: boolean;
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const style = {
@@ -141,6 +146,13 @@ const SortableCard = ({
         {showThrough && <PartyField name={`${name}.${index}.through`} label="Through (e.g. its Standing Counsel) — optional" placeholder={throughPlaceholder} />}
         <PartyField name={`${name}.${index}.address`} label="Address" />
         {showPosition && <PartyField name={`${name}.${index}.positionInEarlierCourt`} label="Position in the Court Below" />}
+        {showDeponentDetails && (
+          <div className="grid grid-cols-3 gap-1.5">
+            <PartyField name={`${name}.${index}.relationship`} label="son of / daughter of / wife of" />
+            <PartyField name={`${name}.${index}.fatherName`} label="Father's / Spouse's name" />
+            <PartyField name={`${name}.${index}.age`} label="Age" />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -155,7 +167,7 @@ const ClientSideDnd = ({ children }: { children: React.ReactNode }) => {
   return isClient ? <>{children}</> : null;
 };
 
-export function VaadiTable({ name, disabled = false, showPosition = true, showThrough = false, throughPlaceholder, compactAdd = false }: VaadiTableProps) {
+export function VaadiTable({ name, disabled = false, showPosition = true, showThrough = false, throughPlaceholder, compactAdd = false, showDeponentDetails = false }: VaadiTableProps) {
   const form = useFormContext<DraftoProject>()
   const { fields, append, remove, move } = useFieldArray({
     control: form.control,
@@ -200,6 +212,7 @@ export function VaadiTable({ name, disabled = false, showPosition = true, showTh
                     showPosition={showPosition}
                     showThrough={showThrough}
                     throughPlaceholder={throughPlaceholder}
+                    showDeponentDetails={showDeponentDetails}
                   />
                 ))}
               </div>

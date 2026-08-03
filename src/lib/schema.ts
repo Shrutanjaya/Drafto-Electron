@@ -89,6 +89,11 @@ export const vaadiTableItemSchema = z.object({
   name: z.string().default(""),
   address: z.string().default(""),
   positionInEarlierCourt: z.string().default(""),
+  // CAT: each Applicant signs their own last page / vakalatnama / affidavit, so
+  // each needs their own deponent particulars. Ignored by SLP and WP.
+  relationship: z.string().default(""),
+  fatherName: z.string().default(""),
+  age: z.string().default(""),
   // Service designation shown in the WP Memo of Parties (e.g. "Through its
   // Standing Counsel", "Through the Secretary, Ministry of …"). SLP ignores it.
   through: z.string().default(""),
@@ -401,8 +406,12 @@ export const draftoProjectSchema = z.object({
       email: z.string().default(""),
       phone: z.string().default(""),
     }).default({}),
-    // Multi-applicant signing: each applicant signs their own set, or authorises
-    // one applicant to swear the MA affidavits.
+    // Multi-applicant signing. All default ON and only apply when there is more
+    // than one Applicant. (signingMode/authorizedApplicant are the superseded
+    // predecessors of `authorityLetters`, retained so older projects still parse.)
+    authorityLetters: z.boolean().default(true),      // Applicants 2+ authorise Applicant No. 1
+    separateLastPages: z.boolean().default(true),     // one last page each
+    separateVakalatnamas: z.boolean().default(true),  // one vakalatnama each
     signingMode: z.enum(["each", "authority"]).default("each"),
     authorizedApplicant: z.number().int().min(1).default(1),
     // Miscellaneous Applications + Petition for Transfer (user-ordered).

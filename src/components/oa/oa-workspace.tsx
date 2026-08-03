@@ -424,14 +424,38 @@ export function OaWorkspace() {
         <p className="text-xs text-muted-foreground">
           Before the Central Administrative Tribunal, <span className="font-medium">{bench.header}</span>. Change the Bench in Settings → Original Application.
         </p>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div><p className="mb-1 text-xs font-medium">Applicant(s)</p><VaadiTable name="petitioners" showPosition={false} showThrough throughPlaceholder={APPLICANT_THROUGH_PLACEHOLDER} compactAdd /></div>
-          <div><p className="mb-1 text-xs font-medium">Respondent(s)</p><VaadiTable name="respondents" showPosition={false} showThrough throughPlaceholder={APPLICANT_THROUGH_PLACEHOLDER} compactAdd /></div>
-        </div>
         <FormField control={form.control} name="oa.legalAid" render={({ field }) => (
           <div className="flex items-center gap-2"><Checkbox id="oa-legal-aid" checked={field.value} onCheckedChange={field.onChange} />
             <label htmlFor="oa-legal-aid" className="text-xs">Legal-aid case assigned by the Delhi State Legal Services Authority</label></div>
         )} />
+
+        {/* Multi-applicant signing. Only meaningful with several Applicants. */}
+        <div className="space-y-1.5 rounded-md border bg-muted/20 p-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Signing {applicantCount <= 1 && <span className="font-normal normal-case">— applies once there is more than one Applicant</span>}
+          </p>
+          {([
+            ["oa.authorityLetters", "oa-cb-auth", "Applicant No. 2 onwards will sign Authority Letters in favour of Applicant No. 1."],
+            ["oa.separateLastPages", "oa-cb-lastpage", "Each Applicant will sign a different Last Page."],
+            ["oa.separateVakalatnamas", "oa-cb-vak", "Each Applicant will sign a different Vakalatnama."],
+          ] as const).map(([name, id, label]) => (
+            <FormField key={id} control={form.control} name={name} render={({ field }) => (
+              <div className="flex items-start gap-2">
+                <Checkbox id={id} checked={field.value} onCheckedChange={field.onChange} disabled={applicantCount <= 1} className="mt-0.5" />
+                <label htmlFor={id} className={"text-xs leading-snug " + (applicantCount <= 1 ? "text-muted-foreground" : "")}>{label}</label>
+              </div>
+            )} />
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <p className="mb-1 text-xs font-medium">Applicant(s)</p>
+            <p className="mb-1 text-[11px] text-muted-foreground">Each Applicant’s own particulars are used on the last page, vakalatnama and affidavit they sign.</p>
+            <VaadiTable name="petitioners" showPosition={false} showThrough throughPlaceholder={APPLICANT_THROUGH_PLACEHOLDER} compactAdd showDeponentDetails />
+          </div>
+          <div><p className="mb-1 text-xs font-medium">Respondent(s)</p><VaadiTable name="respondents" showPosition={false} showThrough throughPlaceholder={APPLICANT_THROUGH_PLACEHOLDER} compactAdd /></div>
+        </div>
       </TabsContent>
 
       {/* ── Original Application body (Split / Nav) ── */}

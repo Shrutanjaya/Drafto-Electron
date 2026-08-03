@@ -231,10 +231,40 @@ function oaPrayersInline(project: DraftoProject): string {
 }
 
 // ── deponent / verification ──────────────────────────────────────────────────
+// Each Applicant signs their own last page / vakalatnama / affidavit, so each
+// carries their OWN particulars (from the Parties table), falling back to the
+// shared Deponent record when a field hasn't been filled in for them.
 function deponentFor(project: DraftoProject, applicantIdx?: number) {
   const d = project.deponent || ({} as any);
-  const name = applicantIdx != null ? (project.petitioners?.[applicantIdx]?.name?.trim() || `[Applicant No. ${applicantIdx + 1}]`) : (d.name?.trim() || project.petitioners?.[0]?.name?.trim() || "[Deponent]");
-  return { name, rel: d.relationship || "son of", father: d.fatherName || "____", age: d.age || "__", address: d.address || "____", place: d.location?.trim() || "____" };
+  const a: any = applicantIdx != null ? (project.petitioners?.[applicantIdx] || {}) : null;
+  // Own value first, then the shared Deponent record, then a blank to fill in.
+  const pick = (own: string | undefined, shared: string | undefined, blank: string) =>
+    own?.trim() || shared?.trim() || blank;
+  const name = a
+    ? (a.name?.trim() || `[Applicant No. ${applicantIdx! + 1}]`)
+    : (d.name?.trim() || project.petitioners?.[0]?.name?.trim() || "[Deponent]");
+  return {
+    name,
+    rel: (a?.relationship?.trim() || d.relationship || "son of"),
+    father: pick(a?.fatherName, d.fatherName, "____"),
+    age: pick(a?.age, d.age, "__"),
+    address: pick(a?.address, d.address, "____"),
+    place: d.location?.trim() || "____",
+  };
+}
+
+// Applicants with a name, and the signing flags (only meaningful when several).
+export function oaSigning(project: DraftoProject) {
+  const applicants = (project.petitioners || []).filter((p) => p.name?.trim());
+  const multi = applicants.length > 1;
+  return {
+    applicants,
+    count: applicants.length,
+    multi,
+    authorityLetters: multi && project.oa.authorityLetters !== false,
+    separateLastPages: !multi || project.oa.separateLastPages !== false,
+    separateVakalatnamas: multi && project.oa.separateVakalatnamas !== false,
+  };
 }
 // The shared deponent dropdown is worded for the Supreme Court ("Petitioner…").
 // Before a tribunal the same person is the Applicant.
@@ -342,7 +372,6 @@ function buildOaBody(project: DraftoProject, numbering: any[], mainRef: string):
 // because they already begin their own document.
 function buildLastPage(project: DraftoProject, applicantIdx: number | null, numbering: any[], opts?: { pageBreak?: boolean }): Child[] {
   const wantBreak = opts?.pageBreak ?? getOaForceLastPageBreak();
-  const d = deponentFor(project, applicantIdx ?? undefined);
   const year = new Date().getFullYear();
   // Its own numbering reference starting at 10, so every applicant's last page
   // restarts the count at 10 rather than continuing past 12.
@@ -353,12 +382,29 @@ function buildLastPage(project: DraftoProject, applicantIdx: number | null, numb
     ...oaPara(lastRef, "Application through Registered Post", "N.A.", numbering),
     ...oaPara(lastRef, "Particulars of postal orders in respect of the Application Fee", esc(project.oa.postalOrders?.trim() || ""), numbering),
     ...oaPara(lastRef, "List of Enclosures", "As mentioned in the Index.", numbering),
-    deponentLine(applicantIdx ?? undefined),
     ...oaFiledBy(project),
-    new Paragraph({ alignment: AlignmentType.LEFT, spacing: { before: 240 }, children: [smartTextRun({ text: "VERIFICATION", bold: true })] }),
-    new Paragraph({ alignment: AlignmentType.JUSTIFIED, children: [smartTextRun(`I, ${d.name}, ${d.rel} ${d.father}, aged ${d.age} years, resident of ${d.address}, hereby verify at ${d.place} on this ____ day of ________, ${year} that the contents of the above OA are true and correct to the best of my knowledge and belief and nothing material has been concealed therefrom.`)] }),
-    deponentLine(applicantIdx ?? undefined),
+    // The DEPONENT / VERIFICATION / DEPONENT block. On a SHARED last page it
+    // repeats once per Applicant (the Filed-by block above it does not).
+    ...verificationBlocks(project, applicantIdx, year),
   ];
+}
+
+// One signing block per Applicant on a shared last page; a single block when the
+// page belongs to one Applicant (or there is only one).
+function verificationBlocks(project: DraftoProject, applicantIdx: number | null, year: number): Child[] {
+  const sg = oaSigning(project);
+  const idxs: (number | null)[] = (applicantIdx == null && sg.multi && !sg.separateLastPages)
+    ? sg.applicants.map((_, i) => i)
+    : [applicantIdx];
+  return idxs.flatMap((idx) => {
+    const d = deponentFor(project, idx ?? undefined);
+    return [
+      deponentLine(idx ?? undefined),
+      new Paragraph({ alignment: AlignmentType.LEFT, spacing: { before: 240 }, children: [smartTextRun({ text: "VERIFICATION", bold: true })] }),
+      new Paragraph({ alignment: AlignmentType.JUSTIFIED, children: [smartTextRun(`I, ${d.name}, ${d.rel} ${d.father}, aged ${d.age} years, resident of ${d.address}, hereby verify at ${d.place} on this ____ day of ________, ${year} that the contents of the above OA are true and correct to the best of my knowledge and belief and nothing material has been concealed therefrom.`)] }),
+      deponentLine(idx ?? undefined),
+    ];
+  });
 }
 
 // ── MA / PT ──────────────────────────────────────────────────────────────────
@@ -437,13 +483,19 @@ function buildMaChildren(project: DraftoProject, ma: OaMa, numbering: any[], opt
   ];
 }
 
-function buildMaAffidavit(project: DraftoProject, ma: OaMa, numbering: any[]): Child[] {
-  const d = deponentFor(project);
+function buildMaAffidavit(project: DraftoProject, ma: OaMa, numbering: any[], applicantIdx?: number): Child[] {
+  const sg = oaSigning(project);
+  const d = deponentFor(project, applicantIdx);
   const affRef = newRef(); numbering.push(decimalDef(affRef));
   const year = new Date().getFullYear();
   const preamble = `I, ${d.name}, ${d.rel} ${d.father}, aged about ${d.age} years, R/o ${d.address}, do hereby solemnly affirm and declare as under:`;
   const paras = [
-    `I am the ${oaDeponentRole(project)} in the accompanying Original Application and am duly authorised to swear this Affidavit. I am fully conversant with the facts of the case and competent to swear to this Affidavit.`,
+    `I am the ${applicantIdx != null ? `Applicant No. ${applicantIdx + 1}` : oaDeponentRole(project)} in the accompanying Original Application and am duly authorised to swear this Affidavit. I am fully conversant with the facts of the case and competent to swear to this Affidavit.`
+      // Authority letters run in favour of Applicant No. 1, who therefore swears
+      // for everyone; the authority is recited inline in the opening paragraph.
+      + (sg.authorityLetters && (applicantIdx == null || applicantIdx === 0)
+          ? " I am authorized to swear this affidavit on behalf of the other Applicant(s) also."
+          : ""),
     `The accompanying ${ma.kind === "pt" ? "Petition for Transfer" : "Miscellaneous Application"} has been drafted under my instructions and the same has been read over to me and understood by me. I say that the averments made therein are true to the best of my knowledge and belief. Nothing material has been concealed therefrom and no part of it is false.`,
     "The accompanying annexures, if any, are true copies of their respective originals.",
   ];
@@ -495,8 +547,9 @@ function buildOaSynopsisAndLod(project: DraftoProject, numbering: any[]): Child[
 }
 
 // ── Vakalatnama ──────────────────────────────────────────────────────────────
-function buildOaVakalatnama(project: DraftoProject, numbering: any[]): Child[] {
+function buildOaVakalatnama(project: DraftoProject, numbering: any[], applicantIdx?: number): Child[] {
   const p = plurals(project);
+  const solo = applicantIdx != null;
   // The vakalatnama carries its own (smaller, single-spaced) formatting so it
   // fits one page. It is applied to the PARAGRAPHS and RUNS, not via the
   // document style: a Word document has one "Normal" style, so a document-level
@@ -524,8 +577,10 @@ function buildOaVakalatnama(project: DraftoProject, numbering: any[]): Child[] {
     adv.email && { text: adv.email },
     adv.phone && { text: adv.phone },
   ].filter(Boolean) as { text: string; bold?: boolean }[];
-  const executants = p.names.join("; ") || getPartyHeader(project.petitioners);
-  const we = p.multi ? "We" : "I", my = p.multi ? "our" : "my";
+  const soloName = solo ? (project.petitioners?.[applicantIdx!]?.name?.trim() || `[Applicant No. ${applicantIdx! + 1}]`) : "";
+  const executants = solo ? soloName : (p.names.join("; ") || getPartyHeader(project.petitioners));
+  const multiHere = solo ? false : p.multi;
+  const we = multiHere ? "We" : "I", my = multiHere ? "our" : "my";
   const authRef = newRef(); numbering.push(listDef(authRef, "lower-alpha"));
   const authority = [
     "To act, appear and plead in the above-noted case before this Hon’ble Tribunal or in any other Court or Tribunal in which the same may be tried or heard and also in appeal or revision.",
@@ -537,7 +592,7 @@ function buildOaVakalatnama(project: DraftoProject, numbering: any[]): Child[] {
   return [
     ...createOaHeader({ size: vSize }), ...createOaPartiesHeader(project, { size: vSize }),
     vPara({ alignment: AlignmentType.CENTER, children: [vRun({ text: "VAKALATNAMA", bold: true })], before: 120 }),
-    vPara({ children: [vRun(`${we}, ${executants}, the ${p.Appl} in the captioned matter, do hereby appoint ${advName} to be ${my} Advocate in the above-noted case and authorise ${p.multi ? "them" : "him"}:`)] }),
+    vPara({ children: [vRun(`${we}, ${executants}, the ${solo ? `Applicant No. ${applicantIdx! + 1}` : p.Appl} in the captioned matter, do hereby appoint ${advName} to be ${my} Advocate in the above-noted case and authorise ${multiHere ? "them" : "him"}:`)] }),
     ...authority.map((t) => new Paragraph({ numbering: { reference: authRef, level: 0 }, spacing: vSpacing(), children: [vRun(t)] })),
     vPara({ children: [vRun("Dated: ____________")], before: 160 }),
     vPara({ children: [vRun("Signed, Accepted and Identified by:")] }),
@@ -547,9 +602,11 @@ function buildOaVakalatnama(project: DraftoProject, numbering: any[]): Child[] {
         ...advDetails.map((d) => vPara({ children: [vRun(d.bold ? { text: d.text, bold: true } : d.text)] })),
       ], borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP }),
       new TableCell({
-        children: p.multi
-          ? p.names.map((n, i) => vPara({ alignment: AlignmentType.RIGHT, before: i === 0 ? 240 : 400, children: [vRun({ text: `APPLICANT NO. ${i + 1} — ${n}`, bold: true })] }))
-          : [vPara({ alignment: AlignmentType.RIGHT, before: 240, children: [vRun({ text: "APPLICANT", bold: true })] })],
+        children: solo
+          ? [vPara({ alignment: AlignmentType.RIGHT, before: 240, children: [vRun({ text: `APPLICANT NO. ${applicantIdx! + 1} — ${soloName}`, bold: true })] })]
+          : p.multi
+            ? p.names.map((n, i) => vPara({ alignment: AlignmentType.RIGHT, before: i === 0 ? 240 : 400, children: [vRun({ text: `APPLICANT NO. ${i + 1} — ${n}`, bold: true })] }))
+            : [vPara({ alignment: AlignmentType.RIGHT, before: 240, children: [vRun({ text: "APPLICANT", bold: true })] })],
         borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP,
       }),
     ] })] }),
@@ -558,7 +615,8 @@ function buildOaVakalatnama(project: DraftoProject, numbering: any[]): Child[] {
 
 // ── Authority Letter (per non-authorised applicant) ──────────────────────────
 function buildAuthorityLetter(project: DraftoProject, applicantIdx: number): Child[] {
-  const authIdx = Math.max(0, (project.oa.authorizedApplicant || 1) - 1);
+  // Authority always runs in favour of Applicant No. 1.
+  const authIdx = 0;
   const me = project.petitioners?.[applicantIdx];
   const auth = project.petitioners?.[authIdx];
   const d = project.deponent || ({} as any);
@@ -594,11 +652,13 @@ function buildOaIndex(project: DraftoProject, pageRanges?: Record<string, string
     const dated = e.annex.date ? ` dated ${e.annex.date}` : "";
     items.push({ key: `annex:${e.annex.id}`, text: `${label}: ${copy} ${e.annex.title || "[description]"}${dated}` });
   }
-  items.push({ key: "vakalatnama", text: "Vakalatnama" });
-  if (project.oa.signingMode === "authority" && applicantsN > 1) {
-    const authIdx = (project.oa.authorizedApplicant || 1) - 1;
-    for (let i = 0; i < applicantsN; i++) if (i !== authIdx) items.push({ key: `auth:${i}`, text: `Authority Letter — Applicant No. ${i + 1}` });
-  }
+  const sgIdx = oaSigning(project);
+  items.push({
+    key: "vakalatnama",
+    text: sgIdx.authorityLetters
+      ? "Vakalatnama(s) and Authority Letter(s)"
+      : (sgIdx.separateVakalatnamas ? "Vakalatnama(s)" : "Vakalatnama"),
+  });
   items.push({ key: "courtFee", text: "Court Fee" });
   items.push({ key: "proofOfService", text: "Proof of Service" });
   const rows = items.map((t, i) => new TableRow({ children: [
@@ -643,18 +703,25 @@ export async function generateOaAll(project: DraftoProject) {
   const p = plurals(project);
   // The first last page honours the Settings choice; any further per-applicant
   // copies always start fresh, since each is a separate sheet to be signed.
-  if (p.multi) {
-    for (let i = 0; i < p.count; i++) {
+  const sg = oaSigning(project);
+  if (sg.multi && sg.separateLastPages) {
+    for (let i = 0; i < sg.count; i++) {
       children.push(...buildLastPage(project, i, numbering, i === 0 ? undefined : { pageBreak: true }));
     }
   } else {
     children.push(...buildLastPage(project, null, numbering));
   }
 
-  add(buildOaVakalatnama(project, numbering));
-  if (project.oa.signingMode === "authority") {
-    const authIdx = (project.oa.authorizedApplicant || 1) - 1;
-    for (let i = 0; i < p.count; i++) if (i !== authIdx) add(buildAuthorityLetter(project, i));
+  // Vakalatnama(s), each followed by that Applicant's Authority Letter.
+  if (sg.separateVakalatnamas) {
+    for (let i = 0; i < sg.count; i++) {
+      add(buildOaVakalatnama(project, numbering, i));
+      if (sg.authorityLetters && i > 0) add(buildAuthorityLetter(project, i));
+    }
+  } else {
+    add(buildOaVakalatnama(project, numbering));
+    // No per-person vakalatnama to attach to — the letters follow the combined one.
+    if (sg.authorityLetters) for (let i = 1; i < sg.count; i++) add(buildAuthorityLetter(project, i));
   }
   return pack(oaDoc(children, numbering), "OA-Complete.docx");
 }
@@ -726,38 +793,59 @@ export async function generateOaSigningPagesDoc(project: DraftoProject) {
   const numbering: any[] = [];
   const children: Child[] = [];
   const brk = () => { if (children.length) children.push(new Paragraph({ children: [new PageBreak()] })); };
-
-  const applicants = (project.petitioners || []).filter((p) => p.name?.trim());
-  if (applicants.length > 1) {
-    for (let i = 0; i < applicants.length; i++) {
-      brk();
-      children.push(...buildLastPage(project, i, numbering, { pageBreak: false }));
-    }
-  } else {
-    brk();
-    children.push(...buildLastPage(project, null, numbering, { pageBreak: false }));
-  }
-
-  brk();
-  children.push(...buildOaVakalatnama(project, numbering));
-
+  const sg = oaSigning(project);
   const ordered = [
     ...(project.oa.mas || []).filter((m) => m.kind === "pt"),
     ...(project.oa.mas || []).filter((m) => m.kind !== "pt"),
   ];
-  for (const ma of ordered) {
-    brk();
-    children.push(...buildMaAffidavit(project, ma, numbering));
-  }
 
-  // Authority letters are signed too, when that signing mode is in use.
-  if (project.oa.signingMode === "authority" && applicants.length > 1) {
-    const authIdx = (project.oa.authorizedApplicant || 1) - 1;
-    for (let i = 0; i < applicants.length; i++) {
-      if (i === authIdx) continue;
+  // Grouped by Applicant, so each person's sheets can be handed over together.
+  const bundleFor = (idx: number | null) => {
+    // Last page — shared pages carry every Applicant's block, so only once.
+    if (idx == null || sg.separateLastPages) {
       brk();
-      children.push(...buildAuthorityLetter(project, i));
+      children.push(...buildLastPage(project, idx, numbering, { pageBreak: false }));
     }
+    // Vakalatnama — one each, or the combined one (emitted once, for idx 0/null).
+    if (sg.separateVakalatnamas) {
+      brk();
+      children.push(...buildOaVakalatnama(project, numbering, idx ?? undefined));
+    } else if (idx == null || idx === 0) {
+      brk();
+      children.push(...buildOaVakalatnama(project, numbering));
+    }
+    // Authority letter (Applicants 2+) OR the affidavits this Applicant swears.
+    if (sg.authorityLetters && idx != null && idx > 0) {
+      brk();
+      children.push(...buildAuthorityLetter(project, idx));
+    } else if (!sg.authorityLetters || idx == null || idx === 0) {
+      for (const ma of ordered) {
+        brk();
+        children.push(...buildMaAffidavit(project, ma, numbering, idx ?? undefined));
+      }
+    }
+  };
+
+  if (sg.multi) {
+    // A shared last page belongs to nobody in particular — emit it first.
+    if (!sg.separateLastPages) {
+      brk();
+      children.push(...buildLastPage(project, null, numbering, { pageBreak: false }));
+    }
+    for (let i = 0; i < sg.count; i++) bundleFor(i);
+  } else {
+    bundleFor(null);
   }
   return pack(oaDoc(children, numbering), "OA-SigningPages.docx");
+}
+
+/** A single Applicant's vakalatnama (used when each signs their own). */
+export async function generateOaVakalatnamaForDoc(project: DraftoProject, applicantIdx: number) {
+  const numbering: any[] = [];
+  return pack(oaDoc(buildOaVakalatnama(project, numbering, applicantIdx), numbering, { vak: true }), "OA-Vakalatnama.docx");
+}
+/** One application's affidavit, sworn by a specific Applicant. */
+export async function generateOaMaAffidavitForDoc(project: DraftoProject, ma: OaMa, applicantIdx?: number) {
+  const numbering: any[] = [];
+  return pack(oaDoc(buildMaAffidavit(project, ma, numbering, applicantIdx), numbering), "OA-MA-Affidavit.docx");
 }

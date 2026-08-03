@@ -22,8 +22,8 @@ import { wpAnnexureOrder } from "@/lib/wp/wp-annexures";
 import { getOaStampSettings } from "@/lib/oa/oa-settings";
 import {
   generateOaIndexDoc, generateOaMemoDoc, generateOaSynopsisDoc, generateOaBodyOnly,
-  generateOaLastPageDoc, generateOaMaDoc, generateOaMaAffidavitDoc, generateOaVakalatnamaDoc, generateOaAuthorityLetterDoc,
-  oaAnnexLabel,
+  generateOaLastPageDoc, generateOaMaDoc, generateOaMaAffidavitForDoc, generateOaVakalatnamaDoc,
+  generateOaVakalatnamaForDoc, generateOaAuthorityLetterDoc, oaAnnexLabel, oaSigning,
 } from "@/lib/oa/oa-actions";
 
 interface Item {
@@ -68,12 +68,24 @@ export async function generateOaPdf(
     // Each application is the body followed by its affidavit — an uploaded
     // signed affidavit replaces the generated one, and both share the
     // application's Index key so the page range covers the pair.
+    const sg = oaSigning(project);
+    // Who swears each application's affidavit: Applicant No. 1 alone when the
+    // others have given authority letters, otherwise every Applicant.
+    const swearers: (number | undefined)[] = !sg.multi
+      ? [undefined]
+      : sg.authorityLetters ? [0] : sg.applicants.map((_, i) => i);
+
     const addApplication = async (ma: any, key: string, title: string) => {
       await add((await generateOaMaDoc(project, ma, { includeAffidavit: false })).docx, key, title);
+      // An uploaded signed affidavit (one PDF holding every signed copy)
+      // replaces the generated ones.
       const signed = await fileBytes(ma.signedAffidavit?.file, ma.signedAffidavit?.filePath);
       const signedPdf = signed ? await pdfFromBytes(signed) : null;
-      if (signedPdf) items.push({ key, title: `${title} — Affidavit (signed)`, pdf: signedPdf, paginated: true });
-      else await add((await generateOaMaAffidavitDoc(project, ma)).docx, key, `${title} — Affidavit`);
+      if (signedPdf) { items.push({ key, title: `${title} — Affidavit (signed)`, pdf: signedPdf, paginated: true }); return; }
+      for (const idx of swearers) {
+        const suffix = idx != null && swearers.length > 1 ? ` — Applicant No. ${idx + 1}` : "";
+        await add((await generateOaMaAffidavitForDoc(project, ma, idx)).docx, key, `${title} — Affidavit${suffix}`);
+      }
     };
     for (const [i, pt] of pts.entries()) {
       onProgress?.("Generating Petition for Transfer…");
@@ -94,7 +106,7 @@ export async function generateOaPdf(
     if (signedLast) {
       const src = await pdfFromBytes(signedLast);
       if (src) items.push({ key: "oa", title: "Last Page (signed)", pdf: src, paginated: true });
-    } else if (applicants.length > 1) {
+    } else if (applicants.length > 1 && sg.separateLastPages) {
       for (let i = 0; i < applicants.length; i++) {
         await add((await generateOaLastPageDoc(project, i)).docx, "oa", `Last Page — Applicant No. ${i + 1}`);
       }
@@ -140,19 +152,26 @@ export async function generateOaPdf(
     }
 
     // ── Vakalatnama (uploaded signed copy wins), Authority Letters ──
+    // Vakalatnama(s), each followed by that Applicant's Authority Letter. They
+    // share one Index key ("Vakalatnama(s) and Authority Letter(s)"), so the
+    // page range spans the whole group.
     const signedVak = await fileBytes(uploads.signedVakalatnama?.file, uploads.signedVakalatnama?.filePath);
     if (signedVak) {
       const src = await pdfFromBytes(signedVak);
       if (src) items.push({ key: "vakalatnama", title: "Vakalatnama (signed)", pdf: src, paginated: true });
+    } else if (sg.separateVakalatnamas) {
+      for (let i = 0; i < sg.count; i++) {
+        await add((await generateOaVakalatnamaForDoc(project, i)).docx, "vakalatnama", `Vakalatnama — Applicant No. ${i + 1}`);
+        if (sg.authorityLetters && i > 0) {
+          await add((await generateOaAuthorityLetterDoc(project, i)).docx, "vakalatnama", `Authority Letter — Applicant No. ${i + 1}`);
+        }
+      }
     } else {
       await add((await generateOaVakalatnamaDoc(project)).docx, "vakalatnama", "Vakalatnama");
-    }
-
-    if (project.oa.signingMode === "authority" && applicants.length > 1) {
-      const authIdx = (project.oa.authorizedApplicant || 1) - 1;
-      for (let i = 0; i < applicants.length; i++) {
-        if (i === authIdx) continue;
-        await add((await generateOaAuthorityLetterDoc(project, i)).docx, `auth:${i}`, `Authority Letter — Applicant No. ${i + 1}`);
+      if (sg.authorityLetters) {
+        for (let i = 1; i < sg.count; i++) {
+          await add((await generateOaAuthorityLetterDoc(project, i)).docx, "vakalatnama", `Authority Letter — Applicant No. ${i + 1}`);
+        }
       }
     }
 
