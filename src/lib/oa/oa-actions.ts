@@ -162,8 +162,12 @@ function plurals(project: DraftoProject) {
 }
 
 // ── header + parties ─────────────────────────────────────────────────────────
-function centered(text: string, o?: { bold?: boolean; italics?: boolean }): Paragraph {
-  return new Paragraph({ alignment: AlignmentType.CENTER, spacing: { line: 240, after: 240 }, children: [smartTextRun({ text, bold: o?.bold, italics: o?.italics })] });
+function centered(text: string, o?: { bold?: boolean; italics?: boolean; size?: number }): Paragraph {
+  return new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { line: 240, after: o?.size ? 120 : 240 },
+    children: [smartTextRun({ text, bold: o?.bold, italics: o?.italics, ...(o?.size ? { size: o.size } : {}) })],
+  });
 }
 
 // Document titles (OA / MA / PT) are justified within a 0.5" left+right indent
@@ -176,14 +180,16 @@ function docTitle(text: string): Paragraph {
     children: [smartTextRun({ text, bold: true })],
   });
 }
-export function createOaHeader(prefix?: Paragraph[]): Paragraph[] {
+export function createOaHeader(prefixOrOpts?: Paragraph[] | { size?: number }, maybeOpts?: { size?: number }): Paragraph[] {
+  const prefix = Array.isArray(prefixOrOpts) ? prefixOrOpts : undefined;
+  const size = (Array.isArray(prefixOrOpts) ? maybeOpts?.size : prefixOrOpts?.size);
   const year = new Date().getFullYear();
   const bench = oaBench(getSettings().oaBench);
   return [
-    centered("BEFORE THE CENTRAL ADMINISTRATIVE TRIBUNAL", { bold: true }),
-    centered(bench.header, { italics: true }),
+    centered("BEFORE THE CENTRAL ADMINISTRATIVE TRIBUNAL", { bold: true, size }),
+    centered(bench.header, { italics: true, size }),
     ...(prefix ?? []),
-    centered(`Original Application No. _____ of ${year}`, { bold: true }),
+    centered(`Original Application No. _____ of ${year}`, { bold: true, size }),
   ];
 }
 function maHeaderPrefix(kind: OaMa["kind"]): Paragraph[] {
@@ -191,21 +197,22 @@ function maHeaderPrefix(kind: OaMa["kind"]): Paragraph[] {
   const label = kind === "pt" ? "Petition for Transfer" : "Miscellaneous Application";
   return [centered(`${label} No. _____ of ${year}`, { bold: true }), centered("in", { bold: true })];
 }
-function createOaPartiesHeader(project: DraftoProject): Child[] {
+function createOaPartiesHeader(project: DraftoProject, o?: { size?: number }): Child[] {
+  const sz = o?.size ? { size: o.size } : {};
   const petHeader = getPartyHeader(project.petitioners) || "[Applicant]";
   const resHeader = getPartyHeader(project.respondents) || "[Respondents]";
   const applLabel = plurals(project).multi ? "…Applicants" : "…Applicant";
   const out: Child[] = [
-    new Paragraph({ alignment: AlignmentType.JUSTIFIED, children: [smartTextRun({ text: "IN THE MATTER OF:", smallCaps: true })] }),
+    new Paragraph({ alignment: AlignmentType.JUSTIFIED, children: [smartTextRun({ text: "IN THE MATTER OF:", smallCaps: true, ...sz })] }),
     new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: [6300, 3700], borders: NO_BORDERS, rows: [
       new TableRow({ children: [
-        new TableCell({ children: [new Paragraph({ children: [smartTextRun(petHeader)] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun(applLabel)] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
+        new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: petHeader, ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
+        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: applLabel, ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
       ] }),
-      new TableRow({ children: [new TableCell({ columnSpan: 2, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: "Versus", italics: true })] })], borders: NO_BORDERS })] }),
+      new TableRow({ children: [new TableCell({ columnSpan: 2, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: "Versus", italics: true, ...sz })] })], borders: NO_BORDERS })] }),
       new TableRow({ children: [
-        new TableCell({ children: [new Paragraph({ children: [smartTextRun(resHeader)] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun("…Respondents")] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
+        new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: resHeader, ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
+        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: "…Respondents", ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
       ] }),
     ] }),
   ];
@@ -490,6 +497,20 @@ function buildOaSynopsisAndLod(project: DraftoProject, numbering: any[]): Child[
 // ── Vakalatnama ──────────────────────────────────────────────────────────────
 function buildOaVakalatnama(project: DraftoProject, numbering: any[]): Child[] {
   const p = plurals(project);
+  // The vakalatnama carries its own (smaller, single-spaced) formatting so it
+  // fits one page. It is applied to the PARAGRAPHS and RUNS, not via the
+  // document style: a Word document has one "Normal" style, so a document-level
+  // switch cannot work when the vakalatnama is emitted inside a combined
+  // document (Complete Document / Signing Pages).
+  const vf = getOaVakFormatting();
+  const vSize = Math.round(vf.sizePt * 2);                       // half-points
+  const vLine = Math.round(vf.lineSpacing * 240);                // multiple of single
+  const vAfter = Math.round(vf.afterPt * 20);                    // twips
+  const vSpacing = (before = 0) => ({ line: vLine, after: vAfter, before });
+  const vRun = (t: string | { text: string; [k: string]: any }) =>
+    smartTextRun(typeof t === "string" ? { text: t, size: vSize } : { ...t, size: vSize });
+  const vPara = (opts: { children: any[]; before?: number; alignment?: any }) =>
+    new Paragraph({ alignment: opts.alignment, spacing: vSpacing(opts.before ?? 0), children: opts.children });
   // Fall back to the CAT defaults in Settings when the case hasn't overridden
   // them, so the vakalatnama is never left with a blank advocate.
   const adv = oaAdvocate(project);
@@ -514,17 +535,23 @@ function buildOaVakalatnama(project: DraftoProject, numbering: any[]): Child[] {
     "To appoint and instruct any other legal Practitioner to exercise the powers and authority hereby conferred whenever the Advocate may think fit.",
   ];
   return [
-    ...createOaHeader(), ...createOaPartiesHeader(project), centered("VAKALATNAMA", { bold: true }),
-    new Paragraph({ children: [smartTextRun(`${we}, ${executants}, the ${p.Appl} in the captioned matter, do hereby appoint ${advName} to be ${my} Advocate in the above-noted case and authorise ${p.multi ? "them" : "him"}:`)] }),
-    ...authority.map((t) => listItem(authRef, t)),
-    new Paragraph({ spacing: { before: 240 }, children: [smartTextRun("Dated: ____________")] }),
-    new Paragraph({ children: [smartTextRun("Signed, Accepted and Identified by:")] }),
+    ...createOaHeader({ size: vSize }), ...createOaPartiesHeader(project, { size: vSize }),
+    vPara({ alignment: AlignmentType.CENTER, children: [vRun({ text: "VAKALATNAMA", bold: true })], before: 120 }),
+    vPara({ children: [vRun(`${we}, ${executants}, the ${p.Appl} in the captioned matter, do hereby appoint ${advName} to be ${my} Advocate in the above-noted case and authorise ${p.multi ? "them" : "him"}:`)] }),
+    ...authority.map((t) => new Paragraph({ numbering: { reference: authRef, level: 0 }, spacing: vSpacing(), children: [vRun(t)] })),
+    vPara({ children: [vRun("Dated: ____________")], before: 160 }),
+    vPara({ children: [vRun("Signed, Accepted and Identified by:")] }),
     new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: [5000, 5000], borders: NO_BORDERS, rows: [new TableRow({ children: [
       new TableCell({ children: [
-        new Paragraph({ children: [smartTextRun({ text: "ADVOCATE", bold: true })] }),
-        ...advDetails.map((d) => new Paragraph({ children: [smartTextRun(d.bold ? { text: d.text, bold: true } : d.text)] })),
+        vPara({ children: [vRun({ text: "ADVOCATE", bold: true })], before: 240 }),
+        ...advDetails.map((d) => vPara({ children: [vRun(d.bold ? { text: d.text, bold: true } : d.text)] })),
       ], borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP }),
-      new TableCell({ children: p.multi ? p.names.map((n, i) => new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: i === 0 ? 0 : 480 }, children: [smartTextRun({ text: `APPLICANT NO. ${i + 1} — ${n}`, bold: true })] })) : [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: "APPLICANT", bold: true })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP }),
+      new TableCell({
+        children: p.multi
+          ? p.names.map((n, i) => vPara({ alignment: AlignmentType.RIGHT, before: i === 0 ? 240 : 400, children: [vRun({ text: `APPLICANT NO. ${i + 1} — ${n}`, bold: true })] }))
+          : [vPara({ alignment: AlignmentType.RIGHT, before: 240, children: [vRun({ text: "APPLICANT", bold: true })] })],
+        borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP,
+      }),
     ] })] }),
   ];
 }

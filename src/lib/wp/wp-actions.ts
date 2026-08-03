@@ -555,34 +555,45 @@ export async function generateWpVakalatnama(project: DraftoProject) {
   const nb = numberer();
   const authRef = nb.styled("lower-alpha");
 
+  // Vakalatnama formatting is applied to the PARAGRAPHS and RUNS (not via the
+  // document style) so it survives wherever the vakalatnama is emitted.
+  const vf = getWpVakFormatting();
+  const vSize = Math.round(vf.sizePt * 2);
+  const vLine = Math.round(vf.lineSpacing * 240);
+  const vAfter = Math.round(vf.afterPt * 20);
+  const vSpacing = (before = 0) => ({ line: vLine, after: vAfter, before });
+  const vRun = (t: string | { text: string; [k: string]: any }) =>
+    smartTextRun(typeof t === "string" ? { text: t, size: vSize } : { ...t, size: vSize });
+  const vPara = (opts: { children: any[]; before?: number; alignment?: any }) =>
+    new Paragraph({ alignment: opts.alignment, spacing: vSpacing(opts.before ?? 0), children: opts.children });
+
   const doc = wpDoc([
-    ...createWpHeader(project.caseType),
-    ...createWpPartiesHeader(petHeader, resHeader),
-    centeredBold("VAKALATNAMA", { before: 240 }),
-    new Paragraph({ children: [smartTextRun(`${we}, ${executants}, the Petitioner${multi ? "s" : ""} in the captioned matter, do hereby appoint ${advName} to be ${my} Advocate in the above-noted case and authorise him:`)] }),
-    ...authority.map(t => listItem(authRef, t, { before: 60 })),
-    new Paragraph({ spacing: { before: 120 }, children: [smartTextRun(`AND ${we.toLowerCase() === "we" ? "we" : "I"} undertake that ${multi ? "we or our" : "I or my"} duly authorised agent will appear in Court on all hearings and will inform the Advocate for appearance when the case is on the date of hearing.`)] }),
-    new Paragraph({ spacing: { before: 240 }, children: [smartTextRun("Dated: ____________")] }),
-    new Paragraph({ children: [smartTextRun("Signed, Accepted and Identified by:")] }),
-    new Paragraph({ spacing: { before: 360 }, children: [] }),
+    ...createWpHeader(project.caseType, { size: vSize }),
+    ...createWpPartiesHeader(petHeader, resHeader, { size: vSize }),
+    vPara({ alignment: AlignmentType.CENTER, children: [vRun({ text: "VAKALATNAMA", bold: true })], before: 120 }),
+    vPara({ children: [vRun(`${we}, ${executants}, the Petitioner${multi ? "s" : ""} in the captioned matter, do hereby appoint ${advName} to be ${my} Advocate in the above-noted case and authorise him:`)] }),
+    ...authority.map(t => new Paragraph({ numbering: { reference: authRef, level: 0 }, spacing: vSpacing(), children: [vRun(t)] })),
+    vPara({ children: [vRun(`AND ${we.toLowerCase() === "we" ? "we" : "I"} undertake that ${multi ? "we or our" : "I or my"} duly authorised agent will appear in Court on all hearings and will inform the Advocate for appearance when the case is on the date of hearing.`)], before: 80 }),
+    vPara({ children: [vRun("Dated: ____________")], before: 160 }),
+    vPara({ children: [vRun("Signed, Accepted and Identified by:")] }),
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
       columnWidths: [5000, 5000],
       borders: NO_BORDERS,
       rows: [new TableRow({ children: [
         new TableCell({ children: [
-          new Paragraph({ alignment: AlignmentType.LEFT, children: [smartTextRun({ text: "ADVOCATE", bold: true })] }),
-          ...advDetails.map((d) => new Paragraph({ alignment: AlignmentType.LEFT, children: [smartTextRun(d.bold ? { text: d.text, bold: true } : d.text)] })),
+          vPara({ alignment: AlignmentType.LEFT, children: [vRun({ text: "ADVOCATE", bold: true })], before: 240 }),
+          ...advDetails.map((d) => vPara({ alignment: AlignmentType.LEFT, children: [vRun(d.bold ? { text: d.text, bold: true } : d.text)] })),
         ], borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP }),
         new TableCell({
           children: multi
             // One signature slot per petitioner, stacked with signing space.
-            ? names.map((n, i) => new Paragraph({
+            ? names.map((n, i) => vPara({
                 alignment: AlignmentType.RIGHT,
-                spacing: { before: i === 0 ? 0 : 480 },
-                children: [smartTextRun({ text: `CLIENT (PETITIONER NO. ${i + 1} — ${n})`, bold: true })],
+                before: i === 0 ? 240 : 400,
+                children: [vRun({ text: `CLIENT (PETITIONER NO. ${i + 1} — ${n})`, bold: true })],
               }))
-            : [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: "CLIENT", bold: true })] })],
+            : [vPara({ alignment: AlignmentType.RIGHT, before: 240, children: [vRun({ text: "CLIENT", bold: true })] })],
           borders: NO_BORDERS,
           verticalAlign: VerticalAlign.TOP,
         }),

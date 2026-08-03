@@ -89,11 +89,13 @@ const PETITION_LABEL: Record<DraftoProject["caseType"], string> = {
 //   Writ Petition (<Civil|Criminal>) No. _____ of <year>     (bold)
 export function createWpHeader(
   caseType: DraftoProject["caseType"],
-  opts?: { cm?: boolean },
+  opts?: { cm?: boolean; size?: number },
 ) {
   const year = new Date().getFullYear();
   const label = PETITION_LABEL[caseType];
-  const headerSize = Math.round(getWpOutputFormatting().sizePt * 2); // follows the configured font size
+  // Follows the configured body size, unless the caller overrides it (the
+  // vakalatnama uses its own smaller size so it fits one page).
+  const headerSize = opts?.size ?? Math.round(getWpOutputFormatting().sizePt * 2);
   const centerBold = (text: string, italics = false) => new Paragraph({
     alignment: AlignmentType.CENTER,
     spacing: { line: 240, after: 240 },
@@ -133,9 +135,10 @@ export function createSalutation(lines: string[]): Paragraph[] {
 }
 
 // "IN THE MATTER OF:" + petitioner / Versus / respondent block.
-export function createWpPartiesHeader(petHeader: string, resHeader: string) {
+export function createWpPartiesHeader(petHeader: string, resHeader: string, o?: { size?: number }) {
+  const sz = o?.size ? { size: o.size } : {};
   return [
-    new Paragraph({ alignment: AlignmentType.JUSTIFIED, children: [smartTextRun("IN THE MATTER OF:")] }),
+    new Paragraph({ alignment: AlignmentType.JUSTIFIED, children: [smartTextRun({ text: "IN THE MATTER OF:", ...sz })] }),
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
       columnWidths: [6300, 3700],
@@ -143,19 +146,19 @@ export function createWpPartiesHeader(petHeader: string, resHeader: string) {
       rows: [
         new TableRow({
           children: [
-            new TableCell({ children: [new Paragraph({ children: [smartTextRun(petHeader)] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
-            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun("…Petitioner")] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
+            new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: petHeader, ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: "…Petitioner", ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
           ],
         }),
         new TableRow({
           children: [
-            new TableCell({ columnSpan: 2, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun("Versus")] })], borders: NO_BORDERS }),
+            new TableCell({ columnSpan: 2, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: "Versus", ...sz })] })], borders: NO_BORDERS }),
           ],
         }),
         new TableRow({
           children: [
-            new TableCell({ children: [new Paragraph({ children: [smartTextRun(resHeader)] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
-            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun("…Respondents")] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
+            new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: resHeader, ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: "…Respondents", ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
           ],
         }),
       ],
