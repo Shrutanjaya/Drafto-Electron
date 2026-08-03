@@ -112,3 +112,51 @@ export function getOaStampSettings(): WpStampSettings {
     return d;
   }
 }
+
+// ── Page margins & body formatting (independent of the WP settings) ─────────
+import { DEFAULT_WP_MARGINS_IN, DEFAULT_WP_OUTPUT, type WpMarginsIn, type WpOutputFormatting } from "@/lib/wp/wp-settings";
+
+const clampIn = (v: unknown, d: number) => {
+  const n = typeof v === "number" ? v : parseFloat(String(v));
+  return isFinite(n) ? Math.min(3, Math.max(0.2, n)) : d;
+};
+
+export function getOaMarginsIn(): WpMarginsIn {
+  const d = { ...DEFAULT_WP_MARGINS_IN };
+  const s = readSettings();
+  return {
+    top: clampIn(s.oaMarginTopIn, d.top),
+    right: clampIn(s.oaMarginRightIn, d.right),
+    bottom: clampIn(s.oaMarginBottomIn, d.bottom),
+    left: clampIn(s.oaMarginLeftIn, d.left),
+  };
+}
+
+export function getOaOutputFormatting(): WpOutputFormatting {
+  const d = { ...DEFAULT_WP_OUTPUT };
+  const s = readSettings();
+  return {
+    font: s.oaOutputFont || d.font,
+    sizePt: s.oaOutputFontSizePt ?? d.sizePt,
+    lineSpacing: s.oaOutputLineSpacing ?? d.lineSpacing,
+    beforePt: s.oaOutputParaBeforePt ?? d.beforePt,
+    afterPt: s.oaOutputParaAfterPt ?? d.afterPt,
+  };
+}
+
+// ── Vakalatnama formatting ──────────────────────────────────────────────────
+// The vakalatnama must fit on ONE page, so it defaults to 11pt / single spacing
+// rather than the document body's 14pt / 1.5 (mirrors the SLP checklist, which
+// carries its own formatting for the same reason).
+export interface VakFormatting { sizePt: number; lineSpacing: number; afterPt: number }
+export const DEFAULT_VAK_FORMATTING: VakFormatting = { sizePt: 11, lineSpacing: 1, afterPt: 4 };
+
+export function getOaVakFormatting(): VakFormatting {
+  const d = { ...DEFAULT_VAK_FORMATTING };
+  const s = readSettings();
+  return {
+    sizePt: s.oaVakFontSizePt ?? d.sizePt,
+    lineSpacing: s.oaVakLineSpacing ?? d.lineSpacing,
+    afterPt: s.oaVakParaSpacingPt ?? d.afterPt,
+  };
+}

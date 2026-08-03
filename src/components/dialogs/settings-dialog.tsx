@@ -177,6 +177,23 @@ interface SettingsData {
   oaTrueCopyBackground: boolean;
   oaTrueCopyMarginXPt: number;
   oaTrueCopyMarginBottomPt: number;
+  // CAT — page margins & body formatting (independent of the HC settings)
+  oaMarginTopIn: number;
+  oaMarginRightIn: number;
+  oaMarginBottomIn: number;
+  oaMarginLeftIn: number;
+  oaOutputFont: string;
+  oaOutputFontSizePt: number;
+  oaOutputLineSpacing: number;
+  oaOutputParaBeforePt: number;
+  oaOutputParaAfterPt: number;
+  // Vakalatnama formatting (fits one page): CAT + HC
+  oaVakFontSizePt: number;
+  oaVakLineSpacing: number;
+  oaVakParaSpacingPt: number;
+  wpVakFontSizePt: number;
+  wpVakLineSpacing: number;
+  wpVakParaSpacingPt: number;
 }
 
 // Fonts offered for the output text formatting
@@ -502,6 +519,21 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     oaTrueCopyBackground: false,
     oaTrueCopyMarginXPt: 36,
     oaTrueCopyMarginBottomPt: 36,
+    oaMarginTopIn: 1.5,
+    oaMarginRightIn: 1,
+    oaMarginBottomIn: 1,
+    oaMarginLeftIn: 1.5,
+    oaOutputFont: 'Times New Roman',
+    oaOutputFontSizePt: 14,
+    oaOutputLineSpacing: 1.5,
+    oaOutputParaBeforePt: 0,
+    oaOutputParaAfterPt: 12,
+    oaVakFontSizePt: 11,
+    oaVakLineSpacing: 1,
+    oaVakParaSpacingPt: 4,
+    wpVakFontSizePt: 11,
+    wpVakLineSpacing: 1,
+    wpVakParaSpacingPt: 4,
   });
 
   // Load settings from localStorage on mount
@@ -634,6 +666,21 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           oaTrueCopyBackground: parsed.oaTrueCopyBackground ?? false,
           oaTrueCopyMarginXPt: parsed.oaTrueCopyMarginXPt ?? 36,
           oaTrueCopyMarginBottomPt: parsed.oaTrueCopyMarginBottomPt ?? 36,
+          oaMarginTopIn: parsed.oaMarginTopIn ?? 1.5,
+          oaMarginRightIn: parsed.oaMarginRightIn ?? 1,
+          oaMarginBottomIn: parsed.oaMarginBottomIn ?? 1,
+          oaMarginLeftIn: parsed.oaMarginLeftIn ?? 1.5,
+          oaOutputFont: parsed.oaOutputFont || 'Times New Roman',
+          oaOutputFontSizePt: parsed.oaOutputFontSizePt ?? 14,
+          oaOutputLineSpacing: parsed.oaOutputLineSpacing ?? 1.5,
+          oaOutputParaBeforePt: parsed.oaOutputParaBeforePt ?? 0,
+          oaOutputParaAfterPt: parsed.oaOutputParaAfterPt ?? 12,
+          oaVakFontSizePt: parsed.oaVakFontSizePt ?? 11,
+          oaVakLineSpacing: parsed.oaVakLineSpacing ?? 1,
+          oaVakParaSpacingPt: parsed.oaVakParaSpacingPt ?? 4,
+          wpVakFontSizePt: parsed.wpVakFontSizePt ?? 11,
+          wpVakLineSpacing: parsed.wpVakLineSpacing ?? 1,
+          wpVakParaSpacingPt: parsed.wpVakParaSpacingPt ?? 4,
         });
         applyUiFont(parsed.uiFont || DEFAULT_UI_FONT);
         applyUiFontSize(parsed.uiFontSize ?? DEFAULT_UI_FONT_SIZE);
@@ -2005,6 +2052,33 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   })()}
                 </div>
 
+
+                {/* Vakalatnama formatting */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Vakalatnama formatting</p>
+                  <p className="text-xs text-muted-foreground">The vakalatnama uses its own smaller, tighter formatting so it fits on a single page. (Defaults: 11&nbsp;pt, single line spacing, 4&nbsp;pt after each paragraph.)</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Font size (pt)</Label>
+                      <Input type="number" min={6} max={24} step={0.5} className="h-7 text-xs"
+                        value={settings.wpVakFontSizePt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, wpVakFontSizePt: Math.min(24, Math.max(6, parseFloat(e.target.value) || 11)) }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Line spacing</Label>
+                      <Input type="number" min={1} max={3} step={0.05} className="h-7 text-xs"
+                        value={settings.wpVakLineSpacing}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, wpVakLineSpacing: Math.min(3, Math.max(1, parseFloat(e.target.value) || 1)) }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">After para (pt)</Label>
+                      <Input type="number" min={0} max={36} step={1} className="h-7 text-xs"
+                        value={settings.wpVakParaSpacingPt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, wpVakParaSpacingPt: Math.min(36, Math.max(0, parseFloat(e.target.value) || 0)) }))} />
+                    </div>
+                  </div>
+                </div>
+
                 {/* Page margins (WP) */}
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Page margins</p>
@@ -2954,9 +3028,81 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 </div>
 
 
-                <p className="text-[10px] text-muted-foreground italic">
-                  Page margins and body text formatting for the OA follow your Writ Petition (HC) settings.
-                </p>
+
+                {/* Page margins (CAT) */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Page margins</p>
+                  <p className="text-xs text-muted-foreground">Margins for every generated Original Application document, in inches. (Defaults: 1.5&quot; top/left, 1&quot; bottom/right — the top margin leaves room for the stamped page number.)</p>
+                  {marginInputs({ top: 'oaMarginTopIn', right: 'oaMarginRightIn', bottom: 'oaMarginBottomIn', left: 'oaMarginLeftIn' })}
+                </div>
+
+                {/* Output text formatting (CAT) */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Output text formatting</p>
+                  <p className="text-xs text-muted-foreground">Font, size and spacing applied to the body text of the generated Original Application. (Defaults: Times New Roman, 14&nbsp;pt, 1.5&nbsp;line spacing, 0&nbsp;pt before / 12&nbsp;pt after each paragraph.)</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2 space-y-1">
+                      <Label className="text-xs text-muted-foreground">Font</Label>
+                      <Select value={settings.oaOutputFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, oaOutputFont: v }))}>
+                        <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {OUTPUT_FONTS.map((f) => (<SelectItem key={f} value={f} className="text-xs">{f}</SelectItem>))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Font size (pt)</Label>
+                      <Input type="number" min={8} max={24} step={0.5} className="h-7 text-xs"
+                        value={settings.oaOutputFontSizePt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, oaOutputFontSizePt: Math.min(24, Math.max(8, parseFloat(e.target.value) || 14)) }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Line spacing</Label>
+                      <Input type="number" min={1} max={3} step={0.05} className="h-7 text-xs"
+                        value={settings.oaOutputLineSpacing}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, oaOutputLineSpacing: Math.min(3, Math.max(1, parseFloat(e.target.value) || 1.5)) }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Before para (pt)</Label>
+                      <Input type="number" min={0} max={36} step={1} className="h-7 text-xs"
+                        value={settings.oaOutputParaBeforePt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, oaOutputParaBeforePt: Math.min(36, Math.max(0, parseFloat(e.target.value) || 0)) }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">After para (pt)</Label>
+                      <Input type="number" min={0} max={36} step={1} className="h-7 text-xs"
+                        value={settings.oaOutputParaAfterPt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, oaOutputParaAfterPt: Math.min(36, Math.max(0, parseFloat(e.target.value) || 12)) }))} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Vakalatnama formatting */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Vakalatnama formatting</p>
+                  <p className="text-xs text-muted-foreground">The vakalatnama uses its own smaller, tighter formatting so it fits on a single page. (Defaults: 11&nbsp;pt, single line spacing, 4&nbsp;pt after each paragraph.)</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Font size (pt)</Label>
+                      <Input type="number" min={6} max={24} step={0.5} className="h-7 text-xs"
+                        value={settings.oaVakFontSizePt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, oaVakFontSizePt: Math.min(24, Math.max(6, parseFloat(e.target.value) || 11)) }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Line spacing</Label>
+                      <Input type="number" min={1} max={3} step={0.05} className="h-7 text-xs"
+                        value={settings.oaVakLineSpacing}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, oaVakLineSpacing: Math.min(3, Math.max(1, parseFloat(e.target.value) || 1)) }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">After para (pt)</Label>
+                      <Input type="number" min={0} max={36} step={1} className="h-7 text-xs"
+                        value={settings.oaVakParaSpacingPt}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, oaVakParaSpacingPt: Math.min(36, Math.max(0, parseFloat(e.target.value) || 0)) }))} />
+                    </div>
+                  </div>
+                </div>
+
               </div>
             )}
 
@@ -3261,6 +3407,21 @@ export function getSettings(): SettingsData {
     oaTrueCopyBackground: false,
     oaTrueCopyMarginXPt: 36,
     oaTrueCopyMarginBottomPt: 36,
+    oaMarginTopIn: 1.5,
+    oaMarginRightIn: 1,
+    oaMarginBottomIn: 1,
+    oaMarginLeftIn: 1.5,
+    oaOutputFont: 'Times New Roman',
+    oaOutputFontSizePt: 14,
+    oaOutputLineSpacing: 1.5,
+    oaOutputParaBeforePt: 0,
+    oaOutputParaAfterPt: 12,
+    oaVakFontSizePt: 11,
+    oaVakLineSpacing: 1,
+    oaVakParaSpacingPt: 4,
+    wpVakFontSizePt: 11,
+    wpVakLineSpacing: 1,
+    wpVakParaSpacingPt: 4,
   };
 
   if (typeof window === "undefined") return defaults;
@@ -3393,6 +3554,21 @@ export function getSettings(): SettingsData {
         oaTrueCopyBackground: parsed.oaTrueCopyBackground ?? false,
         oaTrueCopyMarginXPt: parsed.oaTrueCopyMarginXPt ?? 36,
         oaTrueCopyMarginBottomPt: parsed.oaTrueCopyMarginBottomPt ?? 36,
+        oaMarginTopIn: parsed.oaMarginTopIn ?? 1.5,
+        oaMarginRightIn: parsed.oaMarginRightIn ?? 1,
+        oaMarginBottomIn: parsed.oaMarginBottomIn ?? 1,
+        oaMarginLeftIn: parsed.oaMarginLeftIn ?? 1.5,
+        oaOutputFont: parsed.oaOutputFont || 'Times New Roman',
+        oaOutputFontSizePt: parsed.oaOutputFontSizePt ?? 14,
+        oaOutputLineSpacing: parsed.oaOutputLineSpacing ?? 1.5,
+        oaOutputParaBeforePt: parsed.oaOutputParaBeforePt ?? 0,
+        oaOutputParaAfterPt: parsed.oaOutputParaAfterPt ?? 12,
+        oaVakFontSizePt: parsed.oaVakFontSizePt ?? 11,
+        oaVakLineSpacing: parsed.oaVakLineSpacing ?? 1,
+        oaVakParaSpacingPt: parsed.oaVakParaSpacingPt ?? 4,
+        wpVakFontSizePt: parsed.wpVakFontSizePt ?? 11,
+        wpVakLineSpacing: parsed.wpVakLineSpacing ?? 1,
+        wpVakParaSpacingPt: parsed.wpVakParaSpacingPt ?? 4,
       };
     } catch (err) {
       console.error("Failed to parse settings:", err);
@@ -3444,6 +3620,55 @@ const SLP_TO_WP_SEED: [string, string, unknown][] = [
   ["trueCopyBackground", "wpTrueCopyBackground", false],
 ];
 
+// [wpKey, oaKey, oaDefault] — the CAT settings start from the Writ Petition
+// ones (the two courts format alike), then diverge as the user edits them.
+const WP_TO_OA_SEED: [string, string, unknown][] = [
+  ["wpOutputFont", "oaOutputFont", "Times New Roman"],
+  ["wpOutputFontSizePt", "oaOutputFontSizePt", 14],
+  ["wpOutputLineSpacing", "oaOutputLineSpacing", 1.5],
+  ["wpOutputParaBeforePt", "oaOutputParaBeforePt", 0],
+  ["wpOutputParaAfterPt", "oaOutputParaAfterPt", 12],
+  ["wpMarginTopIn", "oaMarginTopIn", 1.5],
+  ["wpMarginRightIn", "oaMarginRightIn", 1],
+  ["wpMarginBottomIn", "oaMarginBottomIn", 1],
+  ["wpMarginLeftIn", "oaMarginLeftIn", 1.5],
+  ["wpFiledByLeftPct", "oaFiledByLeftPct", 40],
+  ["wpStampFont", "oaStampFont", "times"],
+  ["wpPageNumberSizePt", "oaPageNumberSizePt", 20],
+  ["wpPageNumberMarginTopPt", "oaPageNumberMarginTopPt", 54],
+  ["wpPageNumberMarginRightPt", "oaPageNumberMarginRightPt", 54],
+  ["wpAnnexureLabelSizePt", "oaAnnexureLabelSizePt", 14],
+  ["wpAnnexureLabelMarginPt", "oaAnnexureLabelMarginPt", 14.4],
+  ["wpAnnexureLabelPosition", "oaAnnexureLabelPosition", "center"],
+  ["wpStampBackground", "oaStampBackground", false],
+  ["wpTrueCopyPosition", "oaTrueCopyPosition", "left"],
+  ["wpTrueCopyBackground", "oaTrueCopyBackground", false],
+  ["wpTrueCopyMarginXPt", "oaTrueCopyMarginXPt", 36],
+  ["wpTrueCopyMarginBottomPt", "oaTrueCopyMarginBottomPt", 36],
+];
+
+export function seedSettingsFromWpOnce() {
+  if (typeof window === "undefined") return;
+  const FLAG = "drafto-settings-seeded-wp-to-oa-v1";
+  try {
+    if (localStorage.getItem(FLAG)) return;
+    if (localStorage.getItem(SETTINGS_KEY)) {
+      const cur = getSettings() as unknown as Record<string, unknown>;
+      let changed = false;
+      for (const [wpKey, oaKey, oaDefault] of WP_TO_OA_SEED) {
+        if (cur[oaKey] === oaDefault && cur[wpKey] !== undefined) {
+          cur[oaKey] = cur[wpKey];
+          changed = true;
+        }
+      }
+      if (changed) localStorage.setItem(SETTINGS_KEY, JSON.stringify(cur));
+    }
+    localStorage.setItem(FLAG, "1");
+  } catch (err) {
+    console.error("CAT settings seed failed:", err);
+  }
+}
+
 export function seedSettingsFromSlpOnce() {
   if (typeof window === "undefined") return;
   const FLAG = "drafto-settings-seeded-from-slp-v1";
@@ -3471,6 +3696,7 @@ export function seedSettingsFromSlpOnce() {
 // Initialize font size on app load
 if (typeof window !== "undefined") {
   seedSettingsFromSlpOnce();
+  seedSettingsFromWpOnce();
   const settings = getSettings();
   applyUiFont(settings.uiFont);
   applyUiFontSize(settings.uiFontSize);

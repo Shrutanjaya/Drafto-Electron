@@ -12,13 +12,13 @@ import {
 import { getPartyHeader, smartTextRun } from "@/lib/docx-helpers";
 import { parseHtml } from "@/lib/html-to-docx";
 import type { DraftoProject } from "@/lib/schema";
-import { getWpStyles, getWpMargins, createWpFiledBy, NO_BORDERS } from "@/lib/wp/wp-helpers";
+import { createWpFiledBy, NO_BORDERS } from "@/lib/wp/wp-helpers";
 import { cascadeFor, enumLabel, type EnumStyle } from "@/lib/wp/wp-numbering";
 import { wpAnnexureOrder } from "@/lib/wp/wp-annexures";
 import { factsAnnexureSentenceHtml, inlineHtml } from "@/lib/wp/wp-facts";
 import { oaBench } from "@/lib/oa/oa-benches";
 import { getSettings } from "@/components/dialogs/settings-dialog";
-import { getOaFiledBy, getOaFiledByLayout, getOaFiledByLeftPct, getOaSignature } from "@/lib/oa/oa-settings";
+import { getOaFiledBy, getOaFiledByLayout, getOaFiledByLeftPct, getOaSignature, getOaMarginsIn, getOaOutputFormatting, getOaVakFormatting } from "@/lib/oa/oa-settings";
 
 type Child = Paragraph | Table;
 type OaMa = DraftoProject["oa"]["mas"][number];
@@ -26,11 +26,43 @@ type OaMa = DraftoProject["oa"]["mas"][number];
 const RESIDUARY = "Pass such other/further orders as this Hon’ble Tribunal may deem fit and proper in the facts and circumstances of the case.";
 
 // ── scaffolding ──────────────────────────────────────────────────────────────
-function oaDoc(children: Child[], numbering?: any[]) {
+// Page margins from Settings → Original Application (independent of WP).
+function oaMargins() {
+  const m = getOaMarginsIn();
+  return {
+    top: Math.round(m.top * 1440),
+    right: Math.round(m.right * 1440),
+    bottom: Math.round(m.bottom * 1440),
+    left: Math.round(m.left * 1440),
+  };
+}
+
+// Body styles from Settings → Original Application. `vak` switches to the
+// vakalatnama's own (smaller, single-spaced) formatting so it fits one page.
+function oaStyles(vak = false) {
+  const f = getOaOutputFormatting();
+  const v = getOaVakFormatting();
+  const sizePt = vak ? v.sizePt : f.sizePt;
+  const lineSpacing = vak ? v.lineSpacing : f.lineSpacing;
+  const afterPt = vak ? v.afterPt : f.afterPt;
+  const beforePt = vak ? 0 : f.beforePt;
+  return {
+    paragraphStyles: [{
+      id: "Normal", name: "Normal", basedOn: "Normal", next: "Normal", quickFormat: true,
+      run: { font: f.font, size: Math.round(sizePt * 2) },
+      paragraph: {
+        spacing: { line: Math.round(lineSpacing * 240), after: Math.round(afterPt * 20), before: Math.round(beforePt * 20) },
+        alignment: AlignmentType.JUSTIFIED,
+      },
+    }],
+  };
+}
+
+function oaDoc(children: Child[], numbering?: any[], opts?: { vak?: boolean }) {
   return new Document({
-    styles: getWpStyles(),
+    styles: oaStyles(opts?.vak),
     ...(numbering && numbering.length ? { numbering: { config: numbering } } : {}),
-    sections: [{ properties: { page: { margin: getWpMargins() } }, headers: { default: new Header({ children: [] }) }, footers: { default: new Footer({ children: [] }) }, children }],
+    sections: [{ properties: { page: { margin: oaMargins() } }, headers: { default: new Header({ children: [] }) }, footers: { default: new Footer({ children: [] }) }, children }],
   });
 }
 async function pack(doc: Document, fileName: string) {
@@ -455,8 +487,19 @@ function buildOaSynopsisAndLod(project: DraftoProject, numbering: any[]): Child[
 // ── Vakalatnama ──────────────────────────────────────────────────────────────
 function buildOaVakalatnama(project: DraftoProject, numbering: any[]): Child[] {
   const p = plurals(project);
-  const adv = project.oa.advocate;
-  const advLine = [adv.name, adv.firm, adv.address, adv.enrolmentNo ? `Enrl. No.: ${adv.enrolmentNo}` : "", [adv.email, adv.phone].filter(Boolean).join(" | ")].filter(Boolean).join(", ");
+  // Fall back to the CAT defaults in Settings when the case hasn't overridden
+  // them, so the vakalatnama is never left with a blank advocate.
+  const adv = oaAdvocate(project);
+  const advName = [adv.name, adv.firm].filter(Boolean).join(", ") || "[Advocate]";
+  // Full details are listed under the ADVOCATE signature block.
+  const advDetails = [
+    adv.name && { text: adv.name, bold: true },
+    adv.enrolmentNo && { text: `Enrl. No.: ${adv.enrolmentNo}` },
+    adv.firm && { text: adv.firm },
+    adv.address && { text: adv.address },
+    adv.email && { text: adv.email },
+    adv.phone && { text: adv.phone },
+  ].filter(Boolean) as { text: string; bold?: boolean }[];
   const executants = p.names.join("; ") || getPartyHeader(project.petitioners);
   const we = p.multi ? "We" : "I", my = p.multi ? "our" : "my";
   const authRef = newRef(); numbering.push(listDef(authRef, "lower-alpha"));
@@ -469,12 +512,15 @@ function buildOaVakalatnama(project: DraftoProject, numbering: any[]): Child[] {
   ];
   return [
     ...createOaHeader(), ...createOaPartiesHeader(project), centered("VAKALATNAMA", { bold: true }),
-    new Paragraph({ children: [smartTextRun(`${we}, ${executants}, the ${p.Appl} in the captioned matter, do hereby appoint ${advLine || "[Advocate]"} to be ${my} Advocate in the above-noted case and authorise ${p.multi ? "them" : "him"}:`)] }),
+    new Paragraph({ children: [smartTextRun(`${we}, ${executants}, the ${p.Appl} in the captioned matter, do hereby appoint ${advName} to be ${my} Advocate in the above-noted case and authorise ${p.multi ? "them" : "him"}:`)] }),
     ...authority.map((t) => listItem(authRef, t)),
     new Paragraph({ spacing: { before: 240 }, children: [smartTextRun("Dated: ____________")] }),
     new Paragraph({ children: [smartTextRun("Signed, Accepted and Identified by:")] }),
     new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: [5000, 5000], borders: NO_BORDERS, rows: [new TableRow({ children: [
-      new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: "ADVOCATE", bold: true })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP }),
+      new TableCell({ children: [
+        new Paragraph({ children: [smartTextRun({ text: "ADVOCATE", bold: true })] }),
+        ...advDetails.map((d) => new Paragraph({ children: [smartTextRun(d.bold ? { text: d.text, bold: true } : d.text)] })),
+      ], borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP }),
       new TableCell({ children: p.multi ? p.names.map((n, i) => new Paragraph({ alignment: AlignmentType.RIGHT, spacing: { before: i === 0 ? 0 : 480 }, children: [smartTextRun({ text: `APPLICANT NO. ${i + 1} — ${n}`, bold: true })] })) : [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: "APPLICANT", bold: true })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP }),
     ] })] }),
   ];
@@ -614,8 +660,67 @@ export async function generateOaMaAffidavitDoc(project: DraftoProject, ma: OaMa)
 }
 export async function generateOaVakalatnamaDoc(project: DraftoProject) {
   const numbering: any[] = [];
-  return pack(oaDoc(buildOaVakalatnama(project, numbering), numbering), "OA-Vakalatnama.docx");
+  return pack(oaDoc(buildOaVakalatnama(project, numbering), numbering, { vak: true }), "OA-Vakalatnama.docx");
 }
 export async function generateOaAuthorityLetterDoc(project: DraftoProject, applicantIdx: number) {
   return pack(oaDoc(buildAuthorityLetter(project, applicantIdx)), "OA-AuthorityLetter.docx");
+}
+
+/** All Miscellaneous Applications and the Petition for Transfer, each with its
+ *  affidavit, in filing order (PT first). */
+export async function generateOaApplicationsDoc(project: DraftoProject) {
+  const numbering: any[] = [];
+  const children: Child[] = [];
+  const ordered = [
+    ...(project.oa.mas || []).filter((m) => m.kind === "pt"),
+    ...(project.oa.mas || []).filter((m) => m.kind !== "pt"),
+  ];
+  for (const ma of ordered) {
+    if (children.length) children.push(new Paragraph({ children: [new PageBreak()] }));
+    children.push(...buildMaChildren(project, ma, numbering));
+  }
+  if (!children.length) children.push(new Paragraph({ children: [smartTextRun("No applications — none are triggered and none have been added.")] }));
+  return pack(oaDoc(children, numbering), "OA-Applications.docx");
+}
+
+/** Signing Pages: the Last Page(s), the Vakalatnama and every application's
+ *  Affidavit — i.e. everything the Applicant(s) physically sign. */
+export async function generateOaSigningPagesDoc(project: DraftoProject) {
+  const numbering: any[] = [];
+  const children: Child[] = [];
+  const brk = () => { if (children.length) children.push(new Paragraph({ children: [new PageBreak()] })); };
+
+  const applicants = (project.petitioners || []).filter((p) => p.name?.trim());
+  if (applicants.length > 1) {
+    for (let i = 0; i < applicants.length; i++) {
+      brk();
+      children.push(...buildLastPage(project, i, numbering).slice(1));
+    }
+  } else {
+    brk();
+    children.push(...buildLastPage(project, null, numbering).slice(1));
+  }
+
+  brk();
+  children.push(...buildOaVakalatnama(project, numbering));
+
+  const ordered = [
+    ...(project.oa.mas || []).filter((m) => m.kind === "pt"),
+    ...(project.oa.mas || []).filter((m) => m.kind !== "pt"),
+  ];
+  for (const ma of ordered) {
+    brk();
+    children.push(...buildMaAffidavit(project, ma, numbering));
+  }
+
+  // Authority letters are signed too, when that signing mode is in use.
+  if (project.oa.signingMode === "authority" && applicants.length > 1) {
+    const authIdx = (project.oa.authorizedApplicant || 1) - 1;
+    for (let i = 0; i < applicants.length; i++) {
+      if (i === authIdx) continue;
+      brk();
+      children.push(...buildAuthorityLetter(project, i));
+    }
+  }
+  return pack(oaDoc(children, numbering), "OA-SigningPages.docx");
 }

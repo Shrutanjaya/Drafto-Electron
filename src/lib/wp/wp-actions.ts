@@ -34,7 +34,7 @@ import {
 import { cascadeFor, enumLabel, type EnumStyle } from "./wp-numbering";
 import { wpAnnexureOrder, annexLabel, cmAnnexureOrder, cmAnnexLabel, cmAnnexBodySentence, cmAnnexIndexText, type CmAnnexEntry } from "./wp-annexures";
 import { factsAnnexureSentenceParts, inlineHtml } from "./wp-facts";
-import { getWpNumbering } from "./wp-settings";
+import { getWpNumbering, getWpOutputFormatting, getWpVakFormatting, getWpFiledBy } from "./wp-settings";
 
 const cellMargins = { top: 0, bottom: 0, left: 115, right: 115 };
 const tableSpacing = { before: 120, after: 120 };
@@ -48,9 +48,26 @@ function partyHeaders(project: DraftoProject) {
   };
 }
 
-function wpDoc(children: (Paragraph | Table)[], numbering?: any[]) {
+// The vakalatnama carries its own (smaller, single-spaced) formatting so it
+// fits on a single page — Settings → Writ Petition → Vakalatnama.
+function wpVakStyles() {
+  const f = getWpOutputFormatting();
+  const v = getWpVakFormatting();
+  return {
+    paragraphStyles: [{
+      id: "Normal", name: "Normal", basedOn: "Normal", next: "Normal", quickFormat: true,
+      run: { font: f.font, size: Math.round(v.sizePt * 2) },
+      paragraph: {
+        spacing: { line: Math.round(v.lineSpacing * 240), after: Math.round(v.afterPt * 20), before: 0 },
+        alignment: AlignmentType.JUSTIFIED,
+      },
+    }],
+  };
+}
+
+function wpDoc(children: (Paragraph | Table)[], numbering?: any[], opts?: { vak?: boolean }) {
   return new Document({
-    styles: getWpStyles(),
+    styles: opts?.vak ? wpVakStyles() : getWpStyles(),
     ...(numbering && numbering.length ? { numbering: { config: numbering } } : {}),
     sections: [{
       properties: { page: { margin: getWpMargins() } },
@@ -503,8 +520,21 @@ function buildAffidavitChildren(
 
 export async function generateWpVakalatnama(project: DraftoProject) {
   const { petHeader, resHeader } = partyHeaders(project);
-  const adv = project.wp.advocate;
-  const advLine = [adv.name, adv.firm, adv.address, adv.enrolmentNo ? `Enrl. No.: ${adv.enrolmentNo}` : "", [adv.email, adv.phone].filter(Boolean).join(" | ")].filter(Boolean).join(", ");
+  // Fall back to the WP defaults in Settings so the vakalatnama is never left
+  // with a blank advocate.
+  const advRaw = project.wp.advocate;
+  const adv = (advRaw?.name?.trim() || advRaw?.firm?.trim() || advRaw?.address?.trim())
+    ? advRaw
+    : { ...advRaw, ...getWpFiledBy() };
+  const advName = [adv.name, adv.firm].filter(Boolean).join(", ") || "[Advocate]";
+  const advDetails = [
+    adv.name && { text: adv.name, bold: true },
+    adv.enrolmentNo && { text: `Enrl. No.: ${adv.enrolmentNo}` },
+    adv.firm && { text: adv.firm },
+    adv.address && { text: adv.address },
+    adv.email && { text: adv.email },
+    adv.phone && { text: adv.phone },
+  ].filter(Boolean) as { text: string; bold?: boolean }[];
 
   // All petitioners execute the vakalatnama (each gets a signature slot below);
   // "X and Ors." from the cause title is never used as an executant.
@@ -529,7 +559,7 @@ export async function generateWpVakalatnama(project: DraftoProject) {
     ...createWpHeader(project.caseType),
     ...createWpPartiesHeader(petHeader, resHeader),
     centeredBold("VAKALATNAMA", { before: 240 }),
-    new Paragraph({ children: [smartTextRun(`${we}, ${executants}, the Petitioner${multi ? "s" : ""} in the captioned matter, do hereby appoint ${advLine || "[Advocate]"} to be ${my} Advocate in the above-noted case and authorise him:`)] }),
+    new Paragraph({ children: [smartTextRun(`${we}, ${executants}, the Petitioner${multi ? "s" : ""} in the captioned matter, do hereby appoint ${advName} to be ${my} Advocate in the above-noted case and authorise him:`)] }),
     ...authority.map(t => listItem(authRef, t, { before: 60 })),
     new Paragraph({ spacing: { before: 120 }, children: [smartTextRun(`AND ${we.toLowerCase() === "we" ? "we" : "I"} undertake that ${multi ? "we or our" : "I or my"} duly authorised agent will appear in Court on all hearings and will inform the Advocate for appearance when the case is on the date of hearing.`)] }),
     new Paragraph({ spacing: { before: 240 }, children: [smartTextRun("Dated: ____________")] }),
@@ -540,7 +570,10 @@ export async function generateWpVakalatnama(project: DraftoProject) {
       columnWidths: [5000, 5000],
       borders: NO_BORDERS,
       rows: [new TableRow({ children: [
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.LEFT, children: [smartTextRun({ text: "ADVOCATE", bold: true })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP }),
+        new TableCell({ children: [
+          new Paragraph({ alignment: AlignmentType.LEFT, children: [smartTextRun({ text: "ADVOCATE", bold: true })] }),
+          ...advDetails.map((d) => new Paragraph({ alignment: AlignmentType.LEFT, children: [smartTextRun(d.bold ? { text: d.text, bold: true } : d.text)] })),
+        ], borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP }),
         new TableCell({
           children: multi
             // One signature slot per petitioner, stacked with signing space.
@@ -555,7 +588,7 @@ export async function generateWpVakalatnama(project: DraftoProject) {
         }),
       ]})],
     }),
-  ], nb.defs);
+  ], nb.defs, { vak: true });
   return pack(doc, "WP-Vakalatnama.docx");
 }
 

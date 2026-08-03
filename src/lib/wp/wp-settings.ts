@@ -331,3 +331,23 @@ export function getWpNumbering(): WpNumbering {
     return DEFAULT_WP_NUMBERING;
   }
 }
+
+// ── Vakalatnama formatting (Writ Petition) ──────────────────────────────────
+// Defaults to 11pt / single spacing so the vakalatnama fits on one page.
+export interface WpVakFormatting { sizePt: number; lineSpacing: number; afterPt: number }
+export const DEFAULT_WP_VAK: WpVakFormatting = { sizePt: 11, lineSpacing: 1, afterPt: 4 };
+
+export function getWpVakFormatting(): WpVakFormatting {
+  const d = { ...DEFAULT_WP_VAK };
+  if (typeof window === "undefined") return d;
+  try {
+    const s = JSON.parse(window.localStorage.getItem("drafto-settings") || "{}");
+    return {
+      sizePt: s.wpVakFontSizePt ?? d.sizePt,
+      lineSpacing: s.wpVakLineSpacing ?? d.lineSpacing,
+      afterPt: s.wpVakParaSpacingPt ?? d.afterPt,
+    };
+  } catch {
+    return d;
+  }
+}

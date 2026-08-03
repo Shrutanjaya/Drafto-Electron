@@ -46,7 +46,10 @@ import { generateWpPdf } from "@/lib/wp/wp-pdf";
 import { WpPdfGenerationDialog } from "./dialogs/wp-pdf-generation-dialog";
 import { WP_ENABLED } from "@/lib/wp/wp-enabled";
 import { OA_ENABLED } from "@/lib/oa/oa-enabled";
-import { generateOaAll, generateOaBody } from "@/lib/oa/oa-actions";
+import {
+  generateOaAll, generateOaBody, generateOaIndexDoc, generateOaMemoDoc,
+  generateOaSynopsisDoc, generateOaApplicationsDoc, generateOaSigningPagesDoc,
+} from "@/lib/oa/oa-actions";
 import { generateOaPdf } from "@/lib/oa/oa-pdf";
 import { OaPdfGenerationDialog } from "./dialogs/oa-pdf-generation-dialog";
 import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
@@ -769,20 +772,24 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   };
 
 
-  const handleGenerateOaAll = () => {
+  const handleExportOa = (fn: (d: DraftoProject) => Promise<{ success: boolean; docx?: string; fileName: string }>) => {
     startTransition(async () => {
-      const result = await generateOaAll(form.getValues());
+      const result = await fn(form.getValues());
       if (result?.success && result.docx) await downloadDocx(result.docx, result.fileName);
-      else toast({ variant: "destructive", title: "Export Failed", description: "Could not generate the Original Application." });
+      else toast({ variant: "destructive", title: "Export Failed", description: "Could not generate the document." });
     });
   };
-  const handleGenerateOaBody = () => {
-    startTransition(async () => {
-      const result = await generateOaBody(form.getValues());
-      if (result?.success && result.docx) await downloadDocx(result.docx, result.fileName);
-      else toast({ variant: "destructive", title: "Export Failed", description: "Could not generate the Original Application." });
-    });
-  };
+
+  // Individual CAT components, in filing order. "Signing Pages" bundles the
+  // Last Page(s), Vakalatnama and every application's Affidavit.
+  const oaGenerators: { id: string; label: string; fn: (d: DraftoProject) => Promise<{ success: boolean; docx?: string; fileName: string }> }[] = [
+    { id: "index", label: "Index", fn: (d) => generateOaIndexDoc(d) },
+    { id: "memo", label: "Memo of Parties", fn: generateOaMemoDoc },
+    { id: "synopsis", label: "Synopsis and List of Dates", fn: generateOaSynopsisDoc },
+    { id: "applications", label: "MA / Petition for Transfer", fn: generateOaApplicationsDoc },
+    { id: "oa", label: "Original Application", fn: generateOaBody },
+    { id: "signing", label: "Signing Pages", fn: generateOaSigningPagesDoc },
+  ];
 
   const handleExportWp = (fn: (d: DraftoProject) => Promise<{ success: boolean; docx?: string; fileName: string }>) => {
     startTransition(async () => {
@@ -1023,13 +1030,15 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
                     <span>Original Application</span>
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="p-1">
-                    <DropdownMenuItem onSelect={handleGenerateOaAll}>
-                        <FileDown className="mr-2" />All Documents (.docx)
+                    <DropdownMenuItem onSelect={() => handleExportOa(generateOaAll)}>
+                        <FileDown className="mr-2" />Complete Document
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onSelect={handleGenerateOaBody}>
-                        Original Application only
-                    </DropdownMenuItem>
+                    {oaGenerators.map(g => (
+                        <DropdownMenuItem key={g.id} onSelect={() => handleExportOa(g.fn)}>
+                            {g.label}
+                        </DropdownMenuItem>
+                    ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
             ) : courtType === "WritPetitionDHC" ? (
