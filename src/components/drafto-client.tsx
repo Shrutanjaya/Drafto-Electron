@@ -13,7 +13,9 @@ import { FindReplaceBar } from "@/components/custom/find-replace-bar";
 import { AiChatPanel } from "@/components/custom/ai-chat-panel";
 import { BriefingNotePrompt } from "@/components/dialogs/briefing-note-prompt";
 import { FieldRevealProvider } from "@/components/custom/field-reveal-provider";
-import { EntitlementProvider, useEntitlement } from "@/providers/entitlement-provider";
+import { EntitlementProvider, useEntitlement, useCanDraft } from "@/providers/entitlement-provider";
+import type { CourtType } from "@/lib/entitlement/entitlement";
+import { EarlyBirdOfferDialog } from "@/components/dialogs/early-bird-offer-dialog";
 import { EntitlementBanner } from "@/components/custom/entitlement-banner";
 import { ReadOnlyLock } from "@/components/custom/read-only-lock";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
@@ -37,7 +39,16 @@ function DraftoClientInner() {
   const { undo, redo, canUndo, canRedo } = useUndoRedo(form);
   const { toast } = useToast();
   const { entitlement } = useEntitlement();
-  const readOnly = entitlement.access === "readonly";
+
+  // Two independent reasons the workspace can be locked:
+  //   • the subscription has lapsed  → read-only, "renew" banner
+  //   • the open matter's document type is not on their plan → read-only,
+  //     "upgrade" banner (the account itself is in perfectly good standing)
+  // A grandfathered Early-Bird customer opening a Writ Petition after their
+  // one-year grant expires hits the second, not the first.
+  const courtType = (form.watch("courtType") ?? "SLP") as CourtType;
+  const covered = useCanDraft(courtType);
+  const readOnly = entitlement.access === "readonly" || !covered;
 
   // Listen for background OCR dependency setup
   useEffect(() => {
@@ -60,7 +71,8 @@ function DraftoClientInner() {
     <FormProvider {...form}>
       <FieldRevealProvider>
         <Card className="border-2 shadow-xl">
-          <EntitlementBanner />
+          <EntitlementBanner uncoveredCourtType={covered ? null : courtType} />
+          <EarlyBirdOfferDialog />
           <Header undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo} />
           <main>
             {/* Read-only lapse enforcement: lock editing across both the SC and

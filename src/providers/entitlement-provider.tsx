@@ -4,7 +4,13 @@ import {
   fetchEntitlement,
   type EntitlementResult,
 } from '@/lib/firebase/entitlement-service';
-import { resolveEntitlement } from '@/lib/entitlement/entitlement';
+import {
+  resolveEntitlement,
+  allowsCourtType,
+  hasFreeForumSlot,
+  type Forum,
+  type CourtType,
+} from '@/lib/entitlement/entitlement';
 import { SIM_ENABLED, subscribeSim } from '@/lib/dev/sim-entitlement';
 import { ENTITLEMENT_ENABLED } from '@/lib/entitlement/entitlement-enabled';
 
@@ -105,4 +111,35 @@ export function useCanEdit(): boolean {
 export function useCanExport(): boolean {
   const { entitlement, loading } = useEntitlement();
   return !loading && entitlement.canExport;
+}
+
+/** Which fora this subscription currently covers. */
+export function useForums(): Forum[] {
+  const { entitlement } = useEntitlement();
+  return entitlement.forums;
+}
+
+/**
+ * True when the plan has an unused forum slot, so a locked document type can be
+ * unlocked by choosing it rather than by paying more. Drives the difference
+ * between "Use a court slot" and "Upgrade to access".
+ */
+export function useHasFreeForumSlot(): boolean {
+  const { entitlement } = useEntitlement();
+  return hasFreeForumSlot(entitlement);
+}
+
+/**
+ * May the user draft this document type on their current plan?
+ *
+ * Separate from `useCanEdit`: a lapsed Max subscriber still *covers* Writ
+ * Petitions (they simply cannot edit anything), whereas a paying Niche
+ * subscriber covers only the Supreme Court. The two questions are independent
+ * and the UI answers them differently — read-only shows a renew banner,
+ * uncovered shows an upgrade prompt.
+ */
+export function useCanDraft(courtType: CourtType): boolean {
+  const { entitlement } = useEntitlement();
+  if (!ENTITLEMENT_ENABLED) return true;
+  return allowsCourtType(entitlement, courtType);
 }

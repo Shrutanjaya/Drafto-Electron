@@ -59,11 +59,16 @@ jobs:
           VITE_FIREBASE_STORAGE_BUCKET: draftoslp.firebasestorage.app
           VITE_FIREBASE_MESSAGING_SENDER_ID: "109929006113"
           VITE_FIREBASE_APP_ID: "1:109929006113:web:1c180e213b9b9cf33bcf60"
-          # Beta feature flags. Entitlement/device enforcement is deliberately
-          # NOT enabled here — a beta must not change anyone's billing or login
-          # behaviour. Remove these two lines for a normal customer release.
+          # Feature flags for the release build.
+          #
+          # ENTITLEMENT switches on subscription enforcement and device seats:
+          # a lapsed subscription becomes read-only (view and copy, but no
+          # editing or generation), and document types outside the customer's
+          # plan are shown locked rather than hidden. Off, the app behaves as it
+          # did before that layer existed and nobody's access changes.
           VITE_ENABLE_WP: "true"
           VITE_ENABLE_OA: "true"
+          VITE_ENABLE_ENTITLEMENT: "true"
           APPLE_API_KEY: /tmp/AuthKey.p8
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
@@ -134,11 +139,16 @@ jobs:
           VITE_FIREBASE_STORAGE_BUCKET: draftoslp.firebasestorage.app
           VITE_FIREBASE_MESSAGING_SENDER_ID: "109929006113"
           VITE_FIREBASE_APP_ID: "1:109929006113:web:1c180e213b9b9cf33bcf60"
-          # Beta feature flags. Entitlement/device enforcement is deliberately
-          # NOT enabled here — a beta must not change anyone's billing or login
-          # behaviour. Remove these two lines for a normal customer release.
+          # Feature flags for the release build.
+          #
+          # ENTITLEMENT switches on subscription enforcement and device seats:
+          # a lapsed subscription becomes read-only (view and copy, but no
+          # editing or generation), and document types outside the customer's
+          # plan are shown locked rather than hidden. Off, the app behaves as it
+          # did before that layer existed and nobody's access changes.
           VITE_ENABLE_WP: "true"
           VITE_ENABLE_OA: "true"
+          VITE_ENABLE_ENTITLEMENT: "true"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run build && npx electron-builder --win --publish always
 

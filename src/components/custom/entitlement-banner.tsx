@@ -1,19 +1,64 @@
 import { AlertTriangle, Lock } from 'lucide-react';
-import { useEntitlement } from '@/providers/entitlement-provider';
-import { entitlementMessage } from '@/lib/entitlement/entitlement';
+import { useEntitlement, useHasFreeForumSlot } from '@/providers/entitlement-provider';
+import { entitlementMessage, type CourtType } from '@/lib/entitlement/entitlement';
 import { Button } from '@/components/ui/button';
+
+const FORUM_LABEL: Record<CourtType, string> = {
+  SLP: 'Special Leave Petitions',
+  WritPetitionDHC: 'Writ Petitions',
+  OriginalApplicationCAT: 'Original Applications',
+};
+
+interface EntitlementBannerProps {
+  /**
+   * Set when the open project's document type is outside the user's plan. This
+   * is a different problem from a lapsed subscription — the account is in good
+   * standing, they simply have not bought this forum — so it gets its own
+   * message and an upgrade call to action rather than a renewal one.
+   */
+  uncoveredCourtType?: CourtType | null;
+}
 
 /**
  * A persistent banner shown whenever the account is not in good standing —
  * grace (payment failed but still working), read-only (lapsed), or an
- * ending-soon notice. Silent when the subscription is active/trialing.
+ * ending-soon notice — or when the open document type is not on the plan.
+ * Silent when the subscription is active/trialing and the forum is covered.
  */
-export function EntitlementBanner() {
+export function EntitlementBanner({ uncoveredCourtType }: EntitlementBannerProps = {}) {
   const { entitlement, loading, openManageSubscription } = useEntitlement();
+  const hasFreeSlot = useHasFreeForumSlot();
   if (loading) return null;
 
-  const msg = entitlementMessage(entitlement);
-  if (!msg) return null;
+  // A billing problem is the more urgent message, so it wins if both apply.
+  const billingMsg = entitlementMessage(entitlement);
+
+  if (!billingMsg && uncoveredCourtType) {
+    const forum = FORUM_LABEL[uncoveredCourtType] ?? 'This document type';
+    // If the plan still has an unspent court slot, the fix costs nothing — the
+    // customer just chooses this forum. Only a full plan needs an upgrade.
+    const cta = hasFreeSlot ? 'Add this court' : 'Upgrade to access';
+    const explain = hasFreeSlot
+      ? 'Your plan has a court still to be chosen, so you can add this one at no extra cost.'
+      : 'Upgrade your plan to include it.';
+    return (
+      <div
+        role="status"
+        className="flex flex-wrap items-center gap-3 border-b border-primary/30 bg-primary/10 px-4 py-2 text-xs text-primary"
+      >
+        <Lock className="h-4 w-4 shrink-0" />
+        <span className="flex-1 min-w-[12rem]">
+          {forum} are not included in your current plan. You can open and read this
+          matter, but editing and generation are disabled. {explain}
+        </span>
+        <Button size="sm" variant="default" onClick={openManageSubscription}>
+          {cta}
+        </Button>
+      </div>
+    );
+  }
+
+  if (!billingMsg) return null;
 
   const readOnly = entitlement.access === 'readonly';
   const cta = readOnly ? 'Renew subscription' : 'Update payment';
@@ -33,7 +78,7 @@ export function EntitlementBanner() {
       ) : (
         <AlertTriangle className="h-4 w-4 shrink-0" />
       )}
-      <span className="flex-1 min-w-[12rem]">{msg}</span>
+      <span className="flex-1 min-w-[12rem]">{billingMsg}</span>
       <Button
         size="sm"
         variant={readOnly ? 'destructive' : 'outline'}

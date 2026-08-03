@@ -42,6 +42,7 @@ function normalise(data: Record<string, unknown>): UserBilling {
     suiteAccessUntil: toSec(data.suiteAccessUntil),
     accessOverride: data.accessOverride as UserBilling['accessOverride'],
     overrideTier: data.overrideTier as UserBilling['overrideTier'],
+    courts: Array.isArray(data.courts) ? (data.courts as string[]) : undefined,
     overrideUntil: toSec(data.overrideUntil),
   };
 }
