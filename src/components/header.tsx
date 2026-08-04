@@ -669,6 +669,27 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     }
   };
   
+  // Paper-book generation requires an active subscription. The SLP paper-book
+  // checks this inside its own submit handler; the HC and CAT paper-books are
+  // generated from here, so they are refused at the same point rather than only
+  // by a disabled button — a button can be bypassed by a future shortcut or
+  // menu entry, a refusal at the action cannot.
+  const blockedByEntitlement = () => {
+    if (!entLoading && entitlement.canExport) return false;
+    toast({
+      variant: "destructive",
+      title: "Subscription required",
+      description:
+        "Paper-book generation is disabled because your subscription isn’t active. Renew to continue.",
+      action: (
+        <ToastAction altText="Renew" onClick={openManageSubscription}>
+          Renew
+        </ToastAction>
+      ),
+    });
+    return true;
+  };
+
   const downloadDocx = async (docx: string, fileName: string) => {
     // Entitlement gate: generating documents requires an active subscription.
     if (entLoading || !entitlement.canExport) {
@@ -743,6 +764,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
 
   // ── CAT Original Application ──
   const handleGenerateOaPdf = () => {
+    if (blockedByEntitlement()) return;
     startTransition(async () => {
       toast({ title: "Generating PDF…", description: "Assembling the Original Application paper-book." });
       const result = await generateOaPdf(form.getValues(), (label) => toast({ title: "Generating PDF…", description: label }));
@@ -810,6 +832,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   };
 
   const handleGenerateWpPdf = () => {
+    if (blockedByEntitlement()) return;
     startTransition(async () => {
       toast({ title: "Generating PDF…", description: "Assembling the writ-petition paper-book." });
       const result = await generateWpPdf(form.getValues());
