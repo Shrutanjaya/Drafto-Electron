@@ -30,6 +30,8 @@ import { cn } from "@/lib/utils";
 type SlpTabView = 'splitter' | 'navigation';
 type QuoteLineSpacing = 'default' | 'single';
 type TrueCopyPosition = 'left' | 'center';
+/** 'short' = the title block Drafto has always produced; 'sci' = the long form. */
+type SlpHeaderStyle = 'short' | 'sci';
 type AiModel = 'default' | 'haiku' | 'sonnet' | 'opus';
 type SettingsSection = 'interface' | 'customize' | 'save' | 'shortcuts' | 'support' | 'slp' | 'wp' | 'oa';
 
@@ -99,6 +101,11 @@ interface SettingsData {
   outputFontSizePt: number;
   outputLineSpacing: number;
   outputParaAfterPt: number;
+
+  // Drafting preferences for the SLP (defaults preserve the older output)
+  slpHeaderStyle: SlpHeaderStyle;       // short title block, or the SCI long form
+  slpHeadingBreak: boolean;             // heading on its own line, text beneath
+  slpTranslatedCopyFirst: boolean;      // translated/typed copy before the true copy
 
   // AI Plugin (Beta) — bring-your-own Claude Code CLI
   aiPluginEnabled: boolean;
@@ -689,6 +696,9 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     outputFontSizePt: 14,
     outputLineSpacing: 1.5,
     outputParaAfterPt: 12,
+    slpHeaderStyle: 'short',
+    slpHeadingBreak: false,
+    slpTranslatedCopyFirst: false,
     aiPluginEnabled: false,
     aiClaudeBinaryPath: "",
     aiModel: 'default',
@@ -819,6 +829,9 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           outputFontSizePt: parsed.outputFontSizePt ?? 14,
           outputLineSpacing: parsed.outputLineSpacing ?? 1.5,
           outputParaAfterPt: parsed.outputParaAfterPt ?? 12,
+          slpHeaderStyle: (parsed.slpHeaderStyle === 'sci' ? 'sci' : 'short') as SlpHeaderStyle,
+          slpHeadingBreak: parsed.slpHeadingBreak ?? false,
+          slpTranslatedCopyFirst: parsed.slpTranslatedCopyFirst ?? false,
           aiPluginEnabled: parsed.aiPluginEnabled ?? false,
           aiClaudeBinaryPath: parsed.aiClaudeBinaryPath ?? "",
           aiModel: (parsed.aiModel || 'default') as AiModel,
@@ -1925,6 +1938,75 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 </SettingsGroup>
 
                 <SettingsGroup
+                  title="Petition layout"
+                  info={"How the petition itself is laid out. All three keep the wording of the petition unchanged — they affect only its presentation.\n\nThe defaults reproduce what Drafto has always generated, so nothing changes in your existing style unless you switch it here."}
+                >
+                  <SettingRow
+                    label="Title block"
+                    info={"Short: the title block Drafto has always produced.\n\nSCI form: adds the rule citation and the Article 136 line, following the format published by the Supreme Court. The rule cited follows the SLP type — Order XXI Rule 3(1)(a) for civil, Order XXII Rule 2(1) for criminal."}
+                  >
+                    <SegGroup
+                      value={settings.slpHeaderStyle}
+                      onChange={(v: SlpHeaderStyle) => setSettings((prev) => ({ ...prev, slpHeaderStyle: v }))}
+                      options={[{ value: 'short', label: 'Short' }, { value: 'sci', label: 'SCI form' }]}
+                    />
+                  </SettingRow>
+                  <div className="rounded border bg-white p-2 text-[11px] leading-snug text-black">
+                    {settings.slpHeaderStyle === 'sci' ? (
+                      <div className="text-center">
+                        <div>IN THE SUPREME COURT OF INDIA</div>
+                        <div>[S.C.R., Order XXI Rule 3(1)(a)]</div>
+                        <div>CIVIL APPELLATE JURISDICTION</div>
+                        <div>SPECIAL LEAVE PETITION</div>
+                        <div>(Under Article 136 of the Constitution of India)</div>
+                        <div className="mt-1 font-semibold">Special Leave Petition (Civil) No. _______ of {new Date().getFullYear()}</div>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <div>IN THE SUPREME COURT OF INDIA</div>
+                        <div className="italic">Civil Appellate Jurisdiction</div>
+                        <div className="mt-1 font-semibold">Special Leave Petition (Civil) No. _______ of {new Date().getFullYear()}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  <SettingRow
+                    label="Headings"
+                    info={"Applies to every lead-in heading inside the petition — Questions of Law, the two Declarations, Grounds, Main Prayers, and both interim-relief headings. The paragraph number stays with the heading either way."}
+                  >
+                    <SegGroup
+                      value={settings.slpHeadingBreak ? 'break' : 'inline'}
+                      onChange={(v) => setSettings((prev) => ({ ...prev, slpHeadingBreak: v === 'break' }))}
+                      options={[{ value: 'inline', label: 'Same line' }, { value: 'break', label: 'Own line' }]}
+                    />
+                  </SettingRow>
+                  <div className="rounded border bg-white p-2 text-[11px] leading-snug text-black">
+                    {settings.slpHeadingBreak ? (
+                      <>
+                        <div className="font-semibold">GROUNDS:</div>
+                        <div>The Petitioner respectfully submits the following grounds…</div>
+                      </>
+                    ) : (
+                      <div>
+                        <span className="font-semibold">GROUNDS: </span>
+                        The Petitioner respectfully submits the following grounds…
+                      </div>
+                    )}
+                  </div>
+
+                  <SettingRow
+                    label="Translated copies"
+                    info={"Where an annexure has both a true copy and a typed or translated copy, this decides which of the two comes first in the paper-book. The Index, the List of Dates and the page stamps all follow the order you choose."}
+                  >
+                    <SegGroup
+                      value={settings.slpTranslatedCopyFirst ? 'translated' : 'true'}
+                      onChange={(v) => setSettings((prev) => ({ ...prev, slpTranslatedCopyFirst: v === 'translated' }))}
+                      options={[{ value: 'true', label: 'True copy first' }, { value: 'translated', label: 'Translated first' }]}
+                    />
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
                   title="Advocate-on-Record (AoR) details"
                   info={"Filled into every new project automatically, including the blank project created when Drafto launches. Changing them here does not alter projects you have already created.\n\nThe AI assistant will not overwrite these fields unless you explicitly ask it to."}
                 >
@@ -2940,6 +3022,9 @@ export function getSettings(): SettingsData {
     outputFontSizePt: 14,
     outputLineSpacing: 1.5,
     outputParaAfterPt: 12,
+    slpHeaderStyle: 'short' as SlpHeaderStyle,
+    slpHeadingBreak: false,
+    slpTranslatedCopyFirst: false,
     aiPluginEnabled: false,
     aiClaudeBinaryPath: "",
     aiModel: 'default' as AiModel,
@@ -3070,6 +3155,9 @@ export function getSettings(): SettingsData {
         outputFontSizePt: parsed.outputFontSizePt ?? 14,
         outputLineSpacing: parsed.outputLineSpacing ?? 1.5,
         outputParaAfterPt: parsed.outputParaAfterPt ?? 12,
+        slpHeaderStyle: (parsed.slpHeaderStyle === 'sci' ? 'sci' : 'short') as SlpHeaderStyle,
+        slpHeadingBreak: parsed.slpHeadingBreak ?? false,
+        slpTranslatedCopyFirst: parsed.slpTranslatedCopyFirst ?? false,
         aiPluginEnabled: parsed.aiPluginEnabled ?? false,
         aiClaudeBinaryPath: parsed.aiClaudeBinaryPath ?? "",
         aiModel: (parsed.aiModel || 'default') as AiModel,

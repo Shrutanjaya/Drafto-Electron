@@ -115,9 +115,38 @@ export const getPartyHeader = (parties: VaadiTableItem[] | undefined): string =>
 };
 
 
-export const createSlpHeader = (caseType: string, ioText: string) => {
+/**
+ * The title block above the petition.
+ *
+ * `short` is the block Drafto has always produced. `sci` follows the format
+ * published by the Supreme Court: the rule citation under the court name, the
+ * jurisdiction in capitals, and the Article 136 line under "SPECIAL LEAVE
+ * PETITION". The rule cited depends on the SLP type — Order XXI Rule 3(1)(a)
+ * for civil, Order XXII Rule 2(1) for criminal.
+ */
+export const createSlpHeader = (caseType: string, ioText: string, headerStyle: 'short' | 'sci' = 'short') => {
   const currentYear = new Date().getFullYear();
+  const centered = (text: string, extra: Record<string, unknown> = {}) =>
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { line: 240, after: 240 },
+      children: [smartTextRun({ text, size: 28, ...extra })],
+    });
+
+  const sciBlock = headerStyle === 'sci'
+    ? [
+        centered("IN THE SUPREME COURT OF INDIA"),
+        centered(caseType === 'Criminal'
+          ? "[S.C.R., Order XXII Rule 2(1)]"
+          : "[S.C.R., Order XXI Rule 3(1)(a)]"),
+        centered(`${caseType.toUpperCase()} APPELLATE JURISDICTION`),
+        centered("SPECIAL LEAVE PETITION"),
+        centered("(Under Article 136 of the Constitution of India)"),
+      ]
+    : null;
+
   return [
+    ...(sciBlock ?? [
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { line: 240, after: 240 },
@@ -139,6 +168,7 @@ export const createSlpHeader = (caseType: string, ioText: string) => {
         }),
       ],
     }),
+    ]),
     new Paragraph({
       alignment: AlignmentType.CENTER,
       spacing: { line: 240, after: 240 },

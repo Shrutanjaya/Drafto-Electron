@@ -118,6 +118,26 @@ const getIaList = (projectData: DraftoProject) => {
     return ias;
 }
 
+// User-configurable SLP layout preferences (drafting style, not wording). The
+// fallbacks reproduce exactly what Drafto generated before these existed, so an
+// untouched installation keeps its old output.
+export const getSlpLayout = () => {
+    const d = { headerStyle: 'short' as 'short' | 'sci', headingBreak: false, translatedCopyFirst: false };
+    if (typeof window === 'undefined') return d;
+    try {
+        const raw = window.localStorage.getItem('drafto-settings');
+        if (!raw) return d;
+        const s = JSON.parse(raw);
+        return {
+            headerStyle: s.slpHeaderStyle === 'sci' ? 'sci' as const : 'short' as const,
+            headingBreak: s.slpHeadingBreak ?? d.headingBreak,
+            translatedCopyFirst: s.slpTranslatedCopyFirst ?? d.translatedCopyFirst,
+        };
+    } catch {
+        return d;
+    }
+};
+
 // User-configurable output text formatting (read from drafto-settings at export
 // time, in the renderer). Falls back to the historical defaults.
 const getOutputFormatting = () => {
@@ -331,6 +351,41 @@ function findActualSplitPage(
     return { page: targetPage, isIntra: false };
 }
 
+// An annexure and its typed/translated copy share ONE Index row and one page
+// range. Which of the two is placed first is a user setting, so the pairing is
+// read off the actual merge order rather than assumed: whichever comes first
+// owns the row, and the one after it is folded into that row.
+const TYPED_SUFFIX = '_typed';
+const partnerIdOf = (id: string): string | null => {
+    if (id.endsWith(TYPED_SUFFIX)) return id.slice(0, -TYPED_SUFFIX.length);
+    if (id.startsWith('annexure_')) return `${id}${TYPED_SUFFIX}`;
+    return null;
+};
+
+/** True when the very next item in the merge is this item's other copy. */
+function pairedWithNext(id: string, metas: { id: string }[]): boolean {
+    if (!id.startsWith('annexure_')) return false;
+    const i = metas.findIndex(m => m.id === id);
+    if (i < 0 || i >= metas.length - 1) return false;
+    return metas[i + 1].id === partnerIdOf(id);
+}
+
+/** True when this item is the second half of a pair — no row of its own. */
+function isSecondOfPair(id: string, metas: { id: string }[]): boolean {
+    if (!id.startsWith('annexure_')) return false;
+    const i = metas.findIndex(m => m.id === id);
+    if (i <= 0) return false;
+    return metas[i - 1].id === partnerIdOf(id);
+}
+
+/** The annexure this item belongs to, whichever copy it is. */
+const annexureBaseId = (id: string): string => {
+    const noSuffix = id.endsWith(TYPED_SUFFIX) ? id.slice(0, -TYPED_SUFFIX.length) : id;
+    if (noSuffix.startsWith('annexure_')) return noSuffix.substring('annexure_'.length);
+    if (noSuffix.startsWith('ia_annexure_')) return noSuffix.substring('ia_annexure_'.length);
+    return noSuffix;
+};
+
 // Build the ordered list of numeric components from Pass-1 data
 function buildNumericComponents(
     fileMetas: { id: string }[],
@@ -345,7 +400,7 @@ function buildNumericComponents(
         if (meta.id.startsWith('impugnedOrder_')) seenImpugned = true;
         if (!seenImpugned) continue;
         if (['ci','or','lp','slod','advocateChecklist','slpAffidavit'].includes(meta.id)) continue;
-        if (meta.id.startsWith('ia_affidavit_') || meta.id.endsWith('_typed')) continue;
+        if (meta.id.startsWith('ia_affidavit_') || isSecondOfPair(meta.id, fileMetas)) continue;
 
         const info = docPageCounts.get(meta.id);
         if (!info || info.pageCount === 0) continue;
@@ -590,8 +645,12 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
 
   particularsList.push("Special Leave Petition with Certificate and Affidavit");
 
-  if (projectData.wantsAppendix && (projectData.appendixFile || projectData.appendixManualEntry) && projectData.appendixDescription) {
-    particularsList.push(`Appendix: Relevant provisions of the ${projectData.appendixDescription}`);
+  // The Appendix is merged into the paper-book whenever it is asked for, so its
+  // Index row must appear on exactly the same condition. Gating the row on the
+  // description as well used to drop the row while the pages were still there,
+  // which threw every page number after it out by the length of the Appendix.
+  if (projectData.wantsAppendix && (projectData.appendixFile || projectData.appendixManualEntry)) {
+    particularsList.push(`Appendix: Relevant provisions of the ${projectData.appendixDescription || '[Appendix Description]'}`);
   }
 
   const allAnnexures: Annexure[] = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
@@ -834,7 +893,7 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
         headers: { default: new Header({ children: [] }) },
         footers:  { default: new Footer({ children: [] }) },
         children: [
-          ...createSlpHeader(projectData.caseType, ioText),
+          ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle),
           ...createPartiesHeader(petHeader, resHeader),
           // IA table only for Volume I (or single-volume mode)
           ...(!vo || vo.volumeNum === 1 ? createWithTable(iaList, projectData.wantsInterimRelief) : []),
@@ -896,7 +955,7 @@ export async function generateOrDocx(projectData: DraftoProject, includeSignatur
           default: new Footer({ children: [] }),
         },
         children: [
-          ...createSlpHeader(projectData.caseType, ioText),
+          ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle),
           ...createPartiesHeader(petHeader, resHeader),
           new Paragraph({ alignment: AlignmentType.CENTER, children: [ smartTextRun({ text: "OFFICE REPORT ON LIMITATION", bold: true }) ] }),
           new Paragraph({ children: [smartTextRun("1. The Special Leave Petition is within limitation.")] }),
@@ -1121,6 +1180,30 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
 
 export async function generateSlpDocx(projectData: DraftoProject, includeSignature = false) {
     const ioText = ` ${calculateIoText(projectData)}`;
+    const slpLayout = getSlpLayout();
+
+    // A lead-in heading inside the petition. Either "HEADING: text" on a single
+    // line (the historical output), or the heading on its own line with the text
+    // beneath it, aligned to the heading — the user's choice in Settings. The
+    // paragraph number stays on the heading either way.
+    const headingWithText = (heading: string, text: string, reference: string): Paragraph[] => {
+        if (!slpLayout.headingBreak) {
+            return [new Paragraph({
+                children: [smartTextRun({ text: `${heading} `, bold: true }), smartTextRun(text)],
+                numbering: { reference, level: 0 },
+            })];
+        }
+        return [
+            new Paragraph({
+                children: [smartTextRun({ text: heading, bold: true })],
+                numbering: { reference, level: 0 },
+            }),
+            new Paragraph({
+                children: [smartTextRun(text)],
+                indent: { left: 720 },
+            }),
+        ];
+    };
 
     // For common order, use first group's parties for the header/AOR certificate
     const isCommonOrder = projectData.isCommonOrder && (projectData.commonOrderParties?.length ?? 0) > 0;
@@ -1221,18 +1304,29 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
         const courtName = mainOrder?.court === 'Other' ? mainOrder?.customCourt : mainOrder?.court;
         const orderDate = mainOrder?.date ? format(new Date(mainOrder.date), "dd.MM.yyyy") : '[date]';
 
-        // Title block: IN THE SUPREME COURT OF INDIA + jurisdiction (shown once)
+        // Title block: IN THE SUPREME COURT OF INDIA + jurisdiction (shown once).
+        // Follows the same Settings choice as the single-order header.
+        const centeredTitle = (text: string, extra: Record<string, unknown> = {}) =>
+            new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { line: 240, after: 240 },
+                children: [smartTextRun({ text, size: 28, ...extra })],
+            });
         betweenBlocks.push(
-            new Paragraph({
-                alignment: AlignmentType.CENTER,
-                spacing: { line: 240, after: 240 },
-                children: [smartTextRun({ text: "IN THE SUPREME COURT OF INDIA", size: 28 })],
-            }),
-            new Paragraph({
-                alignment: AlignmentType.CENTER,
-                spacing: { line: 240, after: 240 },
-                children: [smartTextRun({ text: `${projectData.caseType} Appellate Jurisdiction`, italics: true, size: 28 })],
-            }),
+            ...(slpLayout.headerStyle === 'sci'
+                ? [
+                    centeredTitle("IN THE SUPREME COURT OF INDIA"),
+                    centeredTitle(projectData.caseType === 'Criminal'
+                        ? "[S.C.R., Order XXII Rule 2(1)]"
+                        : "[S.C.R., Order XXI Rule 3(1)(a)]"),
+                    centeredTitle(`${projectData.caseType.toUpperCase()} APPELLATE JURISDICTION`),
+                    centeredTitle("SPECIAL LEAVE PETITION"),
+                    centeredTitle("(Under Article 136 of the Constitution of India)"),
+                  ]
+                : [
+                    centeredTitle("IN THE SUPREME COURT OF INDIA"),
+                    centeredTitle(`${projectData.caseType} Appellate Jurisdiction`, { italics: true }),
+                  ]),
         );
 
         // One block per common order group
@@ -1261,7 +1355,7 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
         }
     } else {
         betweenBlocks.push(
-            ...createSlpHeader(projectData.caseType, ioText),
+            ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle),
             new Paragraph({ text: "BETWEEN:", spacing: { after: 0, before: 0, line: 240 } }),
             buildPartiesTable(effectivePetitioners, effectiveRespondents),
             new Paragraph(""),
@@ -1273,7 +1367,10 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
     const nonAdAnnexures = allAnnexures.filter(annex => !annex.isAdditionalDocument);
     const lastNonAdPNumber = nonAdAnnexures.length;
 
-    let para1A;
+    // Para 1A is an averment about intra-court appeals, and it belongs in the
+    // petition only when the advocate has actually made that averment by ticking
+    // one of the two options. Left untouched, the petition runs 1 → 2.
+    let para1A: Paragraph | null = null;
     const { intraCourtAppealStatus, intraCourtAppealReason } = projectData;
     const para1AIndent = { indent: { left: 720, hanging: 360 } };
     if (intraCourtAppealStatus === 'no_appeal_lies') {
@@ -1284,11 +1381,6 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
     } else if (intraCourtAppealStatus === 'appeal_lies_but') {
         para1A = new Paragraph({
             text: `1A. The Impugned Order(s) is/are passed by a Ld. Single Judge of the High Court and an intra-court appeal lies. However, ${intraCourtAppealReason || '[reason not provided]'}`,
-            ...para1AIndent,
-        });
-    } else {
-        para1A = new Paragraph({
-            text: `1A. No LPA or WA lies against${ioText}.`,
             ...para1AIndent,
         });
     }
@@ -1495,43 +1587,19 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
 
     if (projectData.wantsInterimRelief) {
         interimGroundsSection = [
-            new Paragraph({
-                children: [
-                    smartTextRun({ text: "GROUNDS FOR INTERIM RELIEF: ", bold: true }),
-                    smartTextRun("Interim relief is sought on the following grounds:")
-                ],
-                numbering: { reference: "slp-intro-list-6", level: 0 },
-            }),
+            ...headingWithText("GROUNDS FOR INTERIM RELIEF:", "Interim relief is sought on the following grounds:", "slp-intro-list-6"),
             ...(interimGroundsTable ? [interimGroundsTable] : []),
         ];
         interimPrayersSection = [
-            new Paragraph({
-                children: [
-                    smartTextRun({ text: "PRAYERS FOR INTERIM RELIEF: ", bold: true }),
-                    smartTextRun("In view of the foregoing submissions, the Petitioner most respectfully prays that pending the final outcome of the present SLP, this Hon'ble Court may be pleased to:")
-                ],
-                numbering: { reference: "slp-intro-list-8", level: 0 },
-            }),
+            ...headingWithText("PRAYERS FOR INTERIM RELIEF:", "In view of the foregoing submissions, the Petitioner most respectfully prays that pending the final outcome of the present SLP, this Hon'ble Court may be pleased to:", "slp-intro-list-8"),
             ...(interimPrayersTable ? [interimPrayersTable] : []),
         ];
     } else {
         interimGroundsSection = [
-            new Paragraph({
-                children: [
-                    smartTextRun({ text: "GROUNDS FOR INTERIM RELIEF: ", bold: true }),
-                    smartTextRun("NIL.")
-                ],
-                numbering: { reference: "slp-intro-list-6", level: 0 },
-            }),
+            ...headingWithText("GROUNDS FOR INTERIM RELIEF:", "NIL.", "slp-intro-list-6"),
         ];
         interimPrayersSection = [
-            new Paragraph({
-                children: [
-                    smartTextRun({ text: "PRAYERS FOR INTERIM RELIEF: ", bold: true }),
-                    smartTextRun("NIL.")
-                ],
-                numbering: { reference: "slp-intro-list-8", level: 0 },
-            }),
+            ...headingWithText("PRAYERS FOR INTERIM RELIEF:", "NIL.", "slp-intro-list-8"),
         ];
     }
 
@@ -1604,48 +1672,26 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
                 text: convertToSmartQuotes(`By this Special Leave Petition, leave is sought under Article 136 of the Constitution of India to appeal against ${ioActionText}${ioActionText && ioActionText.match(/[.!?]$/) ? '' : '.'}`),
                 numbering: { reference: "slp-intro-list", level: 0 },
             }),
-            para1A,
+            ...(para1A ? [para1A] : []),
             ...(para1B ? [para1B] : []),
-            new Paragraph({
-                children: [
-                    smartTextRun({ text: "QUESTIONS OF LAW: ", bold: true }),
-                    smartTextRun("The following questions of law arise for this Hon'ble Court's consideration in the present SLP:")
-                ],
-                numbering: { reference: "slp-intro-list", level: 0 },
-            }),
+            ...headingWithText("QUESTIONS OF LAW:", "The following questions of law arise for this Hon'ble Court's consideration in the present SLP:", "slp-intro-list"),
             ...(questionsOfLawTable ? [questionsOfLawTable] : []),
-             new Paragraph({
-                children: [
-                    // Criminal SLPs are governed by Order XXII (Rules 2(2) & 4);
-                    // Civil by Order XXI (Rules 3(2) & 5).
-                    smartTextRun({ text: `DECLARATION IN TERMS OF RULE ${projectData.caseType === 'Criminal' ? '2(2)' : '3(2)'}: `, bold: true }),
-                    smartTextRun(`No other petition seeking Special Leave to Appeal against${ioText} has been filed by the Petitioner(s).`)
-                ],
-                numbering: { reference: "slp-intro-list-3", level: 0 },
-            }),
-            new Paragraph({
-                children: [
-                    smartTextRun({ text: `DECLARATION IN TERMS OF RULE ${projectData.caseType === 'Criminal' ? '4' : '5'}: `, bold: true }),
-                    smartTextRun(`Annexures P-1 to P-${lastNonAdPNumber} produced along with the Special Leave Petition are true copies of the pleadings/documents which formed part of the Courts below.`)
-                ],
-                numbering: { reference: "slp-intro-list-3", level: 0 },
-            }),
-            new Paragraph({
-                children: [
-                    smartTextRun({ text: "GROUNDS: ", bold: true }),
-                    smartTextRun("This Special Leave Petition is preferred on the following grounds taken without prejudice against each other:")
-                ],
-                numbering: { reference: "slp-intro-list-3", level: 0 },
-            }),
+             // Criminal SLPs are governed by Order XXII (Rules 2(2) & 4);
+            // Civil by Order XXI (Rules 3(2) & 5).
+            ...headingWithText(
+                `DECLARATION IN TERMS OF RULE ${projectData.caseType === 'Criminal' ? '2(2)' : '3(2)'}:`,
+                `No other petition seeking Special Leave to Appeal against${ioText} has been filed by the Petitioner(s).`,
+                "slp-intro-list-3",
+            ),
+            ...headingWithText(
+                `DECLARATION IN TERMS OF RULE ${projectData.caseType === 'Criminal' ? '4' : '5'}:`,
+                `Annexures P-1 to P-${lastNonAdPNumber} produced along with the Special Leave Petition are true copies of the pleadings/documents which formed part of the Courts below.`,
+                "slp-intro-list-3",
+            ),
+            ...headingWithText("GROUNDS:", "This Special Leave Petition is preferred on the following grounds taken without prejudice against each other:", "slp-intro-list-3"),
             groundsTable,
             ...interimGroundsSection,
-            new Paragraph({
-                children: [
-                    smartTextRun({ text: "MAIN PRAYERS: ", bold: true }),
-                    smartTextRun("In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon'ble Court may be pleased to:")
-                ],
-                numbering: { reference: "slp-intro-list-7", level: 0 },
-            }),
+            ...headingWithText("MAIN PRAYERS:", "In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon'ble Court may be pleased to:", "slp-intro-list-7"),
             mainPrayersTable,
             ...interimPrayersSection,
             new Paragraph({
@@ -1656,7 +1702,7 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
             ...(advocateDetailsTable ? [advocateDetailsTable, new Paragraph("")] : []),
             ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature }),
             new Paragraph({ children: [new PageBreak()] }),
-            ...createSlpHeader(projectData.caseType, ioText),
+            ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle),
             ...createPartiesHeader(petHeader, resHeader),
             new Paragraph({
                 alignment: AlignmentType.CENTER,
@@ -2335,7 +2381,7 @@ export async function generateFilingMemoDocx(projectData: DraftoProject, include
         sections: [{
             properties: { page: { margin: getSlpMargins() } },
             children: [
-                ...createSlpHeader(projectData.caseType, ` ${calculateIoText(projectData)}`),
+                ...createSlpHeader(projectData.caseType, ` ${calculateIoText(projectData)}`, getSlpLayout().headerStyle),
                 ...createPartiesHeader(petHeader, resHeader),
                 new Paragraph({
                     text: "FILING MEMO",
@@ -2576,7 +2622,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
 
     // 1. SLP Affidavit
     const slpAffidavitChildren = [
-        ...createSlpHeader(caseType, ioText),
+        ...createSlpHeader(caseType, ioText, getSlpLayout().headerStyle),
         new Paragraph(""),
         ...createPartiesHeader(petHeader, resHeader),
         new Paragraph({ children: [new TextRun({ text: "AFFIDAVIT", bold: true })], alignment: AlignmentType.CENTER }),
@@ -3541,10 +3587,16 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                     if (fileBuffer.byteLength > 0) {
                         // Load PDF directly to count pages
                         const pdf = await PDFDocument.load(fileBuffer);
+                        // An annexure and its typed/translated copy share one
+                        // Index row, so the pair must be counted as one item.
+                        // Annexures are always uploads, so this has to be worked
+                        // out here as well as on the system-generated path —
+                        // omitting it made the Index short by the length of
+                        // every translated copy, and shifted everything after it.
                         docPageCounts.set(meta.id, {
                             id: meta.id,
                             pageCount: pdf.getPageCount(),
-                            shouldCombineWithNext: false
+                            shouldCombineWithNext: pairedWithNext(meta.id, fileMetas),
                         });
                         continue;
                     }
@@ -3591,15 +3643,9 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 let shouldCombine = false;
                 if (meta.id === 'slp' || meta.id.startsWith('ia_') && !meta.id.startsWith('ia_affidavit_')) {
                     shouldCombine = true; // SLP and IA will combine with their affidavits
-                } else if (meta.id.startsWith('annexure_') && !meta.id.endsWith('_typed')) {
-                    // Check if next item is the typed/translated copy
-                    const currentIndex = fileMetas.findIndex(m => m.id === meta.id);
-                    if (currentIndex >= 0 && currentIndex < fileMetas.length - 1) {
-                        const nextMeta = fileMetas[currentIndex + 1];
-                        if (nextMeta.id === `${meta.id}_typed`) {
-                            shouldCombine = true;
-                        }
-                    }
+                } else if (meta.id.startsWith('annexure_')) {
+                    // The next item may be this annexure's other copy.
+                    shouldCombine = pairedWithNext(meta.id, fileMetas);
                 }
                 
                 docPageCounts.set(meta.id, {
@@ -3645,7 +3691,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         }
         
         // Skip items that are combined with previous (affidavits and typed/translated copies)
-        if (meta.id === 'slpAffidavit' || meta.id.startsWith('ia_affidavit_') || meta.id.endsWith('_typed')) {
+        if (meta.id === 'slpAffidavit' || meta.id.startsWith('ia_affidavit_') || isSecondOfPair(meta.id, fileMetas)) {
             continue;
         }
         
@@ -3721,36 +3767,19 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         }
         
         if (trackingAnnexures && (meta.id.startsWith('annexure_') || meta.id.startsWith('ia_annexure_'))) {
-            // Extract the base annexure ID (without _typed suffix)
-            const annexureId = meta.id.endsWith('_typed') 
-                ? meta.id.substring(0, meta.id.length - 6) // Remove '_typed'
-                : meta.id;
-            
-            let baseAnnexureId: string;
-            if (annexureId.startsWith('annexure_')) {
-                baseAnnexureId = annexureId.substring(9); // Remove 'annexure_' prefix
-            } else if (annexureId.startsWith('ia_annexure_')) {
-                baseAnnexureId = annexureId.substring(12); // Remove 'ia_annexure_' prefix
-            } else {
-                baseAnnexureId = annexureId;
-            }
-            
-            // Check if we've already recorded this annexure (for base annexure)
-            if (!meta.id.endsWith('_typed')) {
-                // This is the main annexure
+            // Both copies of an annexure share one entry, keyed on the annexure
+            // itself; the copy placed second is folded into the first one's range.
+            const baseAnnexureId = annexureBaseId(meta.id);
+
+            if (!isSecondOfPair(meta.id, fileMetas)) {
                 let totalPages = pageInfo.pageCount;
-                
-                // Check if there's a typed/translated copy to combine (only for P-annexures)
-                if (meta.id.startsWith('annexure_')) {
-                    const currentIndex = fileMetas.findIndex(m => m.id === meta.id);
-                    if (currentIndex >= 0 && currentIndex < fileMetas.length - 1) {
-                        const nextMeta = fileMetas[currentIndex + 1];
-                        if (nextMeta.id === `${meta.id}_typed`) {
-                            const typedPageInfo = docPageCounts.get(nextMeta.id);
-                            if (typedPageInfo) {
-                                totalPages += typedPageInfo.pageCount;
-                            }
-                        }
+
+                // Add the other copy when it follows immediately.
+                if (pairedWithNext(meta.id, fileMetas)) {
+                    const partnerId = partnerIdOf(meta.id);
+                    const partnerPageInfo = partnerId ? docPageCounts.get(partnerId) : undefined;
+                    if (partnerPageInfo) {
+                        totalPages += partnerPageInfo.pageCount;
                     }
                 }
                 
@@ -3764,7 +3793,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 
                 annexurePageNum = endPage + 1;
             }
-            // Skip typed copies as they're already counted above
+            // The second copy of a pair is already counted above
         } else if (trackingAnnexures && pageInfo.pageCount > 0) {
             // Track pages for non-annexure documents after Impugned Order
             let totalPages = pageInfo.pageCount;
@@ -3784,7 +3813,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             }
             
             // Skip combined items
-            if (!meta.id.endsWith('_typed') && !meta.id.startsWith('ia_affidavit_') && meta.id !== 'slpAffidavit') {
+            if (!isSecondOfPair(meta.id, fileMetas) && !meta.id.startsWith('ia_affidavit_') && meta.id !== 'slpAffidavit') {
                 annexurePageNum += totalPages;
             }
         }
@@ -3892,8 +3921,9 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             _pl.push('Impugned [Order Type]: True copy of [Impugned Order Details]');
         }
         _pl.push('Special Leave Petition with Certificate and Affidavit');
-        if (projectData.wantsAppendix && (projectData.appendixFile || projectData.appendixManualEntry) && projectData.appendixDescription) {
-            _pl.push(`Appendix: Relevant provisions of the ${projectData.appendixDescription}`);
+        // Same condition as the Index itself — see generateCiDocx.
+        if (projectData.wantsAppendix && (projectData.appendixFile || projectData.appendixManualEntry)) {
+            _pl.push(`Appendix: Relevant provisions of the ${projectData.appendixDescription || '[Appendix Description]'}`);
         }
         const _allAnnexures: Annexure[] = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
         const _nonAd = _allAnnexures.filter(a => !a.isAdditionalDocument);

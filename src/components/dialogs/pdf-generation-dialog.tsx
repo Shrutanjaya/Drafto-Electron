@@ -101,6 +101,11 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
     if (!(data.questionsOfLaw || []).some(r => r.particulars?.trim())) slpIssues.push('Questions of Law table is empty');
     if (!(data.grounds || []).some(r => r.particulars?.trim())) slpIssues.push('Grounds table is empty');
     if (!data.synopsis?.trim()) slpIssues.push('Synopsis is blank');
+    // The Appendix row in the Index reads "Relevant provisions of the <description>";
+    // without it the row prints a placeholder.
+    if (data.wantsAppendix && (data.appendixFile || data.appendixManualEntry) && !data.appendixDescription?.trim()) {
+        slpIssues.push('Appendix: description of the statute/rules (shown in the Index)');
+    }
     if (slpIssues.length) issues.push({ tab: 'SLP', items: slpIssues });
 
     // IAs
@@ -300,14 +305,20 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         let aCounter = 1;
         allIaAnnexures.forEach(a => iaAnnexureNumberingMap.set(a.id, aCounter++));
         
+        // Where an annexure has both copies, Settings decides which comes first.
+        // The Index, List of Dates and page stamps all read this same order.
+        const translatedFirst = getSettings().slpTranslatedCopyFirst;
         const processAnnexures = (annexures: (Annexure & {lodId: string})[]) => {
             annexures.forEach(a => {
                 const pNum = annexureNumberingMap.get(a.id);
-                list.push({ id: `annexure_${a.id}`, label: `Annexure P-${pNum}: ${capitalize(a.title)}${annexDate(a.date)}` });
+                const trueCopy = { id: `annexure_${a.id}`, label: `Annexure P-${pNum}: ${capitalize(a.title)}${annexDate(a.date)}` };
 
                 if (a.copyType === "true and typed copy" || a.copyType === "true and translated copy") {
                     const typeLabel = a.copyType.includes('typed') ? 'Typed' : 'Translated';
-                    list.push({ id: `annexure_${a.id}_typed`, label: `Annexure P-${pNum}: ${capitalize(a.title)}${annexDate(a.date)} (${typeLabel} Copy)` });
+                    const otherCopy = { id: `annexure_${a.id}_typed`, label: `Annexure P-${pNum}: ${capitalize(a.title)}${annexDate(a.date)} (${typeLabel} Copy)` };
+                    list.push(...(translatedFirst ? [otherCopy, trueCopy] : [trueCopy, otherCopy]));
+                } else {
+                    list.push(trueCopy);
                 }
             });
         };
