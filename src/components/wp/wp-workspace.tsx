@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import type { DraftoProject } from "@/lib/schema";
 import { customIaSchema } from "@/lib/schema";
 import { transposeLodToFacts, transposableLodIds, lodFingerprint, appendNewLodRowsToFacts } from "@/lib/wp/wp-facts";
+import { separateFactsMode, factsRowsFromLod } from "@/lib/wp/facts-mode";
 import { WP_STD_CM_TITLES } from "@/lib/wp/wp-actions";
 import { CustomIaCard } from "@/components/custom/custom-ia-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -82,6 +83,20 @@ export function WpWorkspace() {
   const [editorSection, setEditorSection] = useState<EditorSection>("synopsis");
   const [prelim, setPrelim] = useState<"parties" | "details" | "deponent">("parties");
   const [cmSection, setCmSection] = useState<"stay" | "lengthySynopsis" | "exemptionCopies" | "custom">(isIoWrit ? "stay" : "lengthySynopsis");
+
+  // Which way this project works — chosen once in Settings.
+  const separateFacts = separateFactsMode(form.getValues());
+
+  // Separate-Facts mode: build the Facts rows from the List of Dates. The text
+  // becomes "On <date>, <event>"; annexures are attached on the Facts table
+  // itself (except for a project drafted before the switch, whose annexures
+  // come across so nothing is lost).
+  const handleGenerateFactsRows = () => {
+    const proj = form.getValues();
+    const existing = (proj.wp.factsRows || []).some((r: any) => (r.event || "").trim() || (r.annexures || []).length);
+    if (existing && !window.confirm("Replace the Facts table with a fresh transposition from the List of Dates?")) return;
+    form.setValue("wp.factsRows", factsRowsFromLod(proj) as any, { shouldDirty: true });
+  };
 
   // Facts generation (edit-locked).
   const generatingFacts = useRef(false);
@@ -167,8 +182,12 @@ export function WpWorkspace() {
           <label htmlFor="wp-split" className="text-xs">Start List of Dates on a fresh page</label>
         </div>
       )} />
-      <p className="text-xs text-muted-foreground">Attach annexures to the relevant rows, as in an SLP. The Facts section is generated from these rows.</p>
-      <LoDTable />
+      <p className="text-xs text-muted-foreground">
+        {separateFacts
+          ? "Dates and particulars only — a concise chronology. The annexures live on the Facts table."
+          : "Attach annexures to the relevant rows, as in an SLP. The Facts section is generated from these rows."}
+      </p>
+      <LoDTable hideAnnexures={separateFacts} />
     </div>
   );
 
@@ -190,7 +209,19 @@ export function WpWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lod, factsLodIds]);
 
-  const factsEditor = (
+  const factsEditor = separateFacts ? (
+    <div className="flex h-full flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          One row per paragraph, with the annexures attached here. The List of Dates stays as your concise chronology.
+        </p>
+        <Button type="button" size="sm" variant="secondary" className="shrink-0" onClick={handleGenerateFactsRows}>
+          <Sparkles className="mr-1 h-3.5 w-3.5" />Generate from List of Dates
+        </Button>
+      </div>
+      <LoDTable name="wp.factsRows" hideDate />
+    </div>
+  ) : (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">Transposed from the List of Dates (with annexure sentences). Editing locks it against regeneration.</p>

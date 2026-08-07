@@ -33,6 +33,7 @@ import {
 } from "./wp-helpers";
 import { cascadeFor, enumLabel, type EnumStyle } from "./wp-numbering";
 import { wpAnnexureOrder, annexLabel, cmAnnexureOrder, cmAnnexLabel, cmAnnexBodySentence, cmAnnexIndexText, type CmAnnexEntry } from "./wp-annexures";
+import { resolveFactsHtml } from "./facts-mode";
 import { factsAnnexureSentenceParts, inlineHtml } from "./wp-facts";
 import { getWpNumbering, getWpOutputFormatting, getWpVakFormatting, getWpFiledBy } from "./wp-settings";
 
@@ -377,7 +378,7 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
       ];
     });
 
-  const facts = parseHtml(project.wp.facts || "");
+  const facts = parseHtml(resolveFactsHtml(project) || "");
   applyFactsCascade(facts.numbering, num.facts);
   numbering.push(...facts.numbering);
 

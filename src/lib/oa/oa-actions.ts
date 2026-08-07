@@ -15,6 +15,7 @@ import type { DraftoProject } from "@/lib/schema";
 import { createWpFiledBy, NO_BORDERS } from "@/lib/wp/wp-helpers";
 import { cascadeFor, enumLabel, type EnumStyle } from "@/lib/wp/wp-numbering";
 import { wpAnnexureOrder } from "@/lib/wp/wp-annexures";
+import { resolveFactsHtml } from "@/lib/wp/facts-mode";
 import { factsAnnexureSentenceHtml, inlineHtml } from "@/lib/wp/wp-facts";
 import { oaBench } from "@/lib/oa/oa-benches";
 import { getSettings } from "@/components/dialogs/settings-dialog";
@@ -312,7 +313,7 @@ function buildOaBody(project: DraftoProject, numbering: any[], mainRef: string):
 
   // Facts use the SAME mechanism as Grounds — each item parsed on its own and
   // bound to one numbering reference — so both lists indent identically.
-  const factStrings = splitListItems(project.oa.facts || "");
+  const factStrings = splitListItems(resolveFactsHtml(project) || "");
   const factsRef = newRef(); numbering.push(listDef(factsRef, num.facts as OaStyle, 4));
 
   const groundStrings = (project.grounds || []).map((g) => g.particulars).filter(htmlHasText);

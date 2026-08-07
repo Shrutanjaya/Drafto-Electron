@@ -107,6 +107,11 @@ interface SettingsData {
   slpHeadingBreak: boolean;             // heading on its own line, text beneath
   slpTranslatedCopyFirst: boolean;      // translated/typed copy before the true copy
 
+  // HC / CAT: reproduce the List of Dates in the Facts (the historical way), or
+  // keep a concise List of Dates and a Facts table of its own.
+  wpFactsFromLod: boolean;
+  oaFactsFromLod: boolean;
+
   // AI Plugin (Beta) — bring-your-own Claude Code CLI
   aiPluginEnabled: boolean;
   aiClaudeBinaryPath: string;  // optional override; blank = auto-detect on PATH
@@ -699,6 +704,8 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     slpHeaderStyle: 'short',
     slpHeadingBreak: false,
     slpTranslatedCopyFirst: false,
+    wpFactsFromLod: true,
+    oaFactsFromLod: true,
     aiPluginEnabled: false,
     aiClaudeBinaryPath: "",
     aiModel: 'default',
@@ -832,6 +839,8 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           slpHeaderStyle: (parsed.slpHeaderStyle === 'sci' ? 'sci' : 'short') as SlpHeaderStyle,
           slpHeadingBreak: parsed.slpHeadingBreak ?? false,
           slpTranslatedCopyFirst: parsed.slpTranslatedCopyFirst ?? false,
+          wpFactsFromLod: parsed.wpFactsFromLod ?? true,
+          oaFactsFromLod: parsed.oaFactsFromLod ?? true,
           aiPluginEnabled: parsed.aiPluginEnabled ?? false,
           aiClaudeBinaryPath: parsed.aiClaudeBinaryPath ?? "",
           aiModel: (parsed.aiModel || 'default') as AiModel,
@@ -2408,6 +2417,22 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 </SettingsGroup>
 
                 <SettingsGroup
+                  title="Facts & List of Dates"
+                  info={"Reproduce: one List of Dates carrying the annexures, and the Facts are generated from it — “On <date>, <event>” plus the annexure sentences. This is how Drafto has always worked.\n\nSeparate: the List of Dates keeps only dates and particulars, and the Facts get a table of their own — the same table minus the date column, annexures and all. Use this where you want a concise chronology but a full, para-wise narration.\n\nIn separate mode every annexure, including in the Index, comes from the Facts table. You can still generate the Facts rows from the List of Dates in one click."}
+                >
+                  <SettingRow label="Facts section">
+                    <SegGroup
+                      value={settings.wpFactsFromLod ? 'reproduce' : 'separate'}
+                      onChange={(v) => setSettings((prev) => ({ ...prev, wpFactsFromLod: v === 'reproduce' }))}
+                      options={[
+                        { value: 'reproduce', label: 'From the List of Dates' },
+                        { value: 'separate', label: 'Its own table' },
+                      ]}
+                    />
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
                   title="Vakalatnama formatting"
                   info="The vakalatnama uses its own smaller, tighter formatting so it fits on a single page. Defaults: 11 pt, single line spacing, 4 pt after each paragraph."
                 >
@@ -2722,6 +2747,22 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 </SettingsGroup>
 
                 <SettingsGroup
+                  title="Facts & List of Dates"
+                  info={"Reproduce: one List of Dates carrying the annexures, and the Facts are generated from it — “On <date>, <event>” plus the annexure sentences. This is how Drafto has always worked.\n\nSeparate: the List of Dates keeps only dates and particulars, and the Facts get a table of their own — the same table minus the date column, annexures and all. Use this where you want a concise chronology but a full, para-wise narration.\n\nIn separate mode every annexure, including in the Index, comes from the Facts table. You can still generate the Facts rows from the List of Dates in one click."}
+                >
+                  <SettingRow label="Facts section">
+                    <SegGroup
+                      value={settings.oaFactsFromLod ? 'reproduce' : 'separate'}
+                      onChange={(v) => setSettings((prev) => ({ ...prev, oaFactsFromLod: v === 'reproduce' }))}
+                      options={[
+                        { value: 'reproduce', label: 'From the List of Dates' },
+                        { value: 'separate', label: 'Its own table' },
+                      ]}
+                    />
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
                   title="Vakalatnama formatting"
                   info="The vakalatnama uses its own smaller, tighter formatting so it fits on a single page. Defaults: 11 pt, single line spacing, 4 pt after each paragraph."
                 >
@@ -3025,6 +3066,8 @@ export function getSettings(): SettingsData {
     slpHeaderStyle: 'short' as SlpHeaderStyle,
     slpHeadingBreak: false,
     slpTranslatedCopyFirst: false,
+    wpFactsFromLod: true,
+    oaFactsFromLod: true,
     aiPluginEnabled: false,
     aiClaudeBinaryPath: "",
     aiModel: 'default' as AiModel,
@@ -3158,6 +3201,8 @@ export function getSettings(): SettingsData {
         slpHeaderStyle: (parsed.slpHeaderStyle === 'sci' ? 'sci' : 'short') as SlpHeaderStyle,
         slpHeadingBreak: parsed.slpHeadingBreak ?? false,
         slpTranslatedCopyFirst: parsed.slpTranslatedCopyFirst ?? false,
+        wpFactsFromLod: parsed.wpFactsFromLod ?? true,
+        oaFactsFromLod: parsed.oaFactsFromLod ?? true,
         aiPluginEnabled: parsed.aiPluginEnabled ?? false,
         aiClaudeBinaryPath: parsed.aiClaudeBinaryPath ?? "",
         aiModel: (parsed.aiModel || 'default') as AiModel,

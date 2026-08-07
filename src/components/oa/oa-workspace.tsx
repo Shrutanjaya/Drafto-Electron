@@ -26,6 +26,7 @@ import type { DraftoProject } from "@/lib/schema";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 import { oaBench } from "@/lib/oa/oa-benches";
 import { transposeLodToFacts, transposableLodIds, lodFingerprint, appendNewLodRowsToFacts } from "@/lib/wp/wp-facts";
+import { separateFactsMode, factsRowsFromLod } from "@/lib/wp/facts-mode";
 import { oaMaSchema } from "@/lib/schema";
 
 const OA_RESIDUARY = "Pass such other/further orders as this Hon’ble Tribunal may deem fit and proper in the facts and circumstances of the case.";
@@ -155,6 +156,17 @@ export function OaWorkspace() {
     other: !!postalOrders?.trim(),
   };
 
+  // Which way this project works — chosen once in Settings.
+  const separateFacts = separateFactsMode(form.getValues());
+
+  // Separate-Facts mode: build the Facts rows from the List of Dates.
+  const handleGenerateFactsRows = () => {
+    const proj = form.getValues();
+    const existing = (proj.oa.factsRows || []).some((r: any) => (r.event || "").trim() || (r.annexures || []).length);
+    if (existing && !window.confirm("Replace the Facts table with a fresh transposition from the List of Dates?")) return;
+    form.setValue("oa.factsRows", factsRowsFromLod(proj) as any, { shouldDirty: true });
+  };
+
   // Facts generation from the List of Dates (with annexure sentences).
   const generatingFacts = useRef(false);
   const handleGenerateFacts = () => {
@@ -196,8 +208,12 @@ export function OaWorkspace() {
 
   const lodEditor = (
     <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">Attach annexures to the relevant rows, as in an SLP. The Facts section (Para 4) is generated from these rows, with their annexure sentences.</p>
-      <LoDTable />
+      <p className="text-xs text-muted-foreground">
+        {separateFacts
+          ? "Dates and particulars only — a concise chronology. The annexures live on the Facts table."
+          : "Attach annexures to the relevant rows, as in an SLP. The Facts section (Para 4) is generated from these rows, with their annexure sentences."}
+      </p>
+      <LoDTable hideAnnexures={separateFacts} />
     </div>
   );
 
@@ -215,7 +231,22 @@ export function OaWorkspace() {
     </div>
   );
 
-  const factsEditor = (
+  const factsEditor = separateFacts ? (
+    <div className="flex h-full flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          Para 4 — one row per sub-paragraph, with the annexures attached here. The List of Dates stays as your concise chronology.
+        </p>
+        <div className="flex shrink-0 items-center gap-1">
+          <StylePicker name="oa.numbering.facts" options={subparaStyles(4)} />
+          <Button type="button" size="sm" variant="secondary" onClick={handleGenerateFactsRows}>
+            <Sparkles className="mr-1 h-3.5 w-3.5" />Generate from List of Dates
+          </Button>
+        </div>
+      </div>
+      <LoDTable name="oa.factsRows" hideDate />
+    </div>
+  ) : (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">Para 4 — transposed from the List of Dates (with annexure sentences). Editing locks it against regeneration.</p>

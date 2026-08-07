@@ -35,6 +35,8 @@ import { FIND_REVEAL_EVENT, getPendingReveal } from "@/lib/find-reveal";
 
 interface AnnexureDialogProps {
   lodIndex: number;
+  /** Which table these rows live in. Defaults to the List of Dates. */
+  rowsName?: string;
   children: React.ReactElement;
   annexureNumberingMap: Map<string, number>;
 }
@@ -73,9 +75,9 @@ function useIsDark() {
 
 // Colly constituents editor (Delhi HC writ petitions). Lets the user club several
 // files under one P-number; each constituent is bookmarked separately in the PDF.
-function CollyConstituents({ lodIndex, annexIndex }: { lodIndex: number; annexIndex: number }) {
+function CollyConstituents({ lodIndex, annexIndex, rowsName = "listOfDates" }: { lodIndex: number; annexIndex: number; rowsName?: string }) {
   const form = useFormContext<DraftoProject>();
-  const base = `listOfDates.${lodIndex}.annexures.${annexIndex}.collyDocuments`;
+  const base = `${rowsName}.${lodIndex}.annexures.${annexIndex}.collyDocuments`;
   const { fields, append, remove } = useFieldArray({ control: form.control, name: base as any });
   const pick = async (i: number) => {
     const file = await pickFile();
@@ -114,11 +116,11 @@ function CollyConstituents({ lodIndex, annexIndex }: { lodIndex: number; annexIn
   );
 }
 
-export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: AnnexureDialogProps) {
+export function AnnexureDialog({ lodIndex, children, annexureNumberingMap, rowsName = "listOfDates" }: AnnexureDialogProps) {
   const form = useFormContext<DraftoProject>();
   const { fields, append, remove } = useFieldArray({
     control: form.control,
-    name: `listOfDates.${lodIndex}.annexures`,
+    name: `${rowsName}.${lodIndex}.annexures` as `listOfDates.${number}.annexures`,
   });
   const isDark = useIsDark();
   const isWp = form.watch("courtType") === "WritPetitionDHC";
@@ -176,7 +178,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
   const [cloneSelectValue, setCloneSelectValue] = useState("");
 
   const cloneOptions = (() => {
-    const allLods = form.getValues("listOfDates") ?? [];
+    const allLods = form.getValues(rowsName as "listOfDates") ?? [];
     return allLods
       .flatMap(lod => lod.annexures ?? [])
       .filter(a => annexureNumberingMap.has(a.id))
@@ -185,7 +187,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
   })();
 
   const handleClone = (sourceId: string) => {
-    const allLods = form.getValues("listOfDates") ?? [];
+    const allLods = form.getValues(rowsName as "listOfDates") ?? [];
     const source = allLods.flatMap(lod => lod.annexures ?? []).find(a => a.id === sourceId);
     if (!source) return;
     append({
@@ -204,11 +206,11 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
       const file = await pickFile();
       if (file) {
         if (isTyped) {
-          form.setValue(`listOfDates.${lodIndex}.annexures.${index}.typedOrTranslatedFile`, file, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
-          form.setValue(`listOfDates.${lodIndex}.annexures.${index}.typedOrTranslatedFilePath`, (file as any).path);
+          form.setValue(`${rowsName}.${lodIndex}.annexures.${index}.typedOrTranslatedFile`, file, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
+          form.setValue(`${rowsName}.${lodIndex}.annexures.${index}.typedOrTranslatedFilePath`, (file as any).path);
         } else {
-          form.setValue(`listOfDates.${lodIndex}.annexures.${index}.file`, file, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
-          form.setValue(`listOfDates.${lodIndex}.annexures.${index}.filePath`, (file as any).path);
+          form.setValue(`${rowsName}.${lodIndex}.annexures.${index}.file`, file, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
+          form.setValue(`${rowsName}.${lodIndex}.annexures.${index}.filePath`, (file as any).path);
         }
       }
     } else {
@@ -241,10 +243,10 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
           <div className="flex flex-col h-full p-2.5 pt-2">
               <div className="flex-grow overflow-y-auto pr-1 space-y-1 py-2 max-h-[60vh]">
               {fields.map((item, index) => {
-                  const currentAnnexure = form.watch(`listOfDates.${lodIndex}.annexures.${index}`);
+                  const currentAnnexure = form.watch(`${rowsName}.${lodIndex}.annexures.${index}`);
                   const pNumber = currentAnnexure ? annexureNumberingMap.get(currentAnnexure.id) : undefined;
-                  const fileValue = form.watch(`listOfDates.${lodIndex}.annexures.${index}.file`);
-                  const typedFileValue = form.watch(`listOfDates.${lodIndex}.annexures.${index}.typedOrTranslatedFile`);
+                  const fileValue = form.watch(`${rowsName}.${lodIndex}.annexures.${index}.file`);
+                  const typedFileValue = form.watch(`${rowsName}.${lodIndex}.annexures.${index}.typedOrTranslatedFile`);
                   const showTypedUpload = currentAnnexure.copyType === 'true and typed copy' || currentAnnexure.copyType === 'true and translated copy';
                   
                   const hasFile = fileValue instanceof File;
@@ -256,7 +258,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <FormField
                               control={form.control}
-                              name={`listOfDates.${lodIndex}.annexures.${index}.file`}
+                              name={`${rowsName}.${lodIndex}.annexures.${index}.file`}
                               render={({ field: { onChange, value, ...rest } }) => (
                               <FormItem>
                                   <FormControl>
@@ -283,7 +285,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                                           onChange(file);
                                           // Store path if available (Electron only)
                                           if ((file as any).path) {
-                                            form.setValue(`listOfDates.${lodIndex}.annexures.${index}.filePath`, (file as any).path);
+                                            form.setValue(`${rowsName}.${lodIndex}.annexures.${index}.filePath`, (file as any).path);
                                           }
                                         }
                                       }}
@@ -298,7 +300,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                           {!isIoDoctype && (
                           <FormField
                               control={form.control}
-                              name={`listOfDates.${lodIndex}.annexures.${index}.isAdditionalDocument`}
+                              name={`${rowsName}.${lodIndex}.annexures.${index}.isAdditionalDocument`}
                               render={({ field }) => (
                               <FormItem className="flex flex-row items-center space-y-0 pt-1">
                                   <FormControl>
@@ -322,7 +324,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                           {showIoCheckbox && (
                           <FormField
                               control={form.control}
-                              name={`listOfDates.${lodIndex}.annexures.${index}.isImpugnedOrder`}
+                              name={`${rowsName}.${lodIndex}.annexures.${index}.isImpugnedOrder`}
                               render={({ field }) => (
                               <FormItem className="flex flex-row items-center gap-1 space-y-0 pt-1">
                                   <FormControl>
@@ -342,7 +344,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                           {isIoDoctype && (
                           <FormField
                               control={form.control}
-                              name={`listOfDates.${lodIndex}.annexures.${index}.isColly`}
+                              name={`${rowsName}.${lodIndex}.annexures.${index}.isColly`}
                               render={({ field }) => (
                               <FormItem className="flex flex-row items-center gap-1 space-y-0 pt-1">
                                   <FormControl>
@@ -364,7 +366,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
 
                           <FormField
                             control={form.control}
-                            name={`listOfDates.${lodIndex}.annexures.${index}.copyType`}
+                            name={`${rowsName}.${lodIndex}.annexures.${index}.copyType`}
                             render={({ field }) => (
                               <FormItem className="min-w-[120px] flex-shrink-0">
                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
@@ -388,7 +390,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                           {showTypedUpload && (
                             <FormField
                                 control={form.control}
-                                name={`listOfDates.${lodIndex}.annexures.${index}.typedOrTranslatedFile`}
+                                name={`${rowsName}.${lodIndex}.annexures.${index}.typedOrTranslatedFile`}
                                 render={({ field: { onChange, value, ...rest } }) => (
                                 <FormItem>
                                     <FormControl>
@@ -415,7 +417,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                                             onChange(file);
                                             // Store path if available (Electron only)
                                             if ((file as any).path) {
-                                              form.setValue(`listOfDates.${lodIndex}.annexures.${index}.typedOrTranslatedFilePath`, (file as any).path);
+                                              form.setValue(`${rowsName}.${lodIndex}.annexures.${index}.typedOrTranslatedFilePath`, (file as any).path);
                                             }
                                           }
                                         }}
@@ -432,7 +434,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                           
                           <FormField
                             control={form.control}
-                            name={`listOfDates.${lodIndex}.annexures.${index}.title`}
+                            name={`${rowsName}.${lodIndex}.annexures.${index}.title`}
                             render={({ field }) => (
                               <FormItem className="flex-grow min-w-[150px]">
                                 <FormControl>
@@ -446,7 +448,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                           
                           <FormField
                             control={form.control}
-                            name={`listOfDates.${lodIndex}.annexures.${index}.date`}
+                            name={`${rowsName}.${lodIndex}.annexures.${index}.date`}
                             render={({ field }) => (
                               <FormItem>
                                 <FormControl>
@@ -458,7 +460,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                           
                           <FormField
                             control={form.control}
-                            name={`listOfDates.${lodIndex}.annexures.${index}.customText`}
+                            name={`${rowsName}.${lodIndex}.annexures.${index}.customText`}
                             render={({ field }) => (
                               <FormItem className="flex-grow min-w-[100px]">
                                 <FormControl>
@@ -494,7 +496,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap }: Ann
                           </AlertDialog>
                         </div>
                         {isIoDoctype && currentAnnexure.isColly && (
-                          <CollyConstituents lodIndex={lodIndex} annexIndex={index} />
+                          <CollyConstituents lodIndex={lodIndex} annexIndex={index} rowsName={rowsName} />
                         )}
                       </CardContent>
                   </Card>

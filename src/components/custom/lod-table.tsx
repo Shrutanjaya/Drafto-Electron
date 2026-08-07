@@ -130,16 +130,28 @@ const DateCellInput = ({
   );
 };
 
-export function LoDTable() {
+/**
+ * The dates/particulars/annexures table.
+ *
+ * Used three ways: as the List of Dates (everything shown), as the concise List
+ * of Dates in separate-Facts mode (`hideAnnexures`), and as the Facts table in
+ * that same mode (`hideDate`) — where it is the List of Dates table in all but
+ * name, which is exactly what was asked for.
+ */
+export function LoDTable({
+  name = "listOfDates",
+  hideDate = false,
+  hideAnnexures = false,
+}: { name?: string; hideDate?: boolean; hideAnnexures?: boolean } = {}) {
   const form = useFormContext<DraftoProject>()
   const { fields, append, remove, move, insert } = useFieldArray({
     control: form.control,
-    name: "listOfDates",
+    name: name as "listOfDates",
   })
 
   const [dateColWidth, setDateColWidth] = useState(75);
 
-  const allLods = useWatch({ control: form.control, name: "listOfDates" });
+  const allLods = useWatch({ control: form.control, name: name as "listOfDates" }) || [];
 
   useEffect(() => {
     const canvas = document.createElement('canvas');
@@ -232,6 +244,7 @@ export function LoDTable() {
               <TableHeader>
                 <TableRow className="border-none">
                   <TableHead className="w-[30px] p-0 text-xs"></TableHead>
+                  {!hideDate && (
                   <TableHead className="text-center p-0 text-xs" style={{ width: dateColWidth, minWidth: dateColWidth }}>
                     <span className="inline-flex items-center gap-0.5">
                       Date
@@ -249,7 +262,9 @@ export function LoDTable() {
                       </TooltipProvider>
                     </span>
                   </TableHead>
+                  )}
                   <TableHead className="text-center p-0 text-xs">Particulars</TableHead>
+                  {!hideAnnexures && (
                   <TableHead className="w-[20px] text-center p-0 text-xs">
                     <span className="inline-flex items-center gap-0.5">
                       Annex
@@ -267,6 +282,7 @@ export function LoDTable() {
                       </TooltipProvider>
                     </span>
                   </TableHead>
+                  )}
                   <TableHead className="w-[20px] text-center p-0 text-xs"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -280,10 +296,11 @@ export function LoDTable() {
                     const hasAnnexures = currentLod?.annexures && currentLod.annexures.length > 0;
                     return (
                       <SortableRow key={item.id} id={item.id}>
+                        {!hideDate && (
                         <TableCell className="align-top pt-2 p-0" style={{ width: dateColWidth, minWidth: dateColWidth }}>
                           <FormField
                             control={form.control}
-                            name={`listOfDates.${index}.date`}
+                            name={`${name}.${index}.date`}
                             render={({ field }) => (
                               <FormItem>
                                 <FormControl>
@@ -299,10 +316,11 @@ export function LoDTable() {
                             )}
                           />
                         </TableCell>
+                        )}
                         <TableCell className="align-top p-0">
                           <FormField
                             control={form.control}
-                            name={`listOfDates.${index}.event`}
+                            name={`${name}.${index}.event`}
                             render={({ field }) => (
                               <FormItem>
                                 <FormControl>
@@ -317,8 +335,9 @@ export function LoDTable() {
                             )}
                           />
                         </TableCell>
+                        {!hideAnnexures && (
                         <TableCell className="align-top pt-1 p-0 text-center">
-                          <AnnexureDialog lodIndex={index} annexureNumberingMap={annexureNumberingMap}>
+                          <AnnexureDialog lodIndex={index} annexureNumberingMap={annexureNumberingMap} rowsName={name}>
                             <Button 
                               variant="ghost"
                               size="sm" 
@@ -331,6 +350,7 @@ export function LoDTable() {
                             </Button>
                           </AnnexureDialog>
                         </TableCell>
+                        )}
                         <TableCell className="align-top pt-1 p-0 text-center">
                           <Button
                             type="button"

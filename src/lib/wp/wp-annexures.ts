@@ -2,6 +2,7 @@
 // Facts engine (and tests) can use it without pulling in the document layer.
 
 import type { DraftoProject, Annexure, CustomIa, IaAnnexure } from "@/lib/schema";
+import { annexureRowsOf } from "./facts-mode";
 
 // Ordered annexures with their P-numbers. Impugned-order annexures sort first
 // (P-1…), then the remaining annexures in List-of-Dates order. The array form
@@ -15,7 +16,9 @@ export function wpAnnexureOrderFromLods(listOfDates: { annexures?: Annexure[] }[
 }
 
 export function wpAnnexureOrder(project: DraftoProject): { annex: Annexure; pNumber: number }[] {
-  return wpAnnexureOrderFromLods(project.listOfDates || []);
+  // Which table carries the annexures depends on the Facts mode — the List of
+  // Dates normally, the Facts table when the two are kept separate.
+  return wpAnnexureOrderFromLods(annexureRowsOf(project));
 }
 
 export function annexLabel(pNumber: number, annex: Annexure, prefix: string = "P"): string {

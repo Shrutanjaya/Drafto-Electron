@@ -383,6 +383,11 @@ export const draftoProjectSchema = z.object({
     limitationCustom: z.string().default(""),
     // Para 4 Facts (transposed from the List of Dates, then hand-editable)
     facts: z.string().default(""),
+    // Facts as their own annexure-bearing table, used when the user has turned
+    // OFF "reproduce the List of Dates in the Facts". Same row shape as the
+    // List of Dates — the date column simply is not shown — so the table, the
+    // annexure dialog and the annexure numbering all work unchanged.
+    factsRows: z.array(lodTableItemSchema).default([]),
     factsEdited: z.boolean().default(false),
     factsLodIds: z.array(z.string()).default([]),
     factsLodFingerprint: z.string().default(""),
@@ -454,6 +459,11 @@ export const draftoProjectSchema = z.object({
     // Facts section: transposed from the List of Dates by the AI assistant, then
     // hand-editable. `factsEdited` suppresses auto-regeneration once touched.
     facts: z.string().default(""),
+    // Facts as their own annexure-bearing table, used when the user has turned
+    // OFF "reproduce the List of Dates in the Facts". Same row shape as the
+    // List of Dates — the date column simply is not shown — so the table, the
+    // annexure dialog and the annexure numbering all work unchanged.
+    factsRows: z.array(lodTableItemSchema).default([]),
     factsEdited: z.boolean().default(false),
     // Transposition bookkeeping: LoD row ids already carried into Facts (drives
     // the append-only "add new rows" action) and a fingerprint of the LoD at the
