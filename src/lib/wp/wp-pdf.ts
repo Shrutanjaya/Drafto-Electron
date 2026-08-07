@@ -14,6 +14,7 @@ import { getWpStampSettings, type WpStampSettings } from "./wp-settings";
 import { convertDocxToPdf as ipcConvertDocxToPdf } from "@/lib/ipc/pdf";
 import type { DraftoProject } from "@/lib/schema";
 import { wpAnnexureOrder, cmAnnexLabel, cmAnnexIndexText } from "./wp-annexures";
+import { pageRotation } from "@/lib/pdf-rotation";
 import {
   generateWpIndex,
   generateWpNoticeOfMotion,
@@ -42,7 +43,7 @@ export function b64ToBytes(b64: string): Uint8Array {
 // with `rotate: degrees(rotation)` so they always read upright on screen.
 export function visualFrame(page: PDFPage) {
   const { width, height } = page.getSize();
-  const rotation = ((page.getRotation().angle % 360) + 360) % 360;
+  const rotation = pageRotation(page);
   let cx: number, cy: number, rx: number, ry: number, ux: number, uy: number;
   if (rotation === 90) { cx = width; cy = 0; rx = 0; ry = 1; ux = -1; uy = 0; }
   else if (rotation === 180) { cx = width; cy = height; rx = -1; ry = 0; ux = 0; uy = -1; }

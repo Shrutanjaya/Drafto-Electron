@@ -10,6 +10,7 @@ import { parseHtml } from "@/lib/html-to-docx";
 import { getChecklistQueries, CHECKLIST_DECLARATION } from "@/lib/checklist-queries";
 import { PDFDocument, rgb, StandardFonts, PDFName, PDFDict, PDFArray, PDFRef, PDFString, PDFNumber, PDFRawStream, decodePDFRawStream, degrees } from 'pdf-lib';
 import { convertDocxToPdf as ipcConvertDocxToPdf } from "@/lib/ipc/pdf";
+import { pageRotation } from "@/lib/pdf-rotation";
 
 
 const calculateIoText = (projectData: DraftoProject) => {
@@ -3063,7 +3064,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         
         const firstPage = pdf.getPage(0);
         const { width, height } = firstPage.getSize();
-        const rotation = firstPage.getRotation().angle;
+        const rotation = pageRotation(firstPage);
         
         // Load Times New Roman Bold font
         const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
@@ -3189,7 +3190,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         for (let i = 0; i < pageCount; i++) {
             const page = pdf.getPage(i);
             const { width, height } = page.getSize();
-            const rotation = page.getRotation().angle;
+            const rotation = pageRotation(page);
 
             // Visual bottom-left corner (cx,cy) and the visual right/up unit vectors,
             // expressed in unrotated mediabox coordinates.
@@ -3314,7 +3315,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         for (let i = 0; i < pageCount; i++) {
             const page = pdf.getPage(i);
             const { width, height } = page.getSize();
-            const rotation = page.getRotation().angle;
+            const rotation = pageRotation(page);
             const pageNumber = startingPageNumber + i;
             const pageText = pageNumber.toString();
             const textWidth = font.widthOfTextAtSize(pageText, fontSize);
@@ -3387,7 +3388,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         for (let i = 0; i < pageCount; i++) {
             const page = pdf.getPage(i);
             const { width, height } = page.getSize();
-            const rotation = page.getRotation().angle;
+            const rotation = pageRotation(page);
             const letterIndex = startingLetterIndex + i;
             const pageText = numberToAlphabet(letterIndex);
             const textWidth = font.widthOfTextAtSize(pageText, fontSize);
@@ -3451,7 +3452,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             const textWidth = font.widthOfTextAtSize(pageText, fontSize);
             
             // Check page rotation and adjust coordinates accordingly
-            const rotation = page.getRotation().angle;
+            const rotation = pageRotation(page);
             let x = width - rightMargin - textWidth;
             let y = height - topMargin - fontSize;
             let rotationAngle = 0;
