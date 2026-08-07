@@ -137,10 +137,11 @@ export function AiChatPanel() {
   // The most recent user turn, so it can be re-run (e.g. retried in image mode).
   const [lastTurn, setLastTurn] = useState<{ text: string; effort: Effort } | null>(null);
   const [pending, setPending] = useState<PendingSuggestion | null>(null);
+  // What the last chat turn filled, so it can be put back in one click.
+  const [chatUndo, setChatUndo] = useState<{ snapshot: any; count: number } | null>(null);
   const [pendingDocMap, setPendingDocMap] = useState<PendingDocMap | null>(null);
   const [docSplitting, setDocSplitting] = useState(false);
   // Granular per-step tasks are tucked away by default (Phase 1: one doorway).
-  const [showPresets, setShowPresets] = useState(false);
   // Power-user knobs (model) live behind an Advanced toggle, off by default.
   const [showAdvanced, setShowAdvanced] = useState(false);
   // Filing-readiness strip: expanded on demand.
@@ -342,7 +343,6 @@ export function AiChatPanel() {
     setImageModePref("text");
     setLastTurn(null);
     setSessionId(null); // new source context → start a fresh conversation
-    setShowPresets(true); // re-show the task menu for the new session
     if (!window.electron.aiScanFolder) return;
     setScanning(true);
     try {
@@ -369,7 +369,6 @@ export function AiChatPanel() {
     setImageModePref("text");
     setLastTurn(null);
     setSessionId(null);
-    setShowPresets(true);
     setFolder(paths[0].replace(/[\\/][^\\/]*$/, "") || paths[0]);
     setScanning(true);
     try {
@@ -390,7 +389,6 @@ export function AiChatPanel() {
     setCostAcknowledged(false);
     setImageModePref("text");
     setLastTurn(null);
-    setShowPresets(true); // re-show the task menu on reset
   };
 
   // Phase 1: validate + decide whether to show the cost confirmation first.
@@ -411,7 +409,6 @@ export function AiChatPanel() {
   };
   const handleSend = () => submitText(input, "medium");
   const runPreset = (prompt: string, effort: Effort, modelOverride?: string) => {
-    setShowPresets(false);
     submitText(prompt, effort, modelOverride);
   };
 
@@ -430,7 +427,6 @@ export function AiChatPanel() {
   const handlePreset = (p: { id: string; prompt: string; effort: Effort; model?: string }) => {
     if (p.id === "lod") {
       setLodPending({ prompt: p.prompt, effort: p.effort, model: p.model });
-      setShowPresets(false);
       return;
     }
     runPreset(p.prompt, p.effort, p.model);
@@ -456,6 +452,14 @@ export function AiChatPanel() {
   const runDraftEverything = () => runPreset(isWp ? DRAFT_EVERYTHING_WP : DRAFT_EVERYTHING_SLP, "large", "sonnet");
 
   // Run the preset that best advances the first still-missing section.
+  // Kept for the readiness strip: rather than firing a hidden playbook, this now
+  // sets the job up in the Draft tab so the user sees exactly what will run.
+  const openNextInDraftTab = () => {
+    const next = readiness.next;
+    if (next) setJob((prev) => ({ ...prev, draft: [next.id] }));
+    setTab('draft');
+  };
+
   const runNextStep = () => {
     const p = presets.find((x) => x.id === readiness.next?.presetId);
     if (p) handlePreset(p);
@@ -513,18 +517,35 @@ export function AiChatPanel() {
     setSteps([]);
     setCostAcknowledged(false);
     setImageModePref("text");
-    setShowPresets(true);
   };
 
   // Validate + present field-fill suggestions. Returns how many were accepted.
   const presentFieldOps = (proposal: { operations?: unknown[] }): number => {
     const { valid, rejected } = validateProposal(proposal);
     if (valid.length > 0) {
-      setPending({ ops: valid, preview: buildPreview(form.getValues(), valid), rejected });
+      if (blockIfReadOnly()) return 0;
+      // Snapshot first, then fill. The user reviews the work in the fields
+      // themselves — not as a diff in a small panel — and Undo restores the
+      // project exactly as it was.
+      const before = JSON.parse(JSON.stringify(form.getValues()));
+      const applied = applyOps(form, valid);
+      setChatUndo({ snapshot: before, count: applied.length });
+      addMessage(
+        "system",
+        `Filled ${applied.length} field${applied.length === 1 ? "" : "s"}. Have a look at the affected tabs — use Undo if you'd rather not keep it.`,
+      );
     } else if (rejected.length > 0) {
       addMessage("system", "The assistant proposed changes I couldn't apply (unknown or invalid fields). Nothing was changed.");
     }
     return valid.length;
+  };
+
+  /** Put back what the last chat turn filled. */
+  const undoChat = () => {
+    if (!chatUndo) return;
+    form.reset(chatUndo.snapshot, { keepDefaultValues: true });
+    setChatUndo(null);
+    addMessage("system", "Undone — the project is back as it was.");
   };
 
   // Validate + present a document-map review (with thumbnails). Returns count.
@@ -1086,7 +1107,7 @@ export function AiChatPanel() {
             </div>
             <div className="flex items-center gap-1.5 pt-0.5">
               {readiness.next ? (
-                <Button type="button" size="sm" className="h-7 text-[11px] flex-1 gap-1" onClick={runNextStep} disabled={prereqOk === false || thinking || scanning || !!pendingConfirm}>
+                <Button type="button" size="sm" className="h-7 text-[11px] flex-1 gap-1" onClick={openNextInDraftTab} disabled={prereqOk === false || runningJob}>
                   <ArrowRight className="h-3.5 w-3.5" /> Draft {readiness.next.label.toLowerCase()}
                 </Button>
               ) : (
@@ -1166,8 +1187,8 @@ export function AiChatPanel() {
             )}
 
             <div className="flex items-center justify-center gap-4 text-[10px] text-muted-foreground">
-              <button type="button" onClick={() => setShowPresets((v) => !v)} className="hover:text-foreground inline-flex items-center gap-0.5">
-                a specific step {showPresets ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              <button type="button" onClick={() => setTab('draft')} className="hover:text-foreground">
+                choose exactly what to draft
               </button>
               <button type="button" onClick={runImportDraft} disabled={prereqOk === false || thinking || scanning || !!pendingConfirm} className="hover:text-foreground disabled:opacity-50">
                 import an existing draft
@@ -1279,6 +1300,17 @@ export function AiChatPanel() {
         )}
 
         {/* Suggest-before-write review card */}
+        {chatUndo && (
+          <div className="mx-auto flex items-center gap-2 rounded-md border border-green-500/40 bg-green-500/10 px-2.5 py-1.5">
+            <CheckCircle className="h-3.5 w-3.5 shrink-0 text-green-700 dark:text-green-400" />
+            <span className="text-[11px] text-green-800 dark:text-green-300">
+              {chatUndo.count} field{chatUndo.count === 1 ? "" : "s"} filled — check the tabs.
+            </span>
+            <Button type="button" size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[10px]" onClick={undoChat}>
+              <RotateCcw className="h-3 w-3" /> Undo
+            </Button>
+          </div>
+        )}
         {pending && (
           <div className="rounded-lg border border-primary/40 bg-primary/5 p-2.5 space-y-2">
             <p className="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
@@ -1440,57 +1472,9 @@ export function AiChatPanel() {
         </div>
       )}
 
-      {/* Quick-action presets — the assistant's step-by-step playbook, tucked away */}
-      {showPresets && (
-        <div className="shrink-0 border-t p-2 max-h-52 overflow-y-auto space-y-2">
-          <Button type="button" className="w-full h-8 text-[11px] gap-1.5" onClick={() => (hasSources ? runDraftEverything() : handlePickFolder())} disabled={prereqOk === false || thinking || scanning || !!pendingConfirm}>
-            <Wand2 className="h-3.5 w-3.5" /> Draft my {isWp ? "Writ Petition" : "SLP"} — everything
-          </Button>
-          <Button type="button" variant="outline" className="w-full h-7 text-[10px] gap-1.5" onClick={runImportDraft} disabled={prereqOk === false || thinking || scanning || !!pendingConfirm}>
-            <FolderOpen className="h-3.5 w-3.5" /> Import an existing draft into fields
-          </Button>
-          <p className="text-[9px] text-muted-foreground text-center">or run one step at a time:</p>
-          {(["Tasks", "More"] as const).map((group) => {
-            const items = presets.filter((p) => p.group === group);
-            if (items.length === 0) return null;
-            return (
-              <div key={group} className="space-y-1">
-                <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{group}</p>
-                <div className="flex flex-wrap gap-1">
-                  {items.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => handlePreset(p)}
-                      disabled={prereqOk === false || thinking || scanning || !!pendingConfirm}
-                      title={p.needsFolder && !folder ? "Pick a folder of source documents first for best results" : p.prompt}
-                      className="text-[10px] px-2 py-1 rounded-full border border-border bg-background hover:bg-muted disabled:opacity-50"
-                    >
-                      {p.label}
-                      <span className="opacity-60"> · {presetEstimate(p.effort)}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
       {/* Composer */}
       <div className="shrink-0 border-t p-2 space-y-1.5">
         <div className="flex items-end gap-1.5">
-          <Button
-            type="button"
-            variant={showPresets ? "default" : "outline"}
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={() => setShowPresets((v) => !v)}
-            title="Show tasks"
-            disabled={prereqOk === false}
-          >
-            <Wand2 className="h-3.5 w-3.5" />
-          </Button>
           <Button
             type="button"
             variant="outline"
