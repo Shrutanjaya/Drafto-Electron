@@ -592,7 +592,7 @@ export const FIELD_CATALOG: CatalogEntry[] = [...BASE_CATALOG, ...CHECKLIST_ENTR
 // Settings-driven "Filed by" block (like the AoR fields) and file attachments
 // stay out of reach.
 
-export type DraftMode = "SLP" | "WritPetitionDHC";
+export type DraftMode = "SLP" | "WritPetitionDHC" | "OriginalApplicationCAT";
 
 const WP_PARTY_FIELDS: LeafField[] = [
   { key: "name", label: "Name", kind: "text" },
@@ -875,8 +875,221 @@ export const WP_FIELD_CATALOG: CatalogEntry[] = [
   },
 ];
 
+// ── Original Application (CAT) catalog ───────────────────────────────────────
+// The Tribunal's own field map. Shares the project's common fields (parties,
+// deponent, synopsis, listOfDates, grounds) but names them in CAT terms —
+// Applicants rather than Petitioners — and adds the oa.* fields. Exclusions
+// mirror the SLP and WP policy: oa.advocate.* is the Settings-driven "Filed by"
+// block, oa.numbering.* is presentation, and file attachments stay out of reach.
+
+const OA_PARTY_FIELDS: LeafField[] = [
+  { key: "name", label: "Name", kind: "text" },
+  {
+    key: "through",
+    label: "\"Through\" service designation (optional)",
+    kind: "text",
+    description:
+      "Shown under the name in the Memo of Parties for parties served through an officer — e.g. \"Through the Secretary, Ministry of Defence\". Leave empty for natural persons.",
+  },
+  { key: "address", label: "Address", kind: "longtext" },
+];
+
+export const OA_FIELD_CATALOG: CatalogEntry[] = [
+  // ── Preliminary ──
+  {
+    path: "petitioners",
+    tab: "Preliminary",
+    label: "Applicants",
+    description: "The party/parties filing the Original Application, in order. (Stored as \"petitioners\" internally; they are the Applicants.)",
+    isList: true,
+    itemFields: OA_PARTY_FIELDS,
+  },
+  {
+    path: "respondents",
+    tab: "Preliminary",
+    label: "Respondents",
+    description: "The Union/State authorities against whom relief is sought, in order. Government respondents usually carry a \"through\" designation.",
+    isList: true,
+    itemFields: OA_PARTY_FIELDS,
+  },
+  {
+    path: "oa.legalAid",
+    tab: "Preliminary",
+    label: "Legal aid case",
+    description: "True when the OA is filed through the Delhi State Legal Services Authority; prints a banner on the first page.",
+    isList: false,
+    kind: "boolean",
+  },
+  { path: "advocate.filingPlace", tab: "Preliminary", label: "Filing place", description: "Usually New Delhi.", isList: false, kind: "text" },
+  { path: "advocate.filingDate", tab: "Preliminary", label: "Filing date (ISO yyyy-mm-dd)", description: "Date the OA is filed.", isList: false, kind: "date" },
+  { path: "deponent.name", tab: "Preliminary", label: "Deponent name", description: "Person swearing the affidavit. Defaults to the first Applicant if blank.", isList: false, kind: "text" },
+  { path: "deponent.fatherName", tab: "Preliminary", label: "Deponent's father/spouse name", description: "", isList: false, kind: "text" },
+  { path: "deponent.address", tab: "Preliminary", label: "Deponent address", description: "", isList: false, kind: "longtext" },
+  { path: "deponent.age", tab: "Preliminary", label: "Deponent age", description: "", isList: false, kind: "text" },
+
+  // ── Application ──
+  {
+    path: "oa.jurisdictionCause",
+    tab: "Application",
+    label: "Jurisdiction — cause of action arose here",
+    description: "Para 2. Asserts that the cause of action arose within the Bench's territorial jurisdiction. The usual basis; ticked by default.",
+    isList: false,
+    kind: "boolean",
+  },
+  {
+    path: "oa.jurisdictionCauseNote",
+    tab: "Application",
+    label: "Jurisdiction — cause of action rider",
+    description: "Optional sentence appended to the cause-of-action declaration, e.g. where precisely the cause arose.",
+    isList: false,
+    kind: "longtext",
+  },
+  {
+    path: "oa.jurisdictionPosted",
+    tab: "Application",
+    label: "Jurisdiction — Applicant posted here",
+    description: "Para 2. Asserts that the Applicant is posted, for the time being, within the Bench's jurisdiction.",
+    isList: false,
+    kind: "boolean",
+  },
+  {
+    path: "oa.jurisdictionPostedNote",
+    tab: "Application",
+    label: "Jurisdiction — posting rider",
+    description: "Optional sentence appended to the posting declaration, e.g. the station of posting.",
+    isList: false,
+    kind: "longtext",
+  },
+  {
+    path: "oa.limitation",
+    tab: "Application",
+    label: "Limitation position",
+    description:
+      "Para 3. \"noDelay\" = filed within time. \"delay\" = beyond time, with the number of days and a condonation application. \"abundantCaution\" = no delay admitted, but condonation sought without prejudice.",
+    isList: false,
+    kind: "enum",
+    enumValues: ["noDelay", "delay", "abundantCaution"],
+  },
+  {
+    path: "oa.delayDays",
+    tab: "Application",
+    label: "Days of delay",
+    description: "Number of days of delay, as text. Only meaningful when the limitation position is \"delay\".",
+    isList: false,
+    kind: "text",
+  },
+  {
+    path: "oa.limitationNote",
+    tab: "Application",
+    label: "Limitation explanation",
+    description: "The explanation for the delay, or any rider on the limitation position.",
+    isList: false,
+    kind: "longtext",
+  },
+  {
+    path: "synopsis",
+    tab: "Application",
+    label: "Synopsis",
+    description: "The narrative synopsis of the case.",
+    isList: false,
+    kind: "longtext",
+  },
+  {
+    path: "listOfDates",
+    tab: "Application",
+    label: "List of Dates & Events",
+    description: "Chronological table of events, with annexures attached to the relevant rows. The Facts (Para 4) are generated from these rows, so this is the spine of the OA.",
+    isList: true,
+    itemFields: [
+      { key: "date", label: "Date (free text, e.g. 12.03.2021)", kind: "text" },
+      { key: "event", label: "Particulars of the event", kind: "longtext" },
+      {
+        key: "annexures",
+        label: "Annexure(s) for this event",
+        kind: "longtext",
+        description:
+          "Annexure(s) tied to this event. Put each annexure's DESCRIPTION here, NOT in the event text. Describes the annexure only — it does not attach a file.",
+        itemFields: [
+          { key: "title", label: "Annexure description/title", kind: "longtext" },
+          { key: "date", label: "Annexure date (free text)", kind: "text" },
+          { key: "copyType", label: "Copy type", kind: "enum", enumValues: ["true copy", "typed copy", "true and typed copy", "translated copy", "true and translated copy"] },
+          { key: "customText", label: "Extra custom text (optional)", kind: "longtext" },
+        ],
+      },
+    ],
+  },
+  {
+    path: "oa.facts",
+    tab: "Application",
+    label: "Facts (Para 4)",
+    description:
+      "The facts narration, as an HTML ordered list (<ol><li>…</li></ol>) — one <li> per numbered sub-paragraph. Normally transposed from the List of Dates; draft it directly only when asked.",
+    isList: false,
+    kind: "longtext",
+  },
+  {
+    path: "grounds",
+    tab: "Application",
+    label: "Grounds (Para 5)",
+    description: "Grounds on which the relief is sought. One per row, no numbering — Drafto numbers them.",
+    isList: true,
+    itemFields: [{ key: "particulars", label: "Ground", kind: "longtext" }],
+  },
+  {
+    path: "oa.reliefs",
+    tab: "Application",
+    label: "Reliefs (Paras 1 and 8)",
+    description:
+      "The reliefs sought — the single source of truth, printed both in Para 1 and as the Para 8 prayer. One relief per row, plain prose, NO numbering (Drafto letters them). Supply each relief's own punctuation. The fixed residuary prayer is added automatically, so do NOT include it.",
+    isList: true,
+    itemFields: [{ key: "particulars", label: "Relief", kind: "longtext" }],
+  },
+  {
+    path: "oa.interimNil",
+    tab: "Application",
+    label: "No interim relief sought",
+    description: "Para 9. True (the default) prints NIL. Set false when interim relief is sought, and fill the interim reliefs.",
+    isList: false,
+    kind: "boolean",
+  },
+  {
+    path: "oa.interimReliefs",
+    tab: "Application",
+    label: "Interim reliefs (Para 9)",
+    description: "Interim reliefs sought, one per row, no numbering. Only meaningful when \"No interim relief sought\" is false.",
+    isList: true,
+    itemFields: [{ key: "particulars", label: "Interim relief", kind: "longtext" }],
+  },
+  {
+    path: "oa.postalOrders",
+    tab: "Application",
+    label: "Postal orders for the application fee (Para 11)",
+    description: "Free text describing the postal orders enclosed towards the application fee.",
+    isList: false,
+    kind: "text",
+  },
+
+  // ── Applications (MAs / Petition for Transfer) ──
+  {
+    path: "oa.mas",
+    tab: "Applications",
+    label: "Miscellaneous Applications",
+    description:
+      "Applications filed with the OA (condonation of delay, exemption, interim relief, Petition for Transfer, and bespoke ones). Each has a title, a praying paragraph, grounds and prayers.",
+    isList: true,
+    itemFields: [
+      { key: "title", label: "Application title", kind: "text" },
+      { key: "para2", label: "\"This application is being filed praying that…\" paragraph", kind: "longtext" },
+      { key: "grounds", label: "Grounds", kind: "longtext", itemFields: [{ key: "particulars", label: "Ground", kind: "longtext" }] },
+      { key: "prayers", label: "Prayers", kind: "longtext", itemFields: [{ key: "particulars", label: "Prayer", kind: "longtext" }] },
+    ],
+  },
+];
+
 export function catalogFor(mode: DraftMode): CatalogEntry[] {
-  return mode === "WritPetitionDHC" ? WP_FIELD_CATALOG : FIELD_CATALOG;
+  if (mode === "WritPetitionDHC") return WP_FIELD_CATALOG;
+  if (mode === "OriginalApplicationCAT") return OA_FIELD_CATALOG;
+  return FIELD_CATALOG;
 }
 
 // ── Validation map ────────────────────────────────────────────────────────────
@@ -904,7 +1117,7 @@ function mergeLeafFields(a?: LeafField[], b?: LeafField[]): LeafField[] | undefi
 
 function buildValidationMap(): Map<string, CatalogEntry> {
   const map = new Map<string, CatalogEntry>(FIELD_CATALOG.map((e) => [e.path, e]));
-  for (const e of WP_FIELD_CATALOG) {
+  for (const e of [...WP_FIELD_CATALOG, ...OA_FIELD_CATALOG]) {
     const existing = map.get(e.path);
     if (!existing) { map.set(e.path, e); continue; }
     map.set(e.path, {

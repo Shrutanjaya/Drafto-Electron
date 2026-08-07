@@ -1,15 +1,22 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 import { Sparkles, X, Minus, FolderOpen, Send, Loader2, AlertCircle, CheckCircle, Wand2, Maximize2, Minimize2, RotateCcw, ChevronDown, ChevronRight, Settings2, Circle, FileStack, ArrowRight } from "lucide-react";
 import { getPresets } from "@/lib/ai/presets";
 import { computeReadiness } from "@/lib/ai/readiness";
-import { estimateLabel, formatElapsed, type Effort } from "@/lib/ai/estimate";
+import { estimateLabel, estimateSeconds, formatElapsed, type Effort } from "@/lib/ai/estimate";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { buildSystemPrompt } from "@/lib/ai/drafto-knowledge";
+import type { DraftMode } from "@/lib/ai/field-catalog";
+import { filledSections, sectionById, sectionsFor } from "@/lib/ai/sections";
+import { buildPassPrompt, planJob, type JobSpec } from "@/lib/ai/job";
+import { extractGaps, type Gap } from "@/lib/ai/gaps";
+import { roleLabel } from "@/lib/ai/document-roles";
+import { MayurJobForm, type JobFormState } from "@/components/custom/mayur-job-form";
+import { MayurRunReport, type PassResult } from "@/components/custom/mayur-run-report";
 import { validateProposal, extractProposal, extractPartialProposal, stripJsonBlock, buildPreview, type SafeOp, type ChangePreview } from "@/lib/ai/form-patch";
 import { applyOps } from "@/lib/ai/apply-ops";
 import { validateDocumentMap, type SafeDocument } from "@/lib/ai/document-map";
@@ -148,16 +155,92 @@ export function AiChatPanel() {
   // When a folder has scanned pages, we ask the user before reading them as
   // images. The pending send is parked here until they choose.
   const [pendingConfirm, setPendingConfirm] = useState<{ text: string; effort: Effort; model?: string } | null>(null);
+  // ── The job: what to draft, what to read, what to do about existing content ──
+  const [tab, setTab] = useState<'draft' | 'chat'>('draft');
+  const [job, setJob] = useState<JobFormState>({ draft: [], read: [], overwrite: 'skip', extra: '' });
+  const [passResults, setPassResults] = useState<PassResult[]>([]);
+  const [gaps, setGaps] = useState<Gap[]>([]);
+  const [runningJob, setRunningJob] = useState(false);
+  // Snapshot of the whole project taken before a run, so the entire run can be
+  // put back in one step. Multi-section runs fill as they go — each pass has to
+  // see what the ones before it produced — so this is the safety net.
+  const runSnapshot = useRef<any>(null);
+
+  // ── Document roles: what each source file is (5A intake) ──
+  const [documentRoleMap, setDocumentRoleMap] = useState<Record<string, string>>({});
 
   const form = useFormContext();
   // Live filing-readiness, derived from the current form values (Phase 2).
   const watchedValues = useWatch({ control: form.control });
   const readiness = computeReadiness(watchedValues);
-  // Document mode: everything Mayur sees (persona, field map, presets) follows it.
-  const courtType: "SLP" | "WritPetitionDHC" =
-    (watchedValues as any)?.courtType === "WritPetitionDHC" ? "WritPetitionDHC" : "SLP";
+  // Document mode: everything Mayur sees (persona, field map, sections) follows
+  // it. An unrecognised type resolves to SLP, but the registry decides whether
+  // Mayur can work on it at all — it must never quietly impersonate an SLP.
+  const rawCourtType = (watchedValues as any)?.courtType;
+  const courtType: DraftMode =
+    rawCourtType === "WritPetitionDHC" || rawCourtType === "OriginalApplicationCAT" ? rawCourtType : "SLP";
   const isWp = courtType === "WritPetitionDHC";
+  const supported = sectionsFor(courtType).length > 0;
   const presets = getPresets(courtType);
+
+  // ── Everything the job view needs, derived from the registry ──
+  const jobFilled = useMemo(() => filledSections(courtType, watchedValues), [courtType, watchedValues]);
+  const plannedCount = useMemo(
+    () =>
+      planJob(
+        { mode: courtType, draft: job.draft, read: job.read, overwrite: job.overwrite, hasDocuments: !!folderScan?.ok },
+        jobFilled,
+      ).length,
+    [courtType, job.draft, job.read, job.overwrite, jobFilled, folderScan?.ok],
+  );
+  const jobEstimate = useMemo(() => {
+    if (plannedCount === 0) return null;
+    // Each pass is its own call; the section's own effort drives the estimate.
+    const secs = planJob(
+      { mode: courtType, draft: job.draft, read: job.read, overwrite: job.overwrite, hasDocuments: !!folderScan?.ok },
+      jobFilled,
+    ).reduce((t, pass) => t + estimateSeconds(folderScan?.textTokens ?? 0, pass.effort, model), 0);
+    const mins = Math.max(1, Math.round(secs / 60));
+    return `${mins} min${mins === 1 ? "" : "s"}`;
+  }, [courtType, job.draft, job.read, job.overwrite, jobFilled, folderScan?.textTokens, folderScan?.ok, model, plannedCount]);
+  // The labelled documents, in the shape the prompt builder wants.
+  const documentRoles = useMemo(
+    () =>
+      Object.entries(documentRoleMap)
+        .filter(([, role]) => role && role !== "exclude")
+        .map(([file, role]) => ({ file, role: roleLabel(courtType, role) })),
+    [documentRoleMap, courtType],
+  );
+  const pickFolder = () => { void handlePickFolder(); };
+
+  // The job is remembered per document type, so "my usual first pass" survives
+  // closing the panel. Only the choices are stored — never the project content.
+  const jobKey = `drafto-mayur-job-${courtType}`;
+  const jobRestored = useRef<string | null>(null);
+  useEffect(() => {
+    if (jobRestored.current === courtType) return;
+    jobRestored.current = courtType;
+    try {
+      const raw = localStorage.getItem(jobKey);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        setJob({
+          draft: Array.isArray(saved?.draft) ? saved.draft : [],
+          read: Array.isArray(saved?.read) ? saved.read : [],
+          overwrite: saved?.overwrite === "replace" || saved?.overwrite === "both" ? saved.overwrite : "skip",
+          extra: "",  // never restore free text — it belonged to the last case
+        });
+        return;
+      }
+    } catch { /* fall through to the default */ }
+    // First time on this document type: offer to fill what is missing.
+    setJob({ draft: [], read: [], overwrite: "skip", extra: "" });
+  }, [courtType, jobKey]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(jobKey, JSON.stringify({ draft: job.draft, read: job.read, overwrite: job.overwrite }));
+    } catch { /* storage full or unavailable — not worth interrupting for */ }
+  }, [job.draft, job.read, job.overwrite, jobKey]);
   const { toast } = useToast();
   const canEdit = useCanEdit();
   const { openManageSubscription } = useEntitlement();
@@ -576,6 +659,125 @@ export function AiChatPanel() {
     }
   };
 
+  // ── Running a job ──────────────────────────────────────────────────────────
+  // A job is run as a sequence of small passes in dependency order. Each pass is
+  // applied before the next begins, because a later section must be able to read
+  // what an earlier one produced — that is the whole point of the dependency
+  // ordering. The snapshot taken up front makes the entire run reversible.
+  const runJobPasses = async (sectionIds: string[], isRedo = false) => {
+    if (blockIfReadOnly()) return;
+    const values = form.getValues();
+    const filled = filledSections(courtType, values);
+    const spec: JobSpec = {
+      mode: courtType,
+      draft: sectionIds,
+      read: job.read,
+      overwrite: job.overwrite,
+      extra: job.extra.trim() || undefined,
+      hasDocuments: !!folderScan?.ok,
+    };
+    // A redo of one section always runs, whatever the overwrite policy says.
+    const plan = planJob(isRedo ? { ...spec, overwrite: 'replace' } : spec, filled);
+    if (plan.length === 0) {
+      addMessage("system", "Everything you picked is already written. Choose “Replace” if you want Mayur to draft over it.");
+      return;
+    }
+
+    if (!isRedo) runSnapshot.current = JSON.parse(JSON.stringify(form.getValues()));
+    setRunningJob(true);
+    setTab('draft');
+    setGaps((prev) => (isRedo ? prev.filter((g) => !sectionIds.includes(g.sectionId)) : []));
+    setPassResults(plan.map((p) => ({ sectionId: p.sectionId, label: p.label, status: 'waiting', changed: 0 })));
+
+    const mark = (id: string, patch: Partial<PassResult>) =>
+      setPassResults((prev) => prev.map((r) => (r.sectionId === id ? { ...r, ...patch } : r)));
+
+    try {
+      for (const pass of plan) {
+        mark(pass.sectionId, { status: 'running' });
+        const sec = sectionById(courtType, pass.sectionId);
+        const alreadyFilled = filled.has(pass.sectionId);
+        const prompt = buildPassPrompt(spec, pass, form.getValues(), { alreadyFilled });
+
+        // Each pass is its own conversation: a clean context per section keeps
+        // the model on task and stops one bad pass poisoning the next.
+        const result = await runOnce(prompt, sec?.model);
+        if (!result.ok) {
+          mark(pass.sectionId, { status: 'failed', note: result.error });
+          continue;
+        }
+        const proposal = result.proposal;
+        const { valid } = validateProposal(proposal ?? {});
+        let changed = 0;
+        if (valid.length > 0) {
+          // "Show me both" never writes over the user's work — it is presented
+          // as a review card instead, so the two can be compared.
+          if (alreadyFilled && job.overwrite === 'both' && !isRedo) {
+            setPending({ ops: valid, preview: buildPreview(form.getValues(), valid), rejected: [] });
+          } else {
+            changed = applyOps(form, valid).length;
+          }
+        }
+        const passGaps = extractGaps(courtType, pass.sectionId, proposal);
+        if (passGaps.length) setGaps((prev) => [...prev, ...passGaps]);
+        mark(pass.sectionId, { status: 'done', changed });
+      }
+    } finally {
+      setRunningJob(false);
+    }
+  };
+
+  // One model call, returning the parsed proposal. Shared by the job runner.
+  const runOnce = async (
+    prompt: string,
+    modelOverride?: string,
+  ): Promise<{ ok: boolean; error?: string; proposal?: any }> => {
+    let sourceNote: string | undefined;
+    const addDirs: string[] = [];
+    if (folderScan?.ok && folderScan.contextDir) {
+      addDirs.push(folderScan.contextDir);
+      sourceNote =
+        `The user's source documents have been extracted to plain-text files in this folder:\n  ${folderScan.contextDir}\nRead those .txt files to get the document contents.`;
+      const fileList = (folderScan.files || [])
+        .map((f) => `  - ${f.name} (${f.pageCount} page${f.pageCount === 1 ? "" : "s"})`)
+        .join("\n");
+      if (fileList) sourceNote += `\n\nThe original source PDF files are:\n${fileList}`;
+      if (documentRoles.length > 0) {
+        sourceNote += `\n\nThe user has told you what these documents are:\n${documentRoles
+          .map((d) => `  - ${d.file}: ${d.role}`)
+          .join("\n")}`;
+      }
+    }
+    try {
+      const result = await window.electron!.aiRun({
+        prompt,
+        systemPrompt: buildSystemPrompt(sourceNote ? { sourceNote, courtType } : { courtType }),
+        addDirs: addDirs.length ? addDirs : undefined,
+        model: model && model !== "default" ? model : modelOverride || undefined,
+        claudePath: claudePath || undefined,
+      });
+      if (!result.ok) {
+        if (result.needsLogin) return { ok: false, error: "not signed in" };
+        return { ok: false, error: result.error || "no reply" };
+      }
+      return { ok: true, proposal: extractProposal(result.text || "") };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
+  /** Put the whole run back. */
+  const undoRun = () => {
+    const snap = runSnapshot.current;
+    if (!snap) return;
+    form.reset(snap, { keepDefaultValues: true });
+    runSnapshot.current = null;
+    setPassResults([]);
+    setGaps([]);
+    addMessage("system", "That run has been undone — the project is back as it was.");
+    toast({ title: "Run undone", description: "Every field Mayur filled in that run has been put back." });
+  };
+
   const applySuggestions = () => {
     if (!pending) return;
     if (blockIfReadOnly()) return;
@@ -792,6 +994,66 @@ export function AiChatPanel() {
         </div>
       )}
 
+      {/* Draft ⇄ Chat. Drafting is the way in; the chat box is for nuance. */}
+      <div className="shrink-0 flex items-center gap-1 border-b px-3 py-1.5">
+        <button
+          type="button"
+          onClick={() => setTab('draft')}
+          className={cn(
+            "rounded px-2 py-0.5 text-[11px] transition-colors",
+            tab === 'draft' ? "bg-primary font-medium text-primary-foreground dark:text-white" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          Draft
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('chat')}
+          className={cn(
+            "rounded px-2 py-0.5 text-[11px] transition-colors",
+            tab === 'chat' ? "bg-primary font-medium text-primary-foreground dark:text-white" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          Chat
+        </button>
+      </div>
+
+      {tab === 'draft' && (
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-3">
+          {!supported ? (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-800 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-300">
+              Mayur does not yet know how to draft this document type, so it is staying out of the way rather than guessing.
+            </div>
+          ) : (
+            <>
+              <MayurJobForm
+                mode={courtType}
+                filled={jobFilled}
+                state={job}
+                onChange={setJob}
+                onRun={() => runJobPasses(job.draft)}
+                running={runningJob}
+                hasFolder={!!folderScan?.ok}
+                onPickFolder={pickFolder}
+                planCount={plannedCount}
+                estimateLabel={jobEstimate}
+                files={(folderScan?.files || []).map((f) => ({ name: f.name, pageCount: f.pageCount, scanned: f.scannedPages.length }))}
+                roles={documentRoleMap}
+                onRoleChange={(file, role) => setDocumentRoleMap((prev) => ({ ...prev, [file]: role }))}
+              />
+              <MayurRunReport
+                passes={passResults}
+                gaps={gaps}
+                running={runningJob}
+                canUndo={!!runSnapshot.current && !runningJob}
+                onUndo={undoRun}
+                onRedoSection={(id) => runJobPasses([id], true)}
+              />
+            </>
+          )}
+        </div>
+      )}
+
       {/* Filing readiness (Phase 2) — a live view of what's drafted and what's next */}
       <div className="shrink-0 border-b">
         <button
@@ -838,8 +1100,11 @@ export function AiChatPanel() {
         )}
       </div>
 
-      {/* Transcript */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2.5">
+      {/* Transcript — Chat tab only */}
+      <div
+        ref={scrollRef}
+        className={cn("flex-1 overflow-y-auto px-3 py-3 space-y-2.5", tab !== 'chat' && "hidden")}
+      >
         {messages.length === 0 && (
           <div className="mt-2 space-y-3 px-1">
             <div className="text-center space-y-1">

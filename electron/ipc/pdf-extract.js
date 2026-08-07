@@ -10,6 +10,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const crypto = require("crypto");
+const { macSupportsVision, recognisePdfPages } = require("./mac-ocr");
 
 // A page with fewer than this many extracted characters is treated as a scanned
 // image (no usable text layer).
@@ -110,11 +111,32 @@ async function processSources(sources) {
         extractedAny = true;
         const scannedPages = [];
         const lines = [];
+
+        // Pages with no text layer: on macOS, recognise them locally with the
+        // system's own text recognition before falling back to sending images to
+        // the model. Free, and it keeps a scanned paper-book affordable.
+        const noTextPages = pages
+          .map((t, i) => (t.length < SCANNED_TEXT_THRESHOLD ? i + 1 : 0))
+          .filter(Boolean);
+        let recognised = {};
+        if (noTextPages.length > 0 && macSupportsVision()) {
+          try {
+            recognised = await recognisePdfPages(full, noTextPages);
+          } catch { /* fall through to the image path */ }
+        }
+
         pages.forEach((t, idx) => {
           const pno = idx + 1;
           if (t.length < SCANNED_TEXT_THRESHOLD) {
-            scannedPages.push(pno);
-            lines.push(`[Page ${pno}: scanned image — no extractable text]`);
+            const ocr = recognised[pno];
+            if (ocr && ocr.length >= SCANNED_TEXT_THRESHOLD) {
+              // Recovered locally — the model reads it as ordinary text.
+              textTokens += estTextTokens(ocr);
+              lines.push(`[Page ${pno}] (read by text recognition)\n${ocr}`);
+            } else {
+              scannedPages.push(pno);
+              lines.push(`[Page ${pno}: scanned image — no extractable text]`);
+            }
           } else {
             textTokens += estTextTokens(t);
             lines.push(`[Page ${pno}]\n${t}`);

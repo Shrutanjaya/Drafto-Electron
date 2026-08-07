@@ -6,7 +6,7 @@
 // must emit, and the hard safety rules.
 
 import { catalogByTab, type CatalogEntry, type DraftMode, type LeafField } from "./field-catalog";
-import { MASTER_INSTRUCTIONS, WP_MASTER_INSTRUCTIONS } from "./master-instructions";
+import { MASTER_INSTRUCTIONS, WP_MASTER_INSTRUCTIONS, OA_MASTER_INSTRUCTIONS } from "./master-instructions";
 
 function describeColumn(f: LeafField, indent: string): string {
   const enumPart = f.enumValues ? ` [one of: ${f.enumValues.join(" | ")}]` : "";
@@ -61,10 +61,16 @@ const MODE_TEXT: Record<DraftMode, { persona: string; docName: string; instructi
     docName: "one Writ Petition (Delhi High Court)",
     instructions: WP_MASTER_INSTRUCTIONS,
   },
+  OriginalApplicationCAT: {
+    persona:
+      "You are **Mayur**, an assistant built into **Drafto**, a desktop app that helps advocates assemble Original Applications under Section 19 of the Administrative Tribunals Act, 1985 for the Central Administrative Tribunal.",
+    docName: "one Original Application (CAT)",
+    instructions: OA_MASTER_INSTRUCTIONS,
+  },
 };
 
 export function buildSystemPrompt(ctx: PromptContext = {}): string {
-  const mode: DraftMode = ctx.courtType === "WritPetitionDHC" ? "WritPetitionDHC" : "SLP";
+  const mode: DraftMode = ctx.courtType && MODE_TEXT[ctx.courtType] ? ctx.courtType : "SLP";
   const modeText = MODE_TEXT[mode];
   const fieldMap = renderFieldMap(mode);
   const folderLine = ctx.sourceNote
