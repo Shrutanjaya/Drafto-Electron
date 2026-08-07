@@ -763,7 +763,27 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   ];
 
   // ── CAT Original Application ──
-  const handleGenerateOaPdf = () => {
+  // Make the finished paper-book text-searchable. Windows only (the bundled
+  // Tesseract pipeline); a failure is reported but never loses the PDF.
+  const runOcrPass = async (pdfBase64: string): Promise<string> => {
+    if (!window.electron?.processOcr) return pdfBase64;
+    toast({ title: "Running OCR…", description: "Making the scanned pages text-searchable. This takes a while." });
+    try {
+      const r = await window.electron.processOcr(pdfBase64);
+      if (r.success && r.pdf) return r.pdf;
+      if (r.error === "cancelled") return pdfBase64;
+      throw new Error(r.error || "OCR failed");
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "OCR failed",
+        description: `${err instanceof Error ? err.message : String(err)} — saving the paper-book without it.`,
+      });
+      return pdfBase64;
+    }
+  };
+
+  const handleGenerateOaPdf = (opts?: { ocr?: boolean }) => {
     if (blockedByEntitlement()) return;
     startTransition(async () => {
       toast({ title: "Generating PDF…", description: "Assembling the Original Application paper-book." });
@@ -772,6 +792,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         toast({ variant: "destructive", title: "PDF Failed", description: result.error || "Could not assemble the PDF." });
         return;
       }
+      if (opts?.ocr) result.pdfBase64 = await runOcrPass(result.pdfBase64);
       const settings = getSettings();
       try {
         if (typeof window !== "undefined" && window.electron?.savePdf) {
@@ -831,7 +852,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     });
   };
 
-  const handleGenerateWpPdf = () => {
+  const handleGenerateWpPdf = (opts?: { ocr?: boolean }) => {
     if (blockedByEntitlement()) return;
     startTransition(async () => {
       toast({ title: "Generating PDF…", description: "Assembling the writ-petition paper-book." });
@@ -840,6 +861,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         toast({ variant: "destructive", title: "PDF Failed", description: result.error || "Could not assemble the PDF." });
         return;
       }
+      if (opts?.ocr) result.pdfBase64 = await runOcrPass(result.pdfBase64);
       const offerBriefing = () => window.dispatchEvent(new CustomEvent("drafto-offer-briefing", { detail: { pageByAnnexId: result.annexureFirstPages || {} } }));
       const settings = getSettings();
       try {

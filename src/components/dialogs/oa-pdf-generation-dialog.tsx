@@ -8,6 +8,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { OcrOption } from "./ocr-option";
 import type { DraftoProject } from "@/lib/schema";
 import { wpAnnexureOrder } from "@/lib/wp/wp-annexures";
 import { useCanExport } from "@/providers/entitlement-provider";
@@ -23,11 +24,13 @@ export function OaPdfGenerationDialog({
   isPending,
 }: {
   children: React.ReactNode;
-  onGenerate: () => void;
+  onGenerate: (opts?: { ocr?: boolean }) => void;
   isPending?: boolean;
 }) {
   const form = useFormContext<DraftoProject>();
   const [open, setOpen] = useState(false);
+  // Windows-only; the control disables itself on a Mac.
+  const [ocr, setOcr] = useState(false);
   const canExport = useCanExport();
 
   useEffect(() => {
@@ -201,6 +204,9 @@ export function OaPdfGenerationDialog({
           )}
         </div>
 
+        <div className="border-t pt-2">
+          <OcrOption checked={ocr} onChange={setOcr} disabled={isPending} />
+        </div>
         <DialogFooter className="flex-col items-stretch gap-2 sm:flex-col sm:items-stretch">
           {!canExport && (
             <p className="text-[11px] text-destructive">
@@ -209,7 +215,7 @@ export function OaPdfGenerationDialog({
           )}
           <Button
             type="button"
-            onClick={() => { onGenerate(); setOpen(false); }}
+            onClick={() => { onGenerate({ ocr }); setOpen(false); }}
             disabled={isPending || !canExport}
           >
             {isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <FileText className="mr-1 h-4 w-4" />}

@@ -94,7 +94,7 @@ export function wpPreflight(project: DraftoProject): WpPreflightIssue[] {
 
   // ── e-filing compliance ──
   const anyUpload = wpAnnexureOrder(project).length > 0 || hasFile(project.wp.uploads?.courtFee) || hasFile(project.wp.uploads?.proofOfService);
-  if (anyUpload) warn("The Index certifies an OCR (text-searchable) copy was served. Drafto does not OCR uploaded scans — ensure scanned annexures are text-searchable before e-filing.");
+  if (anyUpload) warn("The Index certifies an OCR (text-searchable) copy was served. Tick “Run OCR on the merged PDF” when generating (Windows only) if your scanned annexures are not already text-searchable.");
 
   // Errors first, then warnings.
   return issues.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "error" ? -1 : 1));
