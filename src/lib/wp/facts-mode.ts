@@ -102,10 +102,10 @@ export function resolveFactsHtml(project: DraftoProject, prefix: string = "P"): 
   const items: string[] = [];
   for (const row of rows) {
     const annexes = (row.annexures || []).filter((a: Annexure) => !a.isImpugnedOrder);
-    let html = (row.event || "").trim();
-    // The row text is already rich text; unwrap a single wrapping paragraph so
-    // the <li> does not gain an extra block.
-    html = html.replace(/^<p>([\s\S]*)<\/p>$/i, "$1").trim();
+    // The row text is already rich text; unwrap a lone wrapping paragraph so the
+    // <li> does not gain an extra block. Anything with several paragraphs is
+    // left alone — unwrapping it would run them together.
+    let html = unwrapLoneParagraph(row.event || "");
     if (!html && annexes.length === 0) continue;
     for (const annex of annexes) {
       const entry = pMap.get(annex.id);
@@ -143,12 +143,42 @@ export function factsRowsFromLod(project: DraftoProject): LodRow[] {
   return out;
 }
 
-/** "12.03.2021" + "<p>the order was passed</p>" → "<p>On 12.03.2021, the order was passed</p>" */
+/** Strip one wrapping <p>…</p>, but only when it wraps the whole row. */
+function unwrapLoneParagraph(html: string): string {
+  const t = (html || "").trim();
+  const m = t.match(/^<p(?:\s[^>]*)?>([\s\S]*)<\/p>$/i);
+  if (!m) return t;
+  if (/<\/p\s*>/i.test(m[1])) return t; // more than one paragraph
+  return m[1].trim();
+}
+
+/** Lowercase the first real letter, stepping over any leading tags. */
+function lowerFirstLetter(html: string): string {
+  return html.replace(/^(\s*(?:<[^>]+>\s*)*)([A-Z])/, (_m, tags, ch) => `${tags}${ch.toLowerCase()}`);
+}
+
+/** True when the markup holds no actual text. */
+function isBlankHtml(html: string): boolean {
+  return !(html || "").replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+}
+
+/**
+ * "12.03.2021" + "<p>The order was passed.</p>" → "<p>On 12.03.2021, the order
+ * was passed.</p>"
+ *
+ * The prefix goes INSIDE the first paragraph rather than wrapping the row.
+ * Wrapping would put a <p> inside a <p>, which the editor renders as a break
+ * after the date and another after the text.
+ */
 function transposeToSentence(date: string, html: string): string {
   const d = (date || "").trim();
-  if (!d) return html;
-  const inner = html.replace(/^<p>([\s\S]*)<\/p>$/i, "$1").trim();
-  if (!inner) return html;
-  const lowered = inner.replace(/^(<[^>]+>)*([A-Z])/, (m, tags, ch) => `${tags || ""}${ch.toLowerCase()}`);
-  return `<p>On ${d}, ${lowered}</p>`;
+  const t = (html || "").trim();
+  if (!d || isBlankHtml(t)) return t;
+
+  const open = t.match(/^<p(?:\s[^>]*)?>/i);
+  if (open) {
+    const rest = t.slice(open[0].length);
+    return `${open[0]}On ${d}, ${lowerFirstLetter(rest)}`;
+  }
+  return `<p>On ${d}, ${lowerFirstLetter(t)}</p>`;
 }
