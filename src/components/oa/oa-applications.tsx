@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
-import { PlusCircle, Trash2, ArrowUp, ArrowDown, Info } from "lucide-react";
+import { Trash2, ArrowUp, ArrowDown, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,16 @@ const KIND_LABEL: Record<string, string> = {
   custom: "Custom Application",
 };
 const AUTO_KINDS = ["delay", "joinder", "pt"];
+// Applications the user adds themselves. Custom stays offered even once added —
+// an OA may carry several.
+const ADDABLE_KINDS = ["exemptCopies", "exemptTranslation", "custom"];
+// What brings each automatic application in, so a greyed row explains itself
+// rather than looking broken.
+const AUTO_TRIGGER_HINT: Record<string, string> = {
+  delay: "Appears when you record a delay in the Limitation section.",
+  joinder: "Appears when there is more than one Applicant.",
+  pt: "Appears when neither jurisdiction basis is asserted.",
+};
 
 const PRAYER_STYLES = [
   { value: "lower-roman", label: "i, ii, iii" },
@@ -86,15 +96,39 @@ function StandardOrCustom({
   );
 }
 
-function ListRow({ label, active, selected, onClick }: { label: string; active: boolean; selected: boolean; onClick: () => void }) {
+/**
+ * A row in the applications nav.
+ *
+ * `active` is the dot — whether anything has been written yet. `dulled` is
+ * separate, because an application can be going into the paper-book while still
+ * empty; only the ones that are NOT going in are greyed.
+ */
+function ListRow({ label, active, selected, onClick, dulled }: { label: string; active: boolean; selected: boolean; onClick: () => void; dulled?: boolean }) {
   return (
     <button type="button" data-ro-nav onClick={onClick}
       className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
         selected ? "bg-primary text-primary-foreground dark:text-white" : "text-foreground hover:bg-muted")}>
       <span className={cn("h-2 w-2 flex-shrink-0 rounded-full",
         active ? (selected ? "bg-green-300" : "bg-green-500") : (selected ? "bg-primary-foreground/40" : "bg-muted-foreground/30"))} />
-      <span className={cn("leading-snug", !active && !selected && "text-muted-foreground/60")}>{label}</span>
+      <span className={cn("leading-snug", dulled && !selected && "text-muted-foreground/60")}>{label}</span>
     </button>
+  );
+}
+
+/**
+ * An application that is not in the paper-book and cannot simply be clicked in:
+ * the automatic ones are owned by their trigger, so adding one by hand would be
+ * undone on the next render. Shown greyed with what brings it in.
+ */
+function TriggerRow({ label, hint }: { label: string; hint: string }) {
+  return (
+    <div className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-xs">
+      <span className="mt-1.5 h-2 w-2 flex-shrink-0 rounded-full bg-muted-foreground/20" />
+      <div className="min-w-0">
+        <span className="leading-snug text-muted-foreground/60">{label}</span>
+        <p className="text-[10px] leading-snug text-muted-foreground/50">{hint}</p>
+      </div>
+    </div>
   );
 }
 
@@ -169,12 +203,6 @@ export function OaApplications() {
   const userParaCount = (ma?.body || []).filter((b: any) => (b.particulars || "").replace(/<[^>]+>/g, "").trim()).length;
   const closingStart = presetAbove + userParaCount + 1;
 
-  // Every application listed here IS going into the paper-book — they are added
-  // and removed, not toggled — so there is no included/not-included split to
-  // draw. The order is the user's own, set with Move earlier / Move later, and
-  // must not be re-sorted underneath them.
-  const autoMas = mas.filter((m: any) => AUTO_KINDS.includes(m.kind));
-  const userMas = mas.filter((m: any) => !AUTO_KINDS.includes(m.kind));
 
   const addKind = (kind: string) => {
     const created = oaMaSchema.parse({ kind });
@@ -189,25 +217,28 @@ export function OaApplications() {
           {/* Left: classified nav */}
           <ResizablePanel defaultSize={32} minSize={24}>
             <div className="flex h-full flex-col gap-0.5 overflow-auto p-2">
-              <NavSection label="Auto-included" hint="Added automatically when their trigger fires — a delay in filing, more than one Applicant, or no jurisdiction basis. They disappear when the trigger clears." />
-              {autoMas.length === 0 && <p className="px-2 py-1 text-[11px] italic text-muted-foreground">None triggered.</p>}
-              {autoMas.map((m: any) => (
+              {/* What is going into the paper-book, in the user's own order
+                  (the arrows inside an application move it), then what is not. */}
+              <NavSection label="Included" hint="These are going into the paper-book. Reorder them with the arrows inside an application." />
+              {mas.length === 0 && <p className="px-2 py-1 text-[11px] italic text-muted-foreground">None yet.</p>}
+              {mas.map((m: any) => (
                 <ListRow key={m.id} label={KIND_LABEL[m.kind]} active={hasContent(m)} selected={m.id === mas[idx]?.id} onClick={() => setSelectedId(m.id)} />
               ))}
 
-              <NavSection label="Optional & custom" hint="Applications you add yourself." />
-              {userMas.map((m: any) => (
-                <ListRow key={m.id} label={KIND_LABEL[m.kind]} active={hasContent(m)} selected={m.id === mas[idx]?.id} onClick={() => setSelectedId(m.id)} />
+              <NavSection label="Not included" hint="Click one to add it. The automatic ones come in on their own when their trigger fires." />
+              {ADDABLE_KINDS.filter((k) => k === "custom" || !mas.some((m: any) => m.kind === k)).map((k) => (
+                <ListRow
+                  key={`add-${k}`}
+                  label={k === "custom" ? "Custom Application" : KIND_LABEL[k]}
+                  active={false}
+                  dulled
+                  selected={false}
+                  onClick={() => addKind(k)}
+                />
               ))}
-              <Button type="button" variant="ghost" size="sm" className="w-full justify-start text-xs text-muted-foreground hover:text-foreground" onClick={() => addKind("exemptCopies")}>
-                <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Exemption (copies)
-              </Button>
-              <Button type="button" variant="ghost" size="sm" className="w-full justify-start text-xs text-muted-foreground hover:text-foreground" onClick={() => addKind("exemptTranslation")}>
-                <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Exemption (translations)
-              </Button>
-              <Button type="button" variant="ghost" size="sm" className="w-full justify-start text-xs text-muted-foreground hover:text-foreground" onClick={() => addKind("custom")}>
-                <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Custom application
-              </Button>
+              {AUTO_KINDS.filter((k) => !mas.some((m: any) => m.kind === k)).map((k) => (
+                <TriggerRow key={`trigger-${k}`} label={KIND_LABEL[k]} hint={AUTO_TRIGGER_HINT[k]} />
+              ))}
             </div>
           </ResizablePanel>
 
