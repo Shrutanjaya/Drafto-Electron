@@ -141,11 +141,29 @@ function AamTableInner({ name, defaultRows = 10, disabled = false, labelMode = "
 
   const handleDragEnd = (event: DragEndEvent) => {
     const {active, over} = event;
-    
+
     if (active.id !== over?.id) {
       const oldIndex = fields.findIndex(field => field.id === active.id);
       const newIndex = fields.findIndex(field => field.id === over!.id);
+      if (oldIndex < 0 || newIndex < 0) return;
+
+      // Snapshot BEFORE the move, then re-assert the intended order afterwards.
+      //
+      // The field array's own move() reorders its internal copy, but where this
+      // table is bound inside an array the form does not track as a field array
+      // — oa.mas.<n>.body, the CAT applications — the rows that changed index
+      // could come back with no value at all. Every editor from the drop point
+      // down then read "nothing", blanked itself, and wrote that blank back:
+      // drag row D above row C and both lost their text.
+      //
+      // Writing the reordered array explicitly makes the stored data
+      // authoritative. It is idempotent: where move() already did the right
+      // thing, this writes exactly the same array.
+      const before = (form.getValues(name) as any[] | undefined)?.map((r) => ({ ...r })) ?? [];
       move(oldIndex, newIndex);
+      if (before.length > 0) {
+        form.setValue(name as any, arrayMove(before, oldIndex, newIndex) as any, { shouldDirty: true });
+      }
     }
   }
 

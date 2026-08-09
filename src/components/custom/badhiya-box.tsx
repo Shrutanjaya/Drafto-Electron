@@ -383,7 +383,15 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
   }, [autoFocus, editor]);
 
   useEffect(() => {
-    if (editor && value !== editor.getHTML() && value !== lastEmitted.current) {
+    if (!editor) return;
+    // A non-string value means the form has no value at this path right now —
+    // which happens transiently while rows are being reordered inside a nested
+    // array. Treat it as "no news" and keep showing what is already here.
+    // Blanking on it was destructive: the editor cleared, its own change handler
+    // fired, and the empty string was written back over the user's text.
+    // A genuine empty value is "", which still syncs normally.
+    if (typeof value !== "string") return;
+    if (value !== editor.getHTML() && value !== lastEmitted.current) {
       editor.commands.setContent(value, false);
     }
   }, [value, editor]);
