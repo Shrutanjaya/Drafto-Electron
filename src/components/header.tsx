@@ -58,9 +58,17 @@ import { getIaList } from "@/lib/ia-list-utils";
 import { restoreFileFromPath } from "@/lib/utils/pick-file";
 import { cn } from "@/lib/utils";
 import { useAuthContext } from "@/providers/auth-provider";
-import { useEntitlement } from "@/providers/entitlement-provider";
+import { useEntitlement, useExportPermission } from "@/providers/entitlement-provider";
+import { allowsCourtType, forumOf, FORUM_LABEL, type CourtType } from "@/lib/entitlement/entitlement";
+import { ENTITLEMENT_ENABLED } from "@/lib/entitlement/entitlement-enabled";
 import { ToastAction } from "@/components/ui/toast";
 import { incrementGenerationCount } from "@/lib/firebase/usage-service";
+
+/** The court a document type belongs to, in the words a lawyer would use. */
+function courtLabel(courtType: string | undefined): string {
+  const forum = forumOf((courtType ?? "SLP") as CourtType);
+  return forum ? FORUM_LABEL[forum] : "This court";
+}
 
 /** Returns first N words of a string, trimmed. */
 const firstWords = (str: string, n: number) =>
@@ -136,6 +144,8 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   const { user, signOut } = useAuthContext();
   const { entitlement, loading: entLoading, openManageSubscription } = useEntitlement();
   const courtType = useWatch({ control: form.control, name: "courtType" });
+  // Generation is gated on the subscription AND on this court being on the plan.
+  const exportPermission = useExportPermission((courtType ?? "SLP") as CourtType);
   const [isPending, startTransition] = useTransition();
   const [draftSelection, setDraftSelection] = useState<DraftSelection>(
     draftOptions.reduce((acc, opt) => ({ ...acc, [opt.id]: false }), {} as DraftSelection)
@@ -418,6 +428,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           bumpStaleAdvocateDates(validatedData);
           form.reset(validatedData);
           setCurrentFilePath(null);
+          noticeIfUncovered(validatedData);
           toast({ title: "Project Loaded", description: "Your project has been loaded successfully." });
         } catch (error) {
           console.error("Load error:", error);
@@ -448,6 +459,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         await window.electron.deleteLockFile(currentFilePath);
       }
       setCurrentFilePath(null); // loaded from local userData — clear any shared path
+      noticeIfUncovered(validatedData);
     } catch (error) {
       console.error("Load error:", error);
       toast({ variant: "destructive", title: "Load Failed", description: "The selected file is not a valid .drafto project." });
@@ -486,6 +498,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       bumpStaleAdvocateDates(validatedData);
       form.reset(validatedData);
       setCurrentFilePath(filePath);
+      noticeIfUncovered(validatedData);
       toast({ title: "Project Loaded", description: filePath.split(/[\\/]/).pop() });
     } catch (err) {
       console.error("Load from path error:", err);
@@ -674,8 +687,38 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   // generated from here, so they are refused at the same point rather than only
   // by a disabled button — a button can be bypassed by a future shortcut or
   // menu entry, a refusal at the action cannot.
+  /**
+   * After a project is opened, say plainly if its court is not on the plan.
+   * The file always opens — it is the user's own work, and refusing to show it
+   * helps nobody — but they should be told at the moment they are wondering,
+   * not discover it later by finding they cannot type.
+   */
+  const noticeIfUncovered = (loaded: { courtType?: string } | null | undefined) => {
+    if (!ENTITLEMENT_ENABLED || entLoading || !loaded) return;
+    const ct = (loaded.courtType ?? "SLP") as CourtType;
+    if (allowsCourtType(entitlement, ct)) return;
+    toast({
+      title: "Opened read-only",
+      description: `The file has been opened in read-only mode since your plan does not include drafts for the ${courtLabel(ct)}.`,
+      duration: 8000,
+    });
+  };
+
   const blockedByEntitlement = () => {
-    if (!entLoading && entitlement.canExport) return false;
+    if (exportPermission.allowed) return false;
+    if (exportPermission.reason === "court") {
+      toast({
+        variant: "destructive",
+        title: "Not on your plan",
+        description: `${courtLabel(courtType)} is not included in your plan, so this paper-book cannot be generated.`,
+        action: (
+          <ToastAction altText="Upgrade" onClick={openManageSubscription}>
+            Upgrade
+          </ToastAction>
+        ),
+      });
+      return true;
+    }
     toast({
       variant: "destructive",
       title: "Subscription required",
@@ -691,21 +734,9 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   };
 
   const downloadDocx = async (docx: string, fileName: string) => {
-    // Entitlement gate: generating documents requires an active subscription.
-    if (entLoading || !entitlement.canExport) {
-      toast({
-        variant: "destructive",
-        title: "Subscription required",
-        description:
-          "Document generation is disabled because your subscription isn’t active. Renew to continue.",
-        action: (
-          <ToastAction altText="Renew" onClick={openManageSubscription}>
-            Renew
-          </ToastAction>
-        ),
-      });
-      return;
-    }
+    // Same gate as the paper-book: an active subscription AND this court on the
+    // plan. A document is a document, whichever button produced it.
+    if (blockedByEntitlement()) return;
 
     // Try Electron first (with default path)
     try {

@@ -40,7 +40,7 @@ import type { DraftoProject, Annexure } from "@/lib/schema";
 import { getIaList } from "@/lib/ia-list-utils";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { useEntitlement } from "@/providers/entitlement-provider";
+import { useEntitlement, useExportPermission } from "@/providers/entitlement-provider";
 import { generatePdf } from "@/lib/actions";
 import { getSettings } from "./settings-dialog";
 import { incrementGenerationCount } from "@/lib/firebase/usage-service";
@@ -216,7 +216,9 @@ const annexDate = (date: string) => date ? ` dated ${date}` : '';
 function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: () => void; onGeneratingChange?: (v: boolean) => void }) {
     const mainForm = useFormContext<DraftoProject>();
     const { toast } = useToast();
-    const { entitlement, loading: entLoading, openManageSubscription } = useEntitlement();
+    const { openManageSubscription } = useEntitlement();
+    // Subscription in good standing AND the Supreme Court on the plan.
+    const exportPermission = useExportPermission("SLP");
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [showCloseConfirm, setShowCloseConfirm] = useState(false);
@@ -702,12 +704,14 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
 
     const onSubmit = async (data: PdfMergeForm) => {
         // Entitlement gate: paper-book generation requires an active subscription.
-        if (entLoading || !entitlement.canExport) {
+        if (!exportPermission.allowed) {
             toast({
                 variant: "destructive",
-                title: "Subscription required",
+                title: exportPermission.reason === "court" ? "Not on your plan" : "Subscription required",
                 description:
-                    "Paper-book generation is disabled because your subscription isn’t active. Renew to continue.",
+                    exportPermission.reason === "court"
+                        ? "The Supreme Court of India is not included in your plan, so this paper-book cannot be generated."
+                        : "Paper-book generation is disabled because your subscription isn’t active. Renew to continue.",
                 action: (
                     <ToastAction altText="Renew" onClick={openManageSubscription}>
                         Renew

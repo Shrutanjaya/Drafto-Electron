@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { OcrOption } from "./ocr-option";
 import type { DraftoProject } from "@/lib/schema";
 import { wpAnnexureOrder } from "@/lib/wp/wp-annexures";
-import { useCanExport } from "@/providers/entitlement-provider";
+import { useExportPermission } from "@/providers/entitlement-provider";
 
 /**
  * Pre-flight + upload slots for the CAT Original Application paper-book. The
@@ -31,7 +31,9 @@ export function OaPdfGenerationDialog({
   const [open, setOpen] = useState(false);
   // Windows-only; the control disables itself on a Mac.
   const [ocr, setOcr] = useState(false);
-  const canExport = useCanExport();
+  // Both questions: subscription in good standing, and this court on the plan.
+  const permission = useExportPermission("OriginalApplicationCAT");
+  const canExport = permission.allowed;
 
   useEffect(() => {
     const openFromAssistant = () => setOpen(true);
@@ -210,7 +212,9 @@ export function OaPdfGenerationDialog({
         <DialogFooter className="flex-col items-stretch gap-2 sm:flex-col sm:items-stretch">
           {!canExport && (
             <p className="text-[11px] text-destructive">
-              Paperbook generation is disabled because your subscription isn’t active.
+              {permission.reason === "court"
+                ? "Original Applications are not included in your plan, so this paper-book cannot be generated."
+                : "Paperbook generation is disabled because your subscription isn’t active."}
             </p>
           )}
           <Button

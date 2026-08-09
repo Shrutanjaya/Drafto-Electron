@@ -18,7 +18,7 @@ import { OcrOption } from "./ocr-option";
 import type { DraftoProject } from "@/lib/schema";
 import { wpPreflight } from "@/lib/wp/wp-preflight";
 import { wpFrontMatterOrder } from "@/lib/wp/wp-actions";
-import { useEntitlement } from "@/providers/entitlement-provider";
+import { useEntitlement, useExportPermission } from "@/providers/entitlement-provider";
 
 const FRONT_LABELS: Record<"notice" | "urgency" | "memo", string> = {
   notice: "Notice of Motion",
@@ -45,8 +45,10 @@ export function WpPdfGenerationDialog({
   const [open, setOpen] = useState(false);
   // Windows-only; the control disables itself on a Mac.
   const [ocr, setOcr] = useState(false);
-  const { entitlement, loading: entLoading, openManageSubscription } = useEntitlement();
-  const canExport = !entLoading && entitlement.canExport;
+  const { openManageSubscription } = useEntitlement();
+  // Both questions: subscription in good standing, and this court on the plan.
+  const permission = useExportPermission("WritPetitionDHC");
+  const canExport = permission.allowed;
 
   // Mayur's "Compile" button opens the paperbook dialog for the active mode;
   // this dialog only renders in WP mode, so listening here is safe.
@@ -157,8 +159,12 @@ export function WpPdfGenerationDialog({
         <DialogFooter className="flex-col items-stretch gap-2 sm:flex-col sm:items-stretch">
           {!canExport && (
             <p className="text-[11px] text-destructive">
-              Paperbook generation is disabled because your subscription isn’t active.{" "}
-              <button type="button" className="underline" onClick={openManageSubscription}>Renew</button> to continue.
+              {permission.reason === "court"
+                ? "Writ Petitions are not included in your plan, so this paper-book cannot be generated. "
+                : "Paperbook generation is disabled because your subscription isn’t active. "}
+              <button type="button" className="underline" onClick={openManageSubscription}>
+                {permission.reason === "court" ? "Upgrade" : "Renew"}
+              </button>{" "}to continue.
             </p>
           )}
           <Button

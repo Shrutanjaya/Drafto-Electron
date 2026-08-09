@@ -130,6 +130,24 @@ export function useHasFreeForumSlot(): boolean {
 }
 
 /**
+ * May the user GENERATE documents for this document type right now?
+ *
+ * Two independent questions, and both must be yes: is the subscription in good
+ * standing, and is this court on the plan. Editing was already gated on the
+ * second, but generation was not — so a customer on a one-court plan could open
+ * a colleague's finished matter for another court and print the whole
+ * paper-book from it.
+ */
+export function useExportPermission(courtType: CourtType): { allowed: boolean; reason: 'ok' | 'billing' | 'court' } {
+  const { entitlement, loading } = useEntitlement();
+  if (!ENTITLEMENT_ENABLED) return { allowed: true, reason: 'ok' };
+  if (loading) return { allowed: false, reason: 'billing' };
+  if (!entitlement.canExport) return { allowed: false, reason: 'billing' };
+  if (!allowsCourtType(entitlement, courtType)) return { allowed: false, reason: 'court' };
+  return { allowed: true, reason: 'ok' };
+}
+
+/**
  * May the user draft this document type on their current plan?
  *
  * Separate from `useCanEdit`: a lapsed Max subscriber still *covers* Writ
