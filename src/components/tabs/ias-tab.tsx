@@ -405,50 +405,59 @@ export function IasTab() {
           <ResizablePanel defaultSize={32} minSize={24}>
             <div className="flex flex-col h-full overflow-auto p-2 gap-0.5">
 
-              <NavSection label="Configurable IAs" hint="You choose whether to include these and provide their details. Included ones stack above; the rest are dulled below." />
-              {/* Included first, then the rest — so the nav mirrors what is
-                  actually going into the paper-book. */}
-              {[
-                { id: "cc", label: "Exemption (Certified Copy)", active: !!ccActive, show: true },
-                { id: "surrender", label: "Exemption (Surrender)", active: !!surrenderActive, show: isCriminal },
-              ]
-                .filter((r) => r.show)
-                .sort((a, b) => Number(b.active) - Number(a.active))
-                .map((r) => (
-                  <IaListRow key={r.id} label={r.label} active={r.active} selected={selectedId === r.id} onClick={() => setSelectedId(r.id)} />
-                ))}
+              {/* One list, split by whether the application is actually going
+                  into the paper-book. Grouping by kind (configurable / auto /
+                  custom) put one or two rows under each heading, which meant a
+                  glance told you nothing about what you were actually filing. */}
+              {(() => {
+                const rows = [
+                  { id: "cc", label: "Exemption (Certified Copy)", included: !!ccActive, show: true },
+                  { id: "surrender", label: "Exemption (Surrender)", included: !!surrenderActive, show: isCriminal },
+                  { id: "delay", label: "Condonation of Delay", included: delay > 0, show: true },
+                  { id: "ot", label: "Exemption (Official Translation)", included: true, show: !!otActive },
+                  { id: "ad", label: "Additional Documents", included: !!adActive, show: true },
+                ].filter((r) => r.show);
+                const included = rows.filter((r) => r.included);
+                const excluded = rows.filter((r) => !r.included);
+                return (
+                  <>
+                    <NavSection label="Included" hint="These are going into the paper-book. Custom IAs are included as soon as you add one." />
+                    {included.map((r) => (
+                      <IaListRow key={r.id} label={r.label} active selected={selectedId === r.id} onClick={() => setSelectedId(r.id)} />
+                    ))}
+                    {customIaFields.map((field, index) => (
+                      <CustomIaListRow
+                        key={field.id}
+                        index={index}
+                        selected={selectedId === field.id}
+                        onClick={() => setSelectedId(field.id)}
+                        onRemove={() => handleRemoveCustomIa(index)}
+                      />
+                    ))}
+                    {included.length === 0 && customIaFields.length === 0 && (
+                      <p className="px-2 py-1 text-[11px] italic text-muted-foreground">None yet.</p>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() => appendCustomIa(customIaSchema.parse({}))}
+                    >
+                      <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Add Custom IA
+                    </Button>
 
-              <NavSection label="Custom IAs" hint="Bespoke applications you draft yourself, with your own grounds and prayers." />
-              {customIaFields.map((field, index) => (
-                <CustomIaListRow
-                  key={field.id}
-                  index={index}
-                  selected={selectedId === field.id}
-                  onClick={() => setSelectedId(field.id)}
-                  onRemove={() => handleRemoveCustomIa(index)}
-                />
-              ))}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => appendCustomIa(customIaSchema.parse({}))}
-              >
-                <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Add Custom IA
-              </Button>
-
-              <NavSection label="Mandatory IAs (Auto-Included)" hint="Generated automatically from your List of Dates entries. They appear when applicable; you only fill in any grounds." />
-              {[
-                { id: "delay", label: "Condonation of Delay", active: delay > 0 && delayHasGround, show: true },
-                { id: "ot", label: "Exemption (Official Translation)", active: true, show: !!otActive },
-                { id: "ad", label: "Additional Documents", active: !!adActive, show: true },
-              ]
-                .filter((r) => r.show)
-                .sort((a, b) => Number(b.active) - Number(a.active))
-                .map((r) => (
-                  <IaListRow key={r.id} label={r.label} active={r.active} selected={selectedId === r.id} onClick={() => setSelectedId(r.id)} />
-                ))}
+                    {excluded.length > 0 && (
+                      <>
+                        <NavSection label="Not included" hint="Open one and tick Include — or, for the automatic ones, they appear here until their trigger fires." />
+                        {excluded.map((r) => (
+                          <IaListRow key={r.id} label={r.label} active={false} selected={selectedId === r.id} onClick={() => setSelectedId(r.id)} />
+                        ))}
+                      </>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </ResizablePanel>
 

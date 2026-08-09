@@ -169,16 +169,12 @@ export function OaApplications() {
   const userParaCount = (ma?.body || []).filter((b: any) => (b.particulars || "").replace(/<[^>]+>/g, "").trim()).length;
   const closingStart = presetAbove + userParaCount + 1;
 
-  // Nav order: applications with content stack above the empty ones, which are
-  // dulled — so what is actually going in the paper-book reads at a glance.
-  // A stable sort keeps the user's own ordering within each half.
-  const byFilledFirst = (list: any[]) => {
-    const filled = list.filter((m: any) => hasContent(m));
-    const empty = list.filter((m: any) => !hasContent(m));
-    return [...filled, ...empty];
-  };
-  const autoMas = byFilledFirst(mas.filter((m: any) => AUTO_KINDS.includes(m.kind)));
-  const userMas = byFilledFirst(mas.filter((m: any) => !AUTO_KINDS.includes(m.kind)));
+  // Every application listed here IS going into the paper-book — they are added
+  // and removed, not toggled — so there is no included/not-included split to
+  // draw. The order is the user's own, set with Move earlier / Move later, and
+  // must not be re-sorted underneath them.
+  const autoMas = mas.filter((m: any) => AUTO_KINDS.includes(m.kind));
+  const userMas = mas.filter((m: any) => !AUTO_KINDS.includes(m.kind));
 
   const addKind = (kind: string) => {
     const created = oaMaSchema.parse({ kind });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useFormContext, useWatch, useFieldArray } from "react-hook-form";
 import { Sparkles, PlusCircle, Columns2, LayoutList, ListPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -518,12 +518,19 @@ export function WpWorkspace() {
   const cmActive = cmNav.find(c => c.id === cmSection) ?? cmNav[0];
 
   // Generic nav layout (left nav rows + right content), used by Preliminary & CMs.
-  const navLayout = (rows: { id: string; label: string; active: boolean }[], selected: string, onSelect: (id: any) => void, content: React.ReactNode, autoSaveId: string) => (
+  const navLayout = (rows: { id: string; label: string; active: boolean; heading?: string }[], selected: string, onSelect: (id: any) => void, content: React.ReactNode, autoSaveId: string) => (
     <div className={cn("flex flex-col", PANEL_H)}>
       <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId={autoSaveId}>
         <ResizablePanel defaultSize={22} minSize={16} maxSize={40}>
           <div className="flex h-full flex-col space-y-1 p-2">
-            {rows.map(r => <NavRow key={r.id} label={r.label} active={r.active} selected={selected === r.id} onClick={() => onSelect(r.id)} />)}
+            {rows.map(r => (
+              <React.Fragment key={r.id}>
+                {r.heading && (
+                  <p className="px-2 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">{r.heading}</p>
+                )}
+                <NavRow label={r.label} active={r.active} selected={selected === r.id} onClick={() => onSelect(r.id)} />
+              </React.Fragment>
+            ))}
           </div>
         </ResizablePanel>
         <ResizableHandle withHandle />
@@ -563,10 +570,16 @@ export function WpWorkspace() {
       <TabsContent value="cms" className="mt-1">
         <EditorProvider>
           {navLayout(
-            // Included applications stack above; the rest are dulled below.
-            [...cmNav]
-              .sort((a, b) => Number(b.active) - Number(a.active))
-              .map(c => ({ id: c.id, label: c.label, active: c.active })),
+            // Included applications above, the rest below and dulled — with a
+            // heading on the first of each half so the split is legible.
+            (() => {
+              const inc = cmNav.filter(c => c.active);
+              const exc = cmNav.filter(c => !c.active);
+              return [
+                ...inc.map((c, i) => ({ id: c.id, label: c.label, active: true, heading: i === 0 ? "Included" : undefined })),
+                ...exc.map((c, i) => ({ id: c.id, label: c.label, active: false, heading: i === 0 ? "Not included" : undefined })),
+              ];
+            })(),
             cmSection, setCmSection, cmActive.content, "wp-cm-nav",
           )}
         </EditorProvider>
