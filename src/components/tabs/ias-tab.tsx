@@ -127,7 +127,7 @@ function IaListRow({
           ? selected ? "bg-green-300" : "bg-green-500"
           : selected ? "bg-primary-foreground/40" : "bg-muted-foreground/30"
       )} />
-      <span className="leading-snug">{label}</span>
+      <span className={cn("leading-snug", !active && !selected && "text-muted-foreground/60")}>{label}</span>
     </button>
   );
 }
@@ -405,11 +405,18 @@ export function IasTab() {
           <ResizablePanel defaultSize={32} minSize={24}>
             <div className="flex flex-col h-full overflow-auto p-2 gap-0.5">
 
-              <NavSection label="Configurable IAs" hint="You choose whether to include these and provide their details." />
-              <IaListRow label="Exemption (Certified Copy)" active={!!ccActive} selected={selectedId === "cc"} onClick={() => setSelectedId("cc")} />
-              {isCriminal && (
-                <IaListRow label="Exemption (Surrender)" active={!!surrenderActive} selected={selectedId === "surrender"} onClick={() => setSelectedId("surrender")} />
-              )}
+              <NavSection label="Configurable IAs" hint="You choose whether to include these and provide their details. Included ones stack above; the rest are dulled below." />
+              {/* Included first, then the rest — so the nav mirrors what is
+                  actually going into the paper-book. */}
+              {[
+                { id: "cc", label: "Exemption (Certified Copy)", active: !!ccActive, show: true },
+                { id: "surrender", label: "Exemption (Surrender)", active: !!surrenderActive, show: isCriminal },
+              ]
+                .filter((r) => r.show)
+                .sort((a, b) => Number(b.active) - Number(a.active))
+                .map((r) => (
+                  <IaListRow key={r.id} label={r.label} active={r.active} selected={selectedId === r.id} onClick={() => setSelectedId(r.id)} />
+                ))}
 
               <NavSection label="Custom IAs" hint="Bespoke applications you draft yourself, with your own grounds and prayers." />
               {customIaFields.map((field, index) => (
@@ -432,11 +439,16 @@ export function IasTab() {
               </Button>
 
               <NavSection label="Mandatory IAs (Auto-Included)" hint="Generated automatically from your List of Dates entries. They appear when applicable; you only fill in any grounds." />
-              <IaListRow label="Condonation of Delay" active={delay > 0 && delayHasGround} selected={selectedId === "delay"} onClick={() => setSelectedId("delay")} />
-              {otActive && (
-                <IaListRow label="Exemption (Official Translation)" active selected={selectedId === "ot"} onClick={() => setSelectedId("ot")} />
-              )}
-              <IaListRow label="Additional Documents" active={!!adActive} selected={selectedId === "ad"} onClick={() => setSelectedId("ad")} />
+              {[
+                { id: "delay", label: "Condonation of Delay", active: delay > 0 && delayHasGround, show: true },
+                { id: "ot", label: "Exemption (Official Translation)", active: true, show: !!otActive },
+                { id: "ad", label: "Additional Documents", active: !!adActive, show: true },
+              ]
+                .filter((r) => r.show)
+                .sort((a, b) => Number(b.active) - Number(a.active))
+                .map((r) => (
+                  <IaListRow key={r.id} label={r.label} active={r.active} selected={selectedId === r.id} onClick={() => setSelectedId(r.id)} />
+                ))}
             </div>
           </ResizablePanel>
 

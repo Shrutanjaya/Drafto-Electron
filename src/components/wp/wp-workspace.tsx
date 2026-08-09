@@ -49,7 +49,7 @@ function NavRow({ label, active, selected, onClick }: { label: string; active: b
     <button type="button" data-ro-nav onClick={onClick}
       className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors", selected ? "bg-primary text-primary-foreground dark:text-white" : "text-foreground hover:bg-muted")}>
       <span className={cn("h-2 w-2 flex-shrink-0 rounded-full", active ? (selected ? "bg-green-300" : "bg-green-500") : (selected ? "bg-primary-foreground/40" : "bg-muted-foreground/30"))} />
-      <span className="leading-snug">{label}</span>
+      <span className={cn("leading-snug", !active && !selected && "text-muted-foreground/60")}>{label}</span>
     </button>
   );
 }
@@ -332,12 +332,15 @@ export function WpWorkspace() {
   );
 
   // ── Preliminary content ─────────────────────────────────────────────────────
-  const throughPlaceholder = 'E.g., "Through the Secretary, Ministry of Home Affairs"';
+  // The line under the name means different things on the two sides: a
+  // petitioner describes themselves, a respondent is served through an officer.
+  const petitionerThrough = 'E.g., working as Senior Accounts Officer (Group-A)';
+  const respondentThrough = 'E.g., "Through the Secretary, Ministry of Home Affairs"';
   const partiesContent = (
     <div className="space-y-2">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div><p className="mb-1 text-xs font-medium">Petitioner(s)</p><VaadiTable name="petitioners" showPosition={false} showThrough throughPlaceholder={throughPlaceholder} compactAdd /></div>
-        <div><p className="mb-1 text-xs font-medium">Respondent(s)</p><VaadiTable name="respondents" showPosition={false} showThrough throughPlaceholder={throughPlaceholder} compactAdd /></div>
+        <div><p className="mb-1 text-xs font-medium">Petitioner(s)</p><VaadiTable name="petitioners" showPosition={false} showThrough throughPlaceholder={petitionerThrough} compactAdd /></div>
+        <div><p className="mb-1 text-xs font-medium">Respondent(s)</p><VaadiTable name="respondents" showPosition={false} showThrough throughPlaceholder={respondentThrough} compactAdd /></div>
       </div>
     </div>
   );
@@ -559,7 +562,13 @@ export function WpWorkspace() {
 
       <TabsContent value="cms" className="mt-1">
         <EditorProvider>
-          {navLayout(cmNav.map(c => ({ id: c.id, label: c.label, active: c.active })), cmSection, setCmSection, cmActive.content, "wp-cm-nav")}
+          {navLayout(
+            // Included applications stack above; the rest are dulled below.
+            [...cmNav]
+              .sort((a, b) => Number(b.active) - Number(a.active))
+              .map(c => ({ id: c.id, label: c.label, active: c.active })),
+            cmSection, setCmSection, cmActive.content, "wp-cm-nav",
+          )}
         </EditorProvider>
       </TabsContent>
     </Tabs>

@@ -31,7 +31,10 @@ import { oaMaSchema } from "@/lib/schema";
 
 const OA_RESIDUARY = "Pass such other/further orders as this Hon’ble Tribunal may deem fit and proper in the facts and circumstances of the case.";
 
-const APPLICANT_THROUGH_PLACEHOLDER = 'E.g., "Through the Secretary, Ministry of Home Affairs"';
+// The line under the name means different things on the two sides: an
+// Applicant describes their post, a Respondent is served through an officer.
+const APPLICANT_THROUGH_PLACEHOLDER = 'E.g., working as Senior Accounts Officer (Group-A)';
+const RESPONDENT_THROUGH_PLACEHOLDER = 'E.g., "Through the Secretary, Ministry of Home Affairs"';
 const PANEL_H = "h-[calc(100vh-170px)]";
 
 type OaSection = "synopsis" | "listOfDates" | "reliefs" | "facts" | "grounds" | "jurisdiction" | "interim" | "other";
@@ -458,7 +461,7 @@ export function OaWorkspace() {
             <p className="mb-1 text-[11px] text-muted-foreground">Each Applicant’s own particulars are used on the last page, vakalatnama and affidavit they sign.</p>
             <VaadiTable name="petitioners" showPosition={false} showThrough throughPlaceholder={APPLICANT_THROUGH_PLACEHOLDER} compactAdd showDeponentDetails />
           </div>
-          <div><p className="mb-1 text-xs font-medium">Respondent(s)</p><VaadiTable name="respondents" showPosition={false} showThrough throughPlaceholder={APPLICANT_THROUGH_PLACEHOLDER} compactAdd /></div>
+          <div><p className="mb-1 text-xs font-medium">Respondent(s)</p><VaadiTable name="respondents" showPosition={false} showThrough throughPlaceholder={RESPONDENT_THROUGH_PLACEHOLDER} compactAdd /></div>
         </div>
       </TabsContent>
 

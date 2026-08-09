@@ -51,6 +51,41 @@ function NavSection({ label, hint }: { label: string; hint?: string }) {
   );
 }
 
+/**
+ * A field that shows Drafto's standard wording as real, readable text rather
+ * than a grey hint — but keeps it LIVE until the user chooses to depart from it.
+ *
+ * Prefilling the box with a snapshot would freeze it: the standard delay prayer
+ * names the number of days, so a petition whose delay is later corrected would
+ * keep praying on the old figure. So the standard is displayed read-only and
+ * recomputed on every render; "Edit" copies it in and hands over control, and
+ * "Use standard" gives it back.
+ */
+function StandardOrCustom({
+  value,
+  standard,
+  onChange,
+}: { value: string; standard: string; onChange: (v: string) => void }) {
+  const custom = value.trim().length > 0;
+  return (
+    <div className="space-y-0.5">
+      <Input
+        value={custom ? value : standard}
+        readOnly={!custom}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn("h-7 text-xs", !custom && "bg-muted/40 text-muted-foreground")}
+      />
+      <button
+        type="button"
+        className="text-[10px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+        onClick={() => onChange(custom ? "" : standard)}
+      >
+        {custom ? "Use the standard wording" : "Edit this wording"}
+      </button>
+    </div>
+  );
+}
+
 function ListRow({ label, active, selected, onClick }: { label: string; active: boolean; selected: boolean; onClick: () => void }) {
   return (
     <button type="button" data-ro-nav onClick={onClick}
@@ -58,7 +93,7 @@ function ListRow({ label, active, selected, onClick }: { label: string; active: 
         selected ? "bg-primary text-primary-foreground dark:text-white" : "text-foreground hover:bg-muted")}>
       <span className={cn("h-2 w-2 flex-shrink-0 rounded-full",
         active ? (selected ? "bg-green-300" : "bg-green-500") : (selected ? "bg-primary-foreground/40" : "bg-muted-foreground/30"))} />
-      <span className="leading-snug">{label}</span>
+      <span className={cn("leading-snug", !active && !selected && "text-muted-foreground/60")}>{label}</span>
     </button>
   );
 }
@@ -120,6 +155,12 @@ export function OaApplications() {
   const effFirstPrayer = ma ? maFirstPrayer(project, ma) : "";
   const praySubstance = effFirstPrayer.replace(/;\s*and\s*$/i, "").trim();
   const shortLabel = ma?.kind === "pt" ? "Petition for Transfer" : "MA";
+  // Shown on the condonation application. The prayer already takes the figure
+  // from here, so this only makes visible what was always the case.
+  const delayDaysText = (() => {
+    const d = String(project?.oa?.delayDays ?? "").trim();
+    return d ? `${d} days` : "";
+  })();
   const hasContent = (m: any) => (m.body || []).some((b: any) => (b.particulars || "").replace(/<[^>]+>/g, "").trim());
 
   // Preset paras are numbered 1..N; the closing ones continue after however
@@ -128,8 +169,16 @@ export function OaApplications() {
   const userParaCount = (ma?.body || []).filter((b: any) => (b.particulars || "").replace(/<[^>]+>/g, "").trim()).length;
   const closingStart = presetAbove + userParaCount + 1;
 
-  const autoMas = mas.filter((m: any) => AUTO_KINDS.includes(m.kind));
-  const userMas = mas.filter((m: any) => !AUTO_KINDS.includes(m.kind));
+  // Nav order: applications with content stack above the empty ones, which are
+  // dulled — so what is actually going in the paper-book reads at a glance.
+  // A stable sort keeps the user's own ordering within each half.
+  const byFilledFirst = (list: any[]) => {
+    const filled = list.filter((m: any) => hasContent(m));
+    const empty = list.filter((m: any) => !hasContent(m));
+    return [...filled, ...empty];
+  };
+  const autoMas = byFilledFirst(mas.filter((m: any) => AUTO_KINDS.includes(m.kind)));
+  const userMas = byFilledFirst(mas.filter((m: any) => !AUTO_KINDS.includes(m.kind)));
 
   const addKind = (kind: string) => {
     const created = oaMaSchema.parse({ kind });
@@ -192,16 +241,25 @@ export function OaApplications() {
                   <div className="space-y-1.5">
                     <div className="space-y-0.5">
                       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Under (provision)</span>
-                      <FormField control={form.control} name={`oa.mas.${idx}.provision` as const} render={({ field }) => (
-                        <Input {...field} placeholder={stdProvision} className="h-7 text-xs" />
-                      )} />
+                      <StandardOrCustom
+                        value={ma.provision || ""}
+                        standard={stdProvision}
+                        onChange={(v) => form.setValue(`oa.mas.${idx}.provision` as const, v, { shouldDirty: true })}
+                      />
                     </div>
                     <div className="space-y-0.5">
                       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">First prayer (end with “; and”)</span>
-                      <FormField control={form.control} name={`oa.mas.${idx}.firstPrayer` as const} render={({ field }) => (
-                        <Input {...field} placeholder={stdFirstPrayer} className="h-7 text-xs" />
-                      )} />
+                      <StandardOrCustom
+                        value={ma.firstPrayer || ""}
+                        standard={stdFirstPrayer}
+                        onChange={(v) => form.setValue(`oa.mas.${idx}.firstPrayer` as const, v, { shouldDirty: true })}
+                      />
                     </div>
+                    {ma.kind === "delay" && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Delay: <span className="font-medium text-foreground">{delayDaysText || "not set"}</span> — taken from the Limitation section of the Application tab, so the two can never disagree.
+                      </p>
+                    )}
                     {ma.kind === "delay" && (
                       <FormField control={form.control} name={`oa.mas.${idx}.delayWithoutPrejudice` as const} render={({ field }) => (
                         <div className="flex items-center gap-2"><Checkbox id={`ma-wp-${idx}`} checked={field.value} onCheckedChange={field.onChange} />

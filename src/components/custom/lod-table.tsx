@@ -138,7 +138,12 @@ const DateCellInput = ({
  * that same mode (`hideDate`) — where it is the List of Dates table in all but
  * name, which is exactly what was asked for.
  */
-export function LoDTable({
+export function LoDTable(props: { name?: string; hideDate?: boolean; hideAnnexures?: boolean } = {}) {
+  // Remount when the bound path changes — see the note on AamTable.
+  return <LoDTableInner key={props.name ?? "listOfDates"} {...props} />;
+}
+
+function LoDTableInner({
   name = "listOfDates",
   hideDate = false,
   hideAnnexures = false,

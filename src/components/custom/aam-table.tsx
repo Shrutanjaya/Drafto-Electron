@@ -101,7 +101,22 @@ const ClientSideDnd = ({ children }: { children: React.ReactNode }) => {
 };
 
 
-export function AamTable({ name, defaultRows = 10, disabled = false, labelMode = "alpha", numericStart = 1 }: AamTableProps) {
+/**
+ * A table of rows bound to `name`.
+ *
+ * The wrapper exists to force a remount whenever `name` changes. These tables
+ * are often bound to an indexed path — `oa.mas.2.body` — and the array ABOVE
+ * them can be reordered or have an entry removed. The field-array inside keeps
+ * its own copy of the rows keyed to the path it mounted with, so after such a
+ * move it is pointing at one application's data while displaying another's, and
+ * the user sees their content vanish. Remounting on a path change forces a fresh
+ * read of whatever now lives there.
+ */
+export function AamTable(props: AamTableProps) {
+  return <AamTableInner key={props.name} {...props} />;
+}
+
+function AamTableInner({ name, defaultRows = 10, disabled = false, labelMode = "alpha", numericStart = 1 }: AamTableProps) {
   const form = useFormContext<DraftoProject>()
   const { fields, append, remove, move, insert } = useFieldArray({
     control: form.control,
