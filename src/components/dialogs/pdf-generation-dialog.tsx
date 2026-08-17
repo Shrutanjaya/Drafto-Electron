@@ -50,6 +50,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { FormControl, FormField, FormItem } from "@/components/ui/form";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { pickFile } from "@/lib/utils/pick-file";
+import {
+    getAppendixItems,
+    getActiveAppendixItems,
+    appendixHasContent,
+    appendixLabel,
+    appendixBodyText,
+    appendixComponentId,
+    isAppendixComponentId,
+    appendixItemIdFromComponentId,
+} from "@/lib/appendix";
 import { format } from "date-fns";
 
 
@@ -101,10 +111,20 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
     if (!(data.questionsOfLaw || []).some(r => r.particulars?.trim())) slpIssues.push('Questions of Law table is empty');
     if (!(data.grounds || []).some(r => r.particulars?.trim())) slpIssues.push('Grounds table is empty');
     if (!data.synopsis?.trim()) slpIssues.push('Synopsis is blank');
-    // The Appendix row in the Index reads "Relevant provisions of the <description>";
-    // without it the row prints a placeholder.
-    if (data.wantsAppendix && (data.appendixFile || data.appendixManualEntry) && !data.appendixDescription?.trim()) {
-        slpIssues.push('Appendix: description of the statute/rules (shown in the Index)');
+    // Each Appendix row in the Index is built from its description; without one
+    // the row prints a placeholder. Rows with nothing attached are dropped from
+    // the paper-book altogether, so say so rather than filing silently short.
+    if (data.wantsAppendix) {
+        const appendixRows = getAppendixItems(data);
+        const included = appendixRows.filter(appendixHasContent);
+        included.forEach((item, index) => {
+            if (!item.description?.trim() && !item.indexTextOverride?.trim()) {
+                slpIssues.push(`${appendixLabel(index, included.length)}: description (shown in the Index)`);
+            }
+        });
+        if (appendixRows.length > included.length) {
+            slpIssues.push('Appendix: one or more documents have nothing attached and will be left out');
+        }
     }
     if (slpIssues.length) issues.push({ tab: 'SLP', items: slpIssues });
 
@@ -255,9 +275,15 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         list.push({ id: 'slp', label: "SLP with Certificate" });
         list.push({ id: 'slpAffidavit', label: "SLP Affidavit (Executed)" });
 
-        if (projectData.wantsAppendix) {
-            list.push({ id: 'appendix', label: "Appendix" });
-        }
+        // One merge component per attached Appendix document, in the same order
+        // (and with the same labels) as the Index rows.
+        const appendixItems = getActiveAppendixItems(projectData as DraftoProject);
+        appendixItems.forEach((item, index) => {
+            list.push({
+                id: appendixComponentId(item),
+                label: `${appendixLabel(index, appendixItems.length)}: ${appendixBodyText(item)}`,
+            });
+        });
         
         const allAnnexures: (Annexure & {lodId: string})[] = (projectData.listOfDates || []).flatMap(lod => (lod.annexures || []).map(a => ({...a, lodId: lod.id})));
         
@@ -475,23 +501,18 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                 };
             }
 
-            // For appendix, always use current file from main form
-            if (c.id === 'appendix') {
-                const useManual = mainForm.getValues('useManualAppendix');
-                const appendixFile = mainForm.getValues('appendixFile');
-                let prePopulatedFile: File | null = null;
-                
-                // Only use the file if not using manual entry
-                if (!useManual && appendixFile instanceof File) {
-                    prePopulatedFile = appendixFile;
-                }
-                
+            // For each Appendix document, always use the current file from the
+            // Appendix section of the main form.
+            if (isAppendixComponentId(c.id)) {
+                const itemId = appendixItemIdFromComponentId(c.id);
+                const item = getAppendixItems(mainForm.getValues()).find(i => i.id === itemId);
+                const useManual = !!item?.useManual;
                 return {
                     ...c,
-                    // Manual entry: let the system generate it from the typed text.
-                    // File upload: user provides the file.
-                    useSystem: !!useManual,
-                    userFile: prePopulatedFile,
+                    // Typed out: let the system generate it from the text.
+                    // Uploaded: the user provides the file.
+                    useSystem: useManual,
+                    userFile: !useManual && item?.file instanceof File ? item.file : null,
                 };
             }
             
@@ -629,9 +650,14 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                 })),
                 { shouldDirty: true }
             );
-        } else if (itemId === 'appendix') {
-            mainForm.setValue('appendixFile', file, { shouldDirty: true });
-            mainForm.setValue('useManualAppendix', false, { shouldDirty: true });
+        } else if (isAppendixComponentId(itemId)) {
+            const appendixItemId = appendixItemIdFromComponentId(itemId);
+            const rows = getAppendixItems(mainForm.getValues());
+            mainForm.setValue(
+                'appendixItems',
+                rows.map(row => (row.id === appendixItemId ? { ...row, file, useManual: false } : row)) as any,
+                { shouldDirty: true }
+            );
         } else if (itemId === 'certified_copy_receipt') {
             mainForm.setValue('standardIas.exemptionCertifiedCopy.receiptFile', file, { shouldDirty: true });
         }
@@ -958,10 +984,11 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                     return !(fileToCheck instanceof File);
                 }
         
-                if (item.id === 'appendix') {
-                    if (mainForm.getValues('useManualAppendix')) return false;
-                    const appendixFile = mainForm.getValues('appendixFile');
-                    return !(appendixFile instanceof File);
+                if (isAppendixComponentId(item.id)) {
+                    const appendixItem = getAppendixItems(mainForm.getValues())
+                        .find(i => i.id === appendixItemIdFromComponentId(item.id));
+                    if (!appendixItem || appendixItem.useManual) return false;
+                    return !(appendixItem.file instanceof File);
                 }
 
                 const isRequired =
@@ -1065,18 +1092,14 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             return fileToCheck instanceof File ? fileToCheck.name : "Upload Required";
         }
 
-        if (item.id === 'appendix') {
-            const useManual = mainForm.getValues('useManualAppendix');
-            const manualEntry = mainForm.getValues('appendixManualEntry');
-            const appendixFile = mainForm.getValues('appendixFile');
-            
-            if (useManual) {
-                // User chose manual entry
-                return manualEntry && manualEntry.trim() ? 'Manual Entry' : 'Upload Required';
-            } else {
-                // User chose PDF upload
-                return (appendixFile instanceof File) ? appendixFile.name : 'Upload Required';
+        if (isAppendixComponentId(item.id)) {
+            const appendixItem = getAppendixItems(mainForm.getValues())
+                .find(i => i.id === appendixItemIdFromComponentId(item.id));
+            if (!appendixItem) return 'Upload Required';
+            if (appendixItem.useManual) {
+                return (appendixItem.manualEntry || '').trim() ? 'Typed out' : 'Upload Required';
             }
+            return appendixItem.file instanceof File ? (appendixItem.file as File).name : 'Upload Required';
         }
 
         if (item.id === 'certified_copy_receipt') {

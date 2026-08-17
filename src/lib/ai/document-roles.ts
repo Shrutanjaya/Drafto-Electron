@@ -36,7 +36,7 @@ const SLP_ONLY: DocumentRole[] = [
   { id: "cc-receipt", label: "Certified copy receipt", read: true },
   { id: "custody", label: "Custody certificate", read: false },
   { id: "fir", label: "FIR / charge-sheet details", read: true },
-  { id: "appendix", label: "Appendix material (statutes, rules)", read: false },
+  { id: "appendix", label: "Appendix material (statutes, judgments)", read: false },
   { id: "ia-annexure", label: "Application annexure (A-series)", read: true },
 ];
 

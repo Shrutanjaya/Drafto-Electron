@@ -55,6 +55,7 @@ import { OaPdfGenerationDialog } from "./dialogs/oa-pdf-generation-dialog";
 import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
 import { newBlankProject } from "@/lib/project-defaults";
 import { getIaList } from "@/lib/ia-list-utils";
+import { getActiveAppendixItems } from "@/lib/appendix";
 import { restoreFileFromPath } from "@/lib/utils/pick-file";
 import { cn } from "@/lib/utils";
 import { useAuthContext } from "@/providers/auth-provider";
@@ -335,9 +336,11 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       if (p) cloned.pdfMergeItems[i].userFilePath = p;
     }
 
-    // Appendix
-    const ap = getPath(data.appendixFile);
-    if (ap) cloned.appendixFilePath = ap;
+    // Appendix documents
+    for (let i = 0; i < (data.appendixItems ?? []).length; i++) {
+      const p = getPath(data.appendixItems[i].file);
+      if (p && cloned.appendixItems?.[i]) cloned.appendixItems[i].filePath = p;
+    }
 
     // Certified copy receipt
     const rp = getPath(data.standardIas?.exemptionCertifiedCopy?.receiptFile);
@@ -633,7 +636,13 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         item.userFile = await tryRestore(item.userFilePath, `pdfMergeItem[${pi}].userFile`);
     }
 
-    // Appendix
+    // Appendix documents (older projects carry a single appendixFile/-Path pair;
+    // lib/appendix.ts folds those into the list when it is read)
+    for (let i = 0; i < (data.appendixItems ?? []).length; i++) {
+      const item = data.appendixItems[i];
+      if (item.filePath && !(item.file instanceof File))
+        item.file = await tryRestore(item.filePath, `appendixItems[${i}].file`);
+    }
     if (data.appendixFilePath && !(data.appendixFile instanceof File))
       data.appendixFile = await tryRestore(data.appendixFilePath, "appendixFile");
 
@@ -946,10 +955,12 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
             result = await generateSlpDocx(data);
             break;
         case 'appendix':
-            if (data.wantsAppendix && (data.appendixFile || data.appendixManualEntry)) {
+            // Only typed-out Appendix documents can be exported as a DOCX;
+            // uploaded PDFs go straight into the paper-book.
+            if (getActiveAppendixItems(data).some(i => i.useManual && (i.manualEntry || '').trim())) {
                 result = await generateAppendixDocx(data);
             } else {
-                toast({ variant: "destructive", title: "Export Skipped", description: "Appendix was not selected or no data was provided." });
+                toast({ variant: "destructive", title: "Export Skipped", description: "There is no typed-out Appendix to export." });
                 return;
             }
             break;

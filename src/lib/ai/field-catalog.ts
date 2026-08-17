@@ -297,33 +297,40 @@ const BASE_CATALOG: CatalogEntry[] = [
     path: "wantsAppendix",
     tab: "Petition",
     label: "Include an Appendix",
-    description: "Whether the petition includes an Appendix (the relevant statutory provisions).",
+    description: "Whether the petition includes an Appendix (statutory provisions, judgments, or other material).",
     isList: false,
     kind: "boolean",
   },
   {
-    path: "useManualAppendix",
+    path: "appendixItems",
     tab: "Petition",
-    label: "Use a manually-typed Appendix",
-    description: "When true, the Appendix text comes from appendixManualEntry instead of an attached file.",
-    isList: false,
-    kind: "boolean",
-  },
-  {
-    path: "appendixManualEntry",
-    tab: "Petition",
-    label: "Appendix text (manual)",
-    description: "The full text of the Appendix (statutory provisions), used when useManualAppendix is true.",
-    isList: false,
-    kind: "longtext",
-  },
-  {
-    path: "appendixDescription",
-    tab: "Petition",
-    label: "Appendix description",
-    description: "A short description of what the Appendix contains.",
-    isList: false,
-    kind: "longtext",
+    label: "Appendix documents",
+    description:
+      "The documents attached as an Appendix — statutory provisions, judgments, or anything else. One row per document; each becomes its own Index entry (Appendix-A, Appendix-B …). Uploaded PDFs are attached by the user; only the typed-out text can be filled in here.",
+    isList: true,
+    itemFields: [
+      {
+        key: "kind",
+        label: "What the document is",
+        kind: "enum",
+        enumValues: ["provisions", "judgment", "custom"] as const,
+      },
+      {
+        key: "description",
+        label: "Description",
+        kind: "text",
+        description:
+          "The Act/Rules for provisions, the case name and citation for a judgment, or a short description for anything else.",
+      },
+      {
+        key: "useManual",
+        label: "Typed out rather than uploaded",
+        kind: "boolean",
+        description:
+          "Only for provisions and other material. A judgment is always filed as a copy of the court's document, so it must be uploaded — leave this false for a judgment.",
+      },
+      { key: "manualEntry", label: "Appendix text (when typed out)", kind: "longtext" },
+    ],
   },
   // Declarations (rendered on the Petition tab)
   {

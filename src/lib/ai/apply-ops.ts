@@ -15,6 +15,7 @@ import {
   customIaSchema,
   iaSchema,
   legalProvisionSchema,
+  appendixItemSchema,
 } from "@/lib/schema";
 import type { SafeOp } from "./form-patch";
 
@@ -36,6 +37,7 @@ const LIST_ITEM_PARSERS: Record<string, (raw: Record<string, unknown>) => unknow
   "standardIas.exemptionFromSurrendering.grounds": (r) => iaGroundItemSchema.parse(r),
   "standardIas.additionalDocumentsGrounds": (r) => aamTableItemSchema.parse(r),
   "listingProforma.legalProvisions": (r) => legalProvisionSchema.parse(r),
+  appendixItems: (r) => appendixItemSchema.parse(r),
   // Writ Petition (Delhi HC) list fields.
   "wp.reliefs": (r) => aamTableItemSchema.parse(r),
   "wp.cms.stay.body": (r) => aamTableItemSchema.parse(r),

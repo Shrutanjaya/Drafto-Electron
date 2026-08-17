@@ -79,9 +79,12 @@ export function buildSearchableFields(values: DraftoProject): FieldDescriptor[] 
   (values.interimReliefGrounds ?? []).forEach((_, i) => push(`interimReliefGrounds.${i}.particulars`, 'Interim Relief', true));
   (values.interimReliefPrayers ?? []).forEach((_, i) => push(`interimReliefPrayers.${i}.particulars`, 'Interim Relief', true));
 
-  // ── Appendix ──
-  push('appendixManualEntry', 'Appendix');
-  push('appendixDescription', 'Appendix');
+  // ── Appendix (one row per attached document) ──
+  (values.appendixItems ?? []).forEach((_, i) => {
+    push(`appendixItems.${i}.description`, 'Appendix');
+    push(`appendixItems.${i}.manualEntry`, 'Appendix');
+    push(`appendixItems.${i}.indexTextOverride`, 'Appendix');
+  });
 
   // ── IAs ──
   const si = values.standardIas;

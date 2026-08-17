@@ -14,6 +14,7 @@ import {
 import { LoDTable } from "@/components/custom/lod-table";
 import { AamTable } from "@/components/custom/aam-table";
 import { AppendixDialog, AppendixContent } from "@/components/dialogs/appendix-dialog";
+import { appendixHasContent } from "@/lib/appendix";
 import { DeclarationsDialog, DeclarationsContent } from "@/components/dialogs/declarations-dialog";
 import { InterimReliefDialog, InterimReliefContent } from "@/components/dialogs/interim-relief-dialog";
 import { QuestionsOfLawDialog } from "@/components/dialogs/questions-of-law-dialog";
@@ -150,8 +151,7 @@ export function SlpTab() {
   const wantsInterimRelief = useWatch({ control: form.control, name: 'wantsInterimRelief' });
   const interimReliefPrayersWatch = useWatch({ control: form.control, name: 'interimReliefPrayers' });
   const wantsAppendix = useWatch({ control: form.control, name: 'wantsAppendix' });
-  const appendixFile = useWatch({ control: form.control, name: 'appendixFile' });
-  const appendixManualEntry = useWatch({ control: form.control, name: 'appendixManualEntry' });
+  const appendixItems = useWatch({ control: form.control, name: 'appendixItems' });
   const declarationsWatch = useWatch({ control: form.control, name: 'declarations' });
   const aorCertWatch = useWatch({ control: form.control, name: 'aorCertificate' });
 
@@ -163,7 +163,10 @@ export function SlpTab() {
   const groundsActive = hasAamRow(groundsWatch);
   const questionsOfLawActive = hasAamRow(questionsOfLawWatch);
   const interimReliefActive = !wantsInterimRelief || hasAamRow(interimReliefPrayersWatch);
-  const appendixActive = !wantsAppendix || !!(appendixFile instanceof File || appendixManualEntry?.trim());
+  // Green once every Appendix row actually has something attached (and there is
+  // at least one), or when the Appendix is switched off altogether.
+  const appendixRows = (appendixItems ?? []) as any[];
+  const appendixActive = !wantsAppendix || (appendixRows.length > 0 && appendixRows.every(appendixHasContent));
   const declarationsActive = !!(
     declarationsWatch?.noOtherSLPFiled &&
     declarationsWatch?.annexuresTrueCopies &&

@@ -41,6 +41,24 @@ export const annexureSchema = z.object({
   isImpugnedOrder: z.boolean().default(false),
 });
 
+// One document attached as an Appendix. In the Supreme Court an Appendix may
+// reproduce statutory provisions, a judgment, or anything else the petition
+// needs on record, and more than one document may be attached: each becomes its
+// own Index row (Appendix-A, Appendix-B …) with its own page range.
+export const appendixItemSchema = z.object({
+  id: z.string().default(() => `apx_${Math.random().toString(36).slice(2, 10)}`),
+  kind: z.enum(["provisions", "judgment", "custom"]).default("provisions"),
+  // What the document is: the Act/Rules for provisions, the case name/citation
+  // for a judgment, or a free description for anything else.
+  description: z.string().default(""),
+  useManual: z.boolean().default(false),
+  manualEntry: z.string().default(""),
+  file: z.any().optional(),
+  filePath: z.string().optional(), // Absolute path to the PDF on disk (Electron only)
+  // Overrides the wording of this document's Index row when the user edits it.
+  indexTextOverride: z.string().default(""),
+});
+
 export const iaAnnexureSchema = z.object({
   id: z.string().default(() => `ia_annex_${Math.random()}`),
   file: z.any().optional(),
@@ -231,10 +249,16 @@ export const draftoProjectSchema = z.object({
   
   // Appendix
   wantsAppendix: z.boolean().default(false),
+  appendixItems: z.array(appendixItemSchema).default([]),
+  // ── Legacy single-Appendix fields ──
+  // Kept so projects saved before the multi-document Appendix still open; they
+  // are folded into appendixItems on first read (see lib/appendix.ts) and are
+  // never written again.
   appendixManualEntry: z.string().default(""),
   appendixDescription: z.string().default(""),
   useManualAppendix: z.boolean().default(false),
   appendixFile: z.any().optional(),
+  appendixFilePath: z.string().optional(),
 
   // Declarations
   declarations: z.object({

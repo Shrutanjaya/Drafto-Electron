@@ -11,6 +11,14 @@ import { getChecklistQueries, CHECKLIST_DECLARATION } from "@/lib/checklist-quer
 import { PDFDocument, rgb, StandardFonts, PDFName, PDFDict, PDFArray, PDFRef, PDFString, PDFNumber, PDFRawStream, decodePDFRawStream, degrees } from 'pdf-lib';
 import { convertDocxToPdf as ipcConvertDocxToPdf } from "@/lib/ipc/pdf";
 import { pageRotation } from "@/lib/pdf-rotation";
+import {
+  getActiveAppendixItems,
+  appendixIndexText,
+  appendixLabel,
+  appendixBodyText,
+  appendixItemIdFromComponentId,
+  isAppendixComponentId,
+} from "@/lib/appendix";
 
 
 const calculateIoText = (projectData: DraftoProject) => {
@@ -646,13 +654,17 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
 
   particularsList.push("Special Leave Petition with Certificate and Affidavit");
 
-  // The Appendix is merged into the paper-book whenever it is asked for, so its
-  // Index row must appear on exactly the same condition. Gating the row on the
-  // description as well used to drop the row while the pages were still there,
-  // which threw every page number after it out by the length of the Appendix.
-  if (projectData.wantsAppendix && (projectData.appendixFile || projectData.appendixManualEntry)) {
-    particularsList.push(`Appendix: Relevant provisions of the ${projectData.appendixDescription || '[Appendix Description]'}`);
-  }
+  // One row per attached Appendix document, in the order they are merged into
+  // the paper-book — getActiveAppendixItems() is the single source both read,
+  // so a row can never go missing while its pages are still there (which used
+  // to throw every page number after it out by the length of the Appendix).
+  const appendixItems = getActiveAppendixItems(projectData);
+  appendixItems.forEach((item, index) => {
+    particularsList.push([
+      smartTextRun({ text: appendixLabel(index, appendixItems.length), bold: true }),
+      convertToSmartQuotes(`: ${appendixBodyText(item)}`),
+    ]);
+  });
 
   const allAnnexures: Annexure[] = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
   const nonAdAnnexures = allAnnexures.filter(annex => !annex.isAdditionalDocument);
@@ -1732,16 +1744,44 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
     return { success: true, docx: b64string, fileName: `SLP.docx` };
 }
 
-export async function generateAppendixDocx(projectData: DraftoProject) {
-    if (!projectData.wantsAppendix || !projectData.useManualAppendix || !projectData.appendixManualEntry) {
+// Builds the typed-out Appendix documents. With an itemId it produces that one
+// document (this is what the paper-book merges, one component per Appendix);
+// without one it produces every typed Appendix in a single file, each starting
+// on a fresh page, which is what the stand-alone DOCX export hands over.
+export async function generateAppendixDocx(projectData: DraftoProject, itemId?: string) {
+    const activeItems = getActiveAppendixItems(projectData);
+    const total = activeItems.length;
+
+    // Index of each typed-out Appendix within the full active list, so its
+    // heading carries the same letter as its Index row.
+    const wanted = activeItems
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) => item.useManual && (item.manualEntry || '').trim())
+        .filter(({ item }) => (itemId ? item.id === itemId : true));
+
+    if (wanted.length === 0) {
         return { success: false, message: "Appendix not wanted or not provided." };
     }
-    
-    const appendixResult = parseHtml(projectData.appendixManualEntry);
-    const uniqueNumberingConfigs = appendixResult.numbering.filter(
+
+    const allNumberingConfigs: any[] = [];
+    const children: (Paragraph | Table)[] = [];
+
+    wanted.forEach(({ item, index }, position) => {
+        const parsed = parseHtml(item.manualEntry);
+        allNumberingConfigs.push(...parsed.numbering);
+        if (position > 0) children.push(new Paragraph({ children: [new PageBreak()] }));
+        children.push(new Paragraph({
+            children: [smartTextRun({ text: appendixIndexText(item, index, total).toUpperCase(), bold: true })],
+            alignment: AlignmentType.CENTER
+        }));
+        children.push(new Paragraph(""));
+        children.push(...parsed.paragraphs);
+    });
+
+    const uniqueNumberingConfigs = allNumberingConfigs.filter(
         (v, i, a) => a.findIndex(t => t.reference === v.reference) === i
     );
-    
+
     const doc = new Document({
         numbering: {
             config: uniqueNumberingConfigs,
@@ -1749,14 +1789,7 @@ export async function generateAppendixDocx(projectData: DraftoProject) {
         styles: getDefaultStyles(),
         sections: [{
             properties: { page: { margin: getSlpMargins() } },
-            children: [
-                new Paragraph({
-                    children: [smartTextRun({ text: `APPENDIX: RELEVANT PROVISIONS OF THE ${(projectData.appendixDescription || '').toUpperCase()}`, bold: true })],
-                    alignment: AlignmentType.CENTER
-                }),
-                new Paragraph(""),
-                ...appendixResult.paragraphs
-            ]
+            children,
         }]
     });
 
@@ -1819,14 +1852,44 @@ export async function generateIaDocx(
         levels: [{ level: 0, format: "decimal" as const, text: "%1.", alignment: AlignmentType.START, start, style: { paragraph: { indent: { left: 720, hanging: 360 } } } }],
     });
 
-    // A single continuous list for every top-level IA paragraph (opening,
-    // lead-in, any user-added grounds, the closing paragraphs and the prayer
-    // lead-in). Using one list lets Word number them continuously, so extra
-    // AD grounds no longer collide with the closing paragraphs.
-    const numberingConfig = [
-        makeIaListConfig("ia-intro-list"),
-    ];
-    
+    // Every top-level IA paragraph (opening, lead-in, any user-added grounds,
+    // the closing paragraphs and the prayer lead-in) belongs to one continuous
+    // count. It cannot be one Word list, though: Word restarts a numbered list
+    // wherever a table interrupts it, which is why the paragraphs after a
+    // grounds table came out as 1., 2., 3. again. The body is therefore
+    // numbered in segments — each table closes the current segment, and the
+    // paragraphs after it open a fresh list that starts explicitly at the
+    // number they should carry. Because every segment states its own start,
+    // the result is the same whether or not Word restarts. (The SLP solves the
+    // same problem with hard-coded starts; its structure is fixed, an IA's is
+    // not.)
+    const listSegments: { reference: string; start: number }[] = [];
+    let paraNo = 0;                 // the last number handed out
+    let currentListRef = "ia-intro-list";
+    const newListSegment = () => {
+        currentListRef = listSegments.length === 0 ? "ia-intro-list" : `ia-intro-list-${listSegments.length + 1}`;
+        listSegments.push({ reference: currentListRef, start: paraNo + 1 });
+    };
+    // The numbering property for the next body paragraph. Call it in document
+    // order — the count is what ends up printed.
+    const nextNumbering = () => {
+        paraNo++;
+        return { reference: currentListRef, level: 0 };
+    };
+    // Body paragraphs built elsewhere (parseHtml, for user-typed grounds that
+    // sit in the numbered flow rather than in a table) consume numbers too.
+    const countNumbered = (paras: unknown[]) => {
+        for (const para of paras) {
+            const refs = (para as any)?.properties?.numberingReferences;
+            if (!Array.isArray(refs)) {
+                if (para instanceof Paragraph) paraNo++;
+            } else if (refs.some((r: any) => r?.reference === currentListRef)) {
+                paraNo++;
+            }
+        }
+    };
+    newListSegment();
+
     let prayerParagraphs: Paragraph[] = [];
     let iaTitle = "";
     let customTextParagraphs: (Paragraph | Table)[] = [];
@@ -1858,6 +1921,13 @@ export async function generateIaDocx(
         
         return parts;
     };
+
+    // Paragraph 1 of every IA. Built here, ahead of the IA-specific paragraphs
+    // below, because the numbering has to be handed out in document order.
+    const openingParagraph = new Paragraph({
+        text: convertToSmartQuotes(`The accompanying Special Leave Petition has been filed against${ioText}. The contents of the Special Leave Petition may kindly be treated as part and parcel of this application and are not being repeated herein for the sake of brevity.`),
+        numbering: nextNumbering(),
+    });
 
     const standardIa = standardIaList.find(ia => ia.id === iaIdentifier);
     if(standardIa) {
@@ -1924,10 +1994,11 @@ export async function generateIaDocx(
                 customTextParagraphs = [
                     new Paragraph({
                         text: `This application, seeking condonation of delay of ${delayDays} days in filing the accompanying SLP, is preferred on the following grounds:`,
-                        numbering: { reference: "ia-intro-list", level: 0 },
+                        numbering: nextNumbering(),
                     }),
                     groundsTable
                 ];
+                newListSegment(); // the grounds table interrupts the numbering
                 break;
             case "exemptionCertifiedCopy":
                 iaTitle = standardIaList.find(ia => ia.id === iaIdentifier)?.title || iaTitle;
@@ -1944,7 +2015,7 @@ export async function generateIaDocx(
                 }
                 certParaText += "In the circumstances, it is prayed that an exemption from filing the certified copy may be granted. The Petitioner(s) undertake(s) to produce the certified copy as and when made available to the Petitioner(s) and/or directed by this Hon'ble Court.";
                 
-                customTextParagraphs = [new Paragraph({ children: [smartTextRun(certParaText)], numbering: { reference: "ia-intro-list", level: 0 } })];
+                customTextParagraphs = [new Paragraph({ children: [smartTextRun(certParaText)], numbering: nextNumbering() })];
                 break;
             case "additionalDocuments":
                  iaTitle = standardIaList.find(ia => ia.id === iaIdentifier)?.title || iaTitle;
@@ -2023,18 +2094,20 @@ export async function generateIaDocx(
                 customTextParagraphs = [
                     new Paragraph({
                         text: "This application seeks permission to place on record the following additional facts and documents, which are necessary and proper for the adjudication of the accompanying SLP:",
-                        numbering: { reference: "ia-intro-list", level: 0 },
+                        numbering: nextNumbering(),
                     }),
                     adAnnexuresTable,
                 ];
+                newListSegment(); // the annexures table interrupts the numbering
 
                 // Append user-provided grounds/averments as numbered paragraphs after the annexures table
                 const adGrounds = (projectData.standardIas as any).additionalDocumentsGrounds || [];
                 adGrounds
                     .filter((g: any) => g.particulars && g.particulars.trim() !== '')
                     .forEach((g: any) => {
-                        const { paragraphs, numbering } = parseHtml(g.particulars, undefined, { reference: "ia-intro-list", level: 0 });
+                        const { paragraphs, numbering } = parseHtml(g.particulars, undefined, { reference: currentListRef, level: 0 });
                         if (numbering.length > 0) allNumberingConfigs.push(...numbering);
+                        countNumbered(paragraphs);
                         paragraphs.forEach(p => {
                             customTextParagraphs.push(p);
                         });
@@ -2067,7 +2140,7 @@ export async function generateIaDocx(
                 prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
                 const otUserReason = (projectData.standardIas.exemptionOfficialTranslation.userReason || '').trim();
                 const otBody = `This application seeks exemption from filing Official Translation(s) of ${annexureList}. ${otUserReason ? otUserReason + ' ' : ''}It is prayed that in view of the urgency and the facts and circumstances of this case, exemption from filing Official Translation(s) may be granted.`;
-                customTextParagraphs = [new Paragraph({ children: [smartTextRun(otBody)], numbering: { reference: "ia-intro-list", level: 0 } })];
+                customTextParagraphs = [new Paragraph({ children: [smartTextRun(otBody)], numbering: nextNumbering() })];
                 break;
             case "exemptionFromSurrendering":
                 iaTitle = standardIaList.find(ia => ia.id === iaIdentifier)?.title || iaTitle;
@@ -2127,10 +2200,11 @@ export async function generateIaDocx(
                 customTextParagraphs = [
                     new Paragraph({
                         text: `This application, seeking exemption from surrendering pursuant to${ioText}, is preferred on the following grounds:`,
-                        numbering: { reference: "ia-intro-list", level: 0 },
+                        numbering: nextNumbering(),
                     }),
                     surrenderingGroundsTable
                 ];
+                newListSegment(); // the grounds table interrupts the numbering
                 break;
         }
     } else {
@@ -2197,14 +2271,15 @@ export async function generateIaDocx(
             customTextParagraphs = [
                 new Paragraph({
                     text: convertToSmartQuotes(para2Text),
-                    numbering: { reference: "ia-intro-list", level: 0 },
+                    numbering: nextNumbering(),
                 }),
                 new Paragraph({
                     text: `The present application is filed on the following grounds:`,
-                    numbering: { reference: "ia-intro-list", level: 0 },
+                    numbering: nextNumbering(),
                 }),
                 groundsTable
             ];
+            newListSegment(); // the grounds table interrupts the numbering
 
             // Handle Prayers
             customIa.prayers.forEach(p => {
@@ -2216,7 +2291,7 @@ export async function generateIaDocx(
 
     const uniqueNumberingConfigs = [
         ...allNumberingConfigs.filter((v, i, a) => a.findIndex(t => t.reference === v.reference) === i),
-        ...numberingConfig
+        ...listSegments.map(seg => makeIaListConfig(seg.reference, seg.start)),
     ];
 
     const prayerTableRows = prayerParagraphs.map((p, index) => {
@@ -2260,15 +2335,6 @@ export async function generateIaDocx(
         indent: { size: 720, type: WidthType.DXA },
     });
 
-    const finalCustomTextParagraphs = customTextParagraphs.map((p) => {
-        if (p instanceof Paragraph) {
-             if (!p.properties.numbering) {
-                 p.properties.numbering = { reference: "ia-intro-list", level: 0 };
-             }
-        }
-        return p;
-    });
-
     const doc = new Document({
         numbering: {
             config: uniqueNumberingConfigs,
@@ -2299,25 +2365,22 @@ export async function generateIaDocx(
                     alignment: AlignmentType.LEFT,
                     children: [ smartTextRun({ text: "It is most respectfully submitted that:", bold: true }) ]
                 }),
-                new Paragraph({
-                    text: convertToSmartQuotes(`The accompanying Special Leave Petition has been filed against${ioText}. The contents of the Special Leave Petition may kindly be treated as part and parcel of this application and are not being repeated herein for the sake of brevity.`),
-                    numbering: { reference: "ia-intro-list", level: 0 },
-                }),
-                ...finalCustomTextParagraphs,
+                openingParagraph,
+                ...customTextParagraphs,
                  new Paragraph({
                     text: convertToSmartQuotes("No prejudice would be caused to the Respondent(s) if this application were allowed. On the other hand, irreparable injury would be caused to the Petitioner(s) if the application were not allowed."),
-                    numbering: { reference: "ia-intro-list", level: 0 },
+                    numbering: nextNumbering(),
                 }),
                 new Paragraph({
                     text: convertToSmartQuotes("This application is filed in good faith and in the interests of justice."),
-                    numbering: { reference: "ia-intro-list", level: 0 },
+                    numbering: nextNumbering(),
                 }),
                  new Paragraph({
                     children: [
                         smartTextRun({ text: "PRAYERS", bold: true }),
                         smartTextRun({ text: ": In view of the foregoing averments, it is most respectfully prayed that this Hon'ble Court may be pleased to:" })
                     ],
-                    numbering: { reference: "ia-intro-list", level: 0 },
+                    numbering: nextNumbering(),
                 }),
                 prayerTable,
                 new Paragraph({
@@ -3002,8 +3065,12 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         if (meta.id === 'slp') return 'Special Leave Petition with Certificate and Affidavit';
         if (meta.id === 'slpAffidavit') return null; // Part of SLP
         
-        if (meta.id === 'appendix') {
-            return `Appendix: Relevant provisions of the ${projectData.appendixDescription || '[Appendix Description]'}`;
+        if (isAppendixComponentId(meta.id)) {
+            const items = getActiveAppendixItems(projectData);
+            const itemId = appendixItemIdFromComponentId(meta.id);
+            const index = items.findIndex(i => i.id === itemId);
+            if (index >= 0) return appendixIndexText(items[index], index, items.length);
+            return null;
         }
         
         // Annexures
@@ -3058,12 +3125,34 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         return null;
     };
 
+    // The part of a page a reader actually sees: the CropBox clipped to the
+    // MediaBox. Uploaded PDFs — statute extracts and downloaded judgments above
+    // all — are frequently cropped, or have a MediaBox that does not start at
+    // the origin. Anchoring a stamp to the raw page size then puts it outside
+    // the visible area and the page comes back apparently unstamped, which is
+    // why an uploaded Appendix carried no page numbers while the rest of the
+    // paper-book did.
+    const visibleFrame = (page: any) => {
+        const media = page.getMediaBox();
+        const crop = page.getCropBox();
+        const x0 = Math.max(media.x, crop.x);
+        const y0 = Math.max(media.y, crop.y);
+        const x1 = Math.min(media.x + media.width, crop.x + crop.width);
+        const y1 = Math.min(media.y + media.height, crop.y + crop.height);
+        // A CropBox that does not overlap the MediaBox at all is malformed;
+        // fall back to the MediaBox rather than stamping into nowhere.
+        if (!(x1 > x0) || !(y1 > y0)) {
+            return { x: media.x, y: media.y, width: media.width, height: media.height };
+        }
+        return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+    };
+
     // Helper function to add header to first page of annexure
     const addAnnexureHeader = async (pdf: PDFDocument, headerText: string) => {
         if (pdf.getPageCount() === 0) return;
-        
+
         const firstPage = pdf.getPage(0);
-        const { width, height } = firstPage.getSize();
+        const { x: frameX, y: frameY, width, height } = visibleFrame(firstPage);
         const rotation = pageRotation(firstPage);
         
         // Load Times New Roman Bold font
@@ -3098,7 +3187,12 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             headerY = height - topMargin - fontSize;
             rotationAngle = 0;
         }
-        
+
+        // Shift into the visible frame (a no-op on a page that starts at the
+        // origin and is not cropped).
+        headerX += frameX;
+        headerY += frameY;
+
         // Draw white background rectangle (all rotation angles)
         if (settings.annexureLabelBackground) {
             const padding = 4;
@@ -3189,11 +3283,11 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
 
         for (let i = 0; i < pageCount; i++) {
             const page = pdf.getPage(i);
-            const { width, height } = page.getSize();
+            const { x: frameX, y: frameY, width, height } = visibleFrame(page);
             const rotation = pageRotation(page);
 
             // Visual bottom-left corner (cx,cy) and the visual right/up unit vectors,
-            // expressed in unrotated mediabox coordinates.
+            // expressed in unrotated page coordinates.
             let cx, cy, rx, ry, ux, uy;
             if (rotation === 90) {
                 cx = width; cy = 0;      rx = 0;  ry = 1;  ux = -1; uy = 0;
@@ -3204,6 +3298,9 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             } else {
                 cx = 0;     cy = 0;      rx = 1;  ry = 0;  ux = 0;  uy = 1;
             }
+            // Shift into the visible frame (see visibleFrame).
+            cx += frameX;
+            cy += frameY;
 
             // Width of the visible page along the visual "right" axis
             const visualWidth = (rotation === 90 || rotation === 270) ? height : width;
@@ -3314,7 +3411,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
 
         for (let i = 0; i < pageCount; i++) {
             const page = pdf.getPage(i);
-            const { width, height } = page.getSize();
+            const { x: frameX, y: frameY, width, height } = visibleFrame(page);
             const rotation = pageRotation(page);
             const pageNumber = startingPageNumber + i;
             const pageText = pageNumber.toString();
@@ -3344,7 +3441,12 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 y = height - topMargin - fontSize;
                 rotationAngle = 0;
             }
-            
+
+            // Shift into the visible frame (a no-op on a page that starts at
+            // the origin and is not cropped).
+            x += frameX;
+            y += frameY;
+
             // Draw white background behind numeric page number
             if (settings.annexureLabelBackground) {
                 const padding = 4;
@@ -3387,7 +3489,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
 
         for (let i = 0; i < pageCount; i++) {
             const page = pdf.getPage(i);
-            const { width, height } = page.getSize();
+            const { x: frameX, y: frameY, width, height } = visibleFrame(page);
             const rotation = pageRotation(page);
             const letterIndex = startingLetterIndex + i;
             const pageText = numberToAlphabet(letterIndex);
@@ -3417,7 +3519,11 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 y = height - topMargin - fontSize;
                 rotationAngle = 0;
             }
-            
+
+            // Shift into the visible frame (see visibleFrame).
+            x += frameX;
+            y += frameY;
+
             page.drawText(pageText, {
                 x,
                 y,
@@ -3446,17 +3552,18 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
 
         for (let i = 0; i < pageCount; i++) {
             const page = pdf.getPage(i);
-            const { width, height } = page.getSize();
+            const { x: frameX, y: frameY, width, height } = visibleFrame(page);
             const pageNumber = i + 1; // 1, 2, 3...
             const pageText = `A${pageNumber}`; // A1, A2, A3...
             const textWidth = font.widthOfTextAtSize(pageText, fontSize);
-            
-            // Check page rotation and adjust coordinates accordingly
+
+            // Check page rotation and adjust coordinates accordingly (same
+            // anchors as the numeric and alphabetical stamps)
             const rotation = pageRotation(page);
             let x = width - rightMargin - textWidth;
             let y = height - topMargin - fontSize;
             let rotationAngle = 0;
-            
+
             if (rotation === 180) {
                 // Page is upside down - flip coordinates and rotate text
                 x = rightMargin;
@@ -3464,16 +3571,20 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 rotationAngle = 180;
             } else if (rotation === 90) {
                 // Page is rotated 90 degrees clockwise
-                x = topMargin;
+                x = topMargin + fontSize;
                 y = rightMargin + textWidth;
                 rotationAngle = 90;
             } else if (rotation === 270) {
                 // Page is rotated 270 degrees clockwise (90 counter-clockwise)
-                x = height - topMargin - fontSize;
-                y = width - rightMargin;
+                x = width - topMargin - fontSize;
+                y = height - rightMargin - textWidth;
                 rotationAngle = 270;
             }
-            
+
+            // Shift into the visible frame (see visibleFrame).
+            x += frameX;
+            y += frameY;
+
             page.drawText(pageText, {
                 x,
                 y,
@@ -3615,12 +3726,13 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 } else if (meta.id === 'cior') {
                     // Legacy support - generate CI only
                     result = await generateCiDocx(projectData, undefined, undefined, optionalDocIds);
+                } else if (isAppendixComponentId(meta.id)) {
+                    result = await generateAppendixDocx(projectData, appendixItemIdFromComponentId(meta.id));
                 } else {
                     switch (meta.id) {
                         case 'lp': result = await generateLpDocx(projectData); break;
                         case 'slod': result = await generateSlodDocx(projectData); break;
                         case 'slp': result = await generateSlpDocx(projectData, true); break;
-                        case 'appendix': result = await generateAppendixDocx(projectData); break;
                         case 'filingMemo': result = await generateFilingMemoDocx(projectData, true); break;
                         case 'advocateChecklist': result = await generateAdvocateChecklistDocx(projectData, true); break;
                         default:
@@ -3922,10 +4034,14 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             _pl.push('Impugned [Order Type]: True copy of [Impugned Order Details]');
         }
         _pl.push('Special Leave Petition with Certificate and Affidavit');
-        // Same condition as the Index itself — see generateCiDocx.
-        if (projectData.wantsAppendix && (projectData.appendixFile || projectData.appendixManualEntry)) {
-            _pl.push(`Appendix: Relevant provisions of the ${projectData.appendixDescription || '[Appendix Description]'}`);
-        }
+        // Same rows as the Index itself — see generateCiDocx.
+        const _appendixItems = getActiveAppendixItems(projectData);
+        _appendixItems.forEach((item, index) => {
+            _pl.push([
+                smartTextRun({ text: appendixLabel(index, _appendixItems.length), bold: true }),
+                convertToSmartQuotes(`: ${appendixBodyText(item)}`),
+            ]);
+        });
         const _allAnnexures: Annexure[] = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
         const _nonAd = _allAnnexures.filter(a => !a.isAdditionalDocument);
         const _ad    = _allAnnexures.filter(a => a.isAdditionalDocument);
@@ -4023,11 +4139,12 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                         result = await generateSlodDocx(projectData, annexurePageRanges);
                         break;
                     case 'slp': result = await generateSlpDocx(projectData, true); break;
-                    case 'appendix': result = await generateAppendixDocx(projectData); break;
                     case 'filingMemo': result = await generateFilingMemoDocx(projectData, true); break;
                     case 'advocateChecklist': result = await generateAdvocateChecklistDocx(projectData, true); break;
                     default:
-                        if (iaIdentifier && !meta.id.startsWith('ia_affidavit_')) {
+                        if (isAppendixComponentId(meta.id)) {
+                            result = await generateAppendixDocx(projectData, appendixItemIdFromComponentId(meta.id));
+                        } else if (iaIdentifier && !meta.id.startsWith('ia_affidavit_')) {
                             result = await generateIaDocx(projectData, iaIdentifier, undefined, annexurePageRanges, true);
                         }
                         break;
@@ -4112,6 +4229,21 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                     if (match) {
                         const headerText = `Annexure ${match[1]}`;
                         await addAnnexureHeader(pdfToMerge, headerText);
+                    }
+                }
+
+                // Each Appendix document carries its own label on its first page —
+                // "Appendix" on its own when there is only one, "Appendix-A",
+                // "Appendix-B" … when there are several, matching its Index row.
+                // No True Copy stamp: an Appendix is not a copy of a record.
+                // (A typed-out Appendix already prints that heading as text, so
+                // only uploaded PDFs are stamped.)
+                if (isAppendixComponentId(meta.id) && !meta.useSystem) {
+                    const items = getActiveAppendixItems(projectData);
+                    const itemId = appendixItemIdFromComponentId(meta.id);
+                    const index = items.findIndex(i => i.id === itemId);
+                    if (index >= 0) {
+                        await addAnnexureHeader(pdfToMerge, appendixLabel(index, items.length));
                     }
                 }
 
