@@ -264,9 +264,19 @@ const BASE_CATALOG: CatalogEntry[] = [
     path: "grounds",
     tab: "Petition",
     label: "Grounds",
-    description: "Grounds for the SLP. One per row.",
+    description: "Grounds for the SLP. One per row. A row may instead be a heading that groups the grounds below it — see isHeading.",
     isList: true,
-    itemFields: [{ key: "particulars", label: "Ground", kind: "longtext" }],
+    itemFields: [
+      { key: "particulars", label: "Ground", kind: "longtext" },
+      {
+        key: "isHeading",
+        label: "This row is a heading, not a ground",
+        kind: "boolean",
+        description:
+          "A heading groups the grounds that follow it (\"ON LIMITATION\", \"ON MERITS\"). Set true and put the title in `heading`, leaving `particulars` empty. Headings take no letter of their own. Carry any heading rows already in the list through unchanged when rewriting the grounds.",
+      },
+      { key: "heading", label: "Heading text (heading rows only)", kind: "text" },
+    ],
   },
   {
     path: "wantsInterimRelief",
@@ -757,9 +767,19 @@ export const WP_FIELD_CATALOG: CatalogEntry[] = [
     path: "grounds",
     tab: "Petition",
     label: "Grounds",
-    description: "Grounds of the writ petition. One per row, no numbering (Drafto letters them automatically).",
+    description: "Grounds of the writ petition. One per row, no numbering (Drafto letters them automatically). A row may instead be a heading that groups the grounds below it — see isHeading.",
     isList: true,
-    itemFields: [{ key: "particulars", label: "Ground", kind: "longtext" }],
+    itemFields: [
+      { key: "particulars", label: "Ground", kind: "longtext" },
+      {
+        key: "isHeading",
+        label: "This row is a heading, not a ground",
+        kind: "boolean",
+        description:
+          "A heading groups the grounds that follow it (\"ON LIMITATION\", \"ON MERITS\"). Set true and put the title in `heading`, leaving `particulars` empty. Headings take no letter of their own. Carry any heading rows already in the list through unchanged when rewriting the grounds.",
+      },
+      { key: "heading", label: "Heading text (heading rows only)", kind: "text" },
+    ],
   },
   {
     path: "wp.splitSynopsisAndLod",
@@ -1038,9 +1058,19 @@ export const OA_FIELD_CATALOG: CatalogEntry[] = [
     path: "grounds",
     tab: "Application",
     label: "Grounds (Para 5)",
-    description: "Grounds on which the relief is sought. One per row, no numbering — Drafto numbers them.",
+    description: "Grounds on which the relief is sought. One per row, no numbering — Drafto numbers them. A row may instead be a heading that groups the grounds below it — see isHeading.",
     isList: true,
-    itemFields: [{ key: "particulars", label: "Ground", kind: "longtext" }],
+    itemFields: [
+      { key: "particulars", label: "Ground", kind: "longtext" },
+      {
+        key: "isHeading",
+        label: "This row is a heading, not a ground",
+        kind: "boolean",
+        description:
+          "A heading groups the grounds that follow it (\"ON LIMITATION\", \"ON MERITS\"). Set true and put the title in `heading`, leaving `particulars` empty. Headings take no number of their own. Carry any heading rows already in the list through unchanged when rewriting the grounds.",
+      },
+      { key: "heading", label: "Heading text (heading rows only)", kind: "text" },
+    ],
   },
   {
     path: "oa.reliefs",

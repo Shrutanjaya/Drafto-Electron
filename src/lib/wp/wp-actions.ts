@@ -20,6 +20,7 @@ import {
 import { format } from "date-fns";
 import { getPartyHeader, smartTextRun, convertToSmartQuotes } from "@/lib/docx-helpers";
 import { parseHtml } from "@/lib/html-to-docx";
+import { groundsSequence, getGroundsHeadingStyle, groundsHeadingRuns, groundsHeadingHang } from "@/lib/grounds-headings";
 import type { DraftoProject, Annexure } from "@/lib/schema";
 import {
   createWpHeader,
@@ -134,9 +135,9 @@ function decimalDef(reference: string) {
 
 // Sub-list whose first level uses the configured section style; deeper levels
 // follow the cascade.
-function styleDef(reference: string, style: EnumStyle) {
+function styleDef(reference: string, style: EnumStyle, start = 1) {
   const cascade = cascadeFor(style);
-  return { reference, levels: cascade.map((fmt, i) => ({ level: i, format: fmt, text: `%${i + 1})`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 720 + i * 360, hanging: 360 } } } })) };
+  return { reference, levels: cascade.map((fmt, i) => ({ level: i, format: fmt, text: `%${i + 1})`, alignment: AlignmentType.START, ...(i === 0 ? { start } : {}), style: { paragraph: { indent: { left: 720 + i * 360, hanging: 360 } } } })) };
 }
 
 // Allocates fresh numbering references (so each list restarts at 1/a) and
@@ -147,7 +148,7 @@ function numberer() {
   return {
     defs,
     decimal() { const r = `wpn-d-${seq++}`; defs.push(decimalDef(r)); return r; },
-    styled(style: EnumStyle) { const r = `wpn-s-${seq++}`; defs.push(styleDef(r, style)); return r; },
+    styled(style: EnumStyle, start = 1) { const r = `wpn-s-${seq++}`; defs.push(styleDef(r, style, start)); return r; },
   };
 }
 
@@ -191,6 +192,51 @@ function applyFactsCascade(numbering: any[], style: EnumStyle) {
       cfg.levels.forEach((lvl: any, i: number) => { if (cascade[i]) lvl.format = cascade[i]; });
     }
   }
+}
+
+// The Grounds, with any headings the user has placed between them.
+//
+// A heading is an ordinary paragraph, and Word restarts a numbered list wherever
+// a paragraph interrupts it. So after a heading the grounds resume in a FRESH
+// list that states the number it must continue from: the count runs on across
+// headings whether or not Word would have restarted. The heading itself carries
+// its number as literal text (never a Word list), so it cannot collide with any
+// other numbering in the document, and sits one notch left of the ground text.
+function groundsBlocks(
+  project: DraftoProject,
+  style: EnumStyle,
+  nb: { styled: (style: EnumStyle, start?: number) => string },
+  numbering: any[],
+): Paragraph[] {
+  const headingStyle = getGroundsHeadingStyle(project);
+  const entries = groundsSequence(project.grounds, headingStyle);
+  const hang = groundsHeadingHang(entries);
+  const out: Paragraph[] = [];
+  let reference = nb.styled(style);
+  let restartPending = false;
+
+  for (const entry of entries) {
+    if (entry.kind === "heading") {
+      // "Normal" carries the line and paragraph spacing configured for the
+      // output, so the heading keeps the same rhythm as the grounds; only the
+      // indent is its own. Hanging, so the title starts at the same place as
+      // the ground text (720) on every line of a heading that wraps, with the
+      // number sitting out to its left.
+      out.push(new Paragraph({
+        style: "Normal",
+        indent: { left: hang, hanging: hang },
+        children: groundsHeadingRuns(entry.label, entry.text, headingStyle),
+      }));
+      restartPending = true;
+      continue;
+    }
+    if (restartPending) {
+      reference = nb.styled(style, entry.ordinal + 1);
+      restartPending = false;
+    }
+    out.push(...htmlListItems(reference, [entry.row.particulars || ""], numbering));
+  }
+  return out;
 }
 
 function centeredBold(text: string, spacing?: { before?: number; after?: number }): Paragraph {
@@ -352,7 +398,6 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
 
   const mainRef = nb.decimal();              // top-level 1.–8.
   const reliefsTopRef = nb.styled(num.prayers);
-  const groundsRef = nb.styled(num.grounds);
   const prayersRef = nb.styled(num.prayers);
 
   // Para 1 restates the prayers verbatim as ONE flowing numbered paragraph —
@@ -382,7 +427,7 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
   applyFactsCascade(facts.numbering, num.facts);
   numbering.push(...facts.numbering);
 
-  const groundStrings = (project.grounds || []).map(g => g.particulars).filter(htmlHasText);
+  const groundsParagraphs = groundsBlocks(project, num.grounds, nb, numbering);
 
   const children: (Paragraph | Table)[] = [
     ...createWpHeader(project.caseType),
@@ -405,7 +450,7 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
     ...(facts.paragraphs.length ? facts.paragraphs : [new Paragraph({ children: [smartTextRun("[Facts — generated from the List of Dates.]")] })]),
     // 3. Grounds
     listItemRuns(mainRef, [smartTextRun({ text: "GROUNDS", bold: true }), ": This writ petition is filed on the following grounds which are taken in addition and without prejudice to each other:"]),
-    ...htmlListItems(groundsRef, groundStrings, numbering),
+    ...groundsParagraphs,
     // 4–7 boilerplate
     listItem(mainRef, "This Hon’ble Court has the necessary jurisdiction to entertain this Writ Petition as the Respondents are situated within, and the cause of action has arisen within, the territorial jurisdiction of this Hon’ble Court.", { before: 120 }),
     listItem(mainRef, "The Petitioner has no other equally efficacious alternate remedy available to approach this Hon’ble Court.", { before: 120 }),

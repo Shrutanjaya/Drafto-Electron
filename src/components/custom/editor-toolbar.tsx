@@ -1,6 +1,8 @@
 "use client"
 
 import { Editor } from '@tiptap/react'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { LIST_REGIMES, DEFAULT_LIST_REGIME, regimePreview } from "@/lib/list-regimes"
 import {
   Bold,
   Italic,
@@ -14,6 +16,8 @@ import {
   AlignJustify,
   Eraser,
   Highlighter,
+  ChevronDown,
+  Check,
   Table as TableIcon,
   Columns2,
   Rows2,
@@ -116,6 +120,34 @@ export const EditorToolbar = () => {
   const toggleUnderline = () => editor?.chain().focus().toggleUnderline().run()
   const toggleBulletList = () => editor?.chain().focus().toggleBulletList().run()
   const toggleOrderedList = () => editor?.chain().focus().toggleOrderedList().run()
+
+  // The regime lives on the OUTERMOST list of whatever the cursor is inside —
+  // one list, one regime, with the levels below following from it. Picking one
+  // while not in a list starts a list first, so the button always does
+  // something sensible.
+  const outermostOrderedList = (): { pos: number; node: any } | null => {
+    if (!editor) return null;
+    const { $from } = editor.state.selection;
+    for (let depth = 1; depth <= $from.depth; depth++) {
+      const node = $from.node(depth);
+      if (node.type.name === 'orderedList') return { pos: $from.before(depth), node };
+    }
+    return null;
+  };
+
+  const currentRegime = (): string => outermostOrderedList()?.node.attrs.regime || DEFAULT_LIST_REGIME;
+
+  const applyRegime = (id: string) => {
+    if (!editor) return;
+    if (!editor.isActive('orderedList')) editor.chain().focus().toggleOrderedList().run();
+    const target = outermostOrderedList();
+    if (!target) return;
+    const regime = id === DEFAULT_LIST_REGIME ? null : id;
+    editor.view.dispatch(
+      editor.state.tr.setNodeMarkup(target.pos, undefined, { ...target.node.attrs, regime }),
+    );
+    editor.commands.focus();
+  };
   
   return (
     <div className={cn("flex flex-wrap items-center gap-0.5 p-0.5 border border-input rounded-md bg-muted/50", !editor && "opacity-50 pointer-events-none")}>
@@ -123,7 +155,28 @@ export const EditorToolbar = () => {
       <Button variant="ghost" size="icon" onClick={toggleItalic} className={cn("h-6 w-6 p-1", editor?.isActive('italic') ? 'bg-accent' : '')}><Italic /></Button>
       <Button variant="ghost" size="icon" onClick={toggleUnderline} className={cn("h-6 w-6 p-1", editor?.isActive('underline') ? 'bg-accent' : '')}><UnderlineIcon /></Button>
       <Button variant="ghost" size="icon" onClick={toggleBulletList} className={cn("h-6 w-6 p-1", editor?.isActive('bulletList') ? 'bg-accent' : '')}><List /></Button>
-      <Button variant="ghost" size="icon" onClick={toggleOrderedList} className={cn("h-6 w-6 p-1", editor?.isActive('orderedList') ? 'bg-accent' : '')}><ListOrdered /></Button>
+      <div className="flex items-center">
+        <Button variant="ghost" size="icon" onClick={toggleOrderedList} className={cn("h-6 w-6 p-1 rounded-r-none", editor?.isActive('orderedList') ? 'bg-accent' : '')} title="Numbered list"><ListOrdered /></Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-6 w-3 rounded-l-none p-0 text-muted-foreground" title="Numbering style">
+              <ChevronDown className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-[150px]">
+            {LIST_REGIMES.map((regime) => (
+              <DropdownMenuItem
+                key={regime.id}
+                onSelect={() => applyRegime(regime.id)}
+                className="justify-between gap-3 text-xs"
+              >
+                <span className="tabular-nums">{regimePreview(regime)}</span>
+                {currentRegime() === regime.id && <Check className="h-3 w-3" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <Button variant="ghost" size="icon" onClick={() => editor?.chain().focus().toggleBlockquote().run()} className={cn("h-6 w-6 p-1", editor?.isActive('blockquote') ? 'bg-accent' : '')}><Quote /></Button>
       <Button variant="ghost" size="icon" onClick={() => editor?.chain().focus().setTextAlign('left').run()} className={cn("h-6 w-6 p-1", editor?.isActive({ textAlign: 'left' }) ? 'bg-accent' : '')}><AlignLeft /></Button>
       <Button variant="ghost" size="icon" onClick={() => editor?.chain().focus().setTextAlign('center').run()} className={cn("h-6 w-6 p-1", editor?.isActive({ textAlign: 'center' }) ? 'bg-accent' : '')}><AlignCenter /></Button>

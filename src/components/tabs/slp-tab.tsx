@@ -214,7 +214,7 @@ export function SlpTab() {
                     />
                   )}
                   {selectedSection === 'listOfDates' && <LoDTable />}
-                  {selectedSection === 'grounds' && <AamTable name="grounds" defaultRows={10} />}
+                  {selectedSection === 'grounds' && <AamTable name="grounds" defaultRows={10} allowHeadings />}
                   {selectedSection === 'questionsOfLaw' && <AamTable name="questionsOfLaw" defaultRows={10} />}
                   {selectedSection === 'interimRelief' && <InterimReliefContent />}
                   {selectedSection === 'appendix' && <AppendixContent />}
@@ -256,7 +256,7 @@ export function SlpTab() {
             <div className="flex flex-col h-full p-1">
               <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Grounds</h4>
               <div className="flex-grow overflow-auto">
-                <AamTable name="grounds" defaultRows={10} />
+                <AamTable name="grounds" defaultRows={10} allowHeadings />
               </div>
             </div>
           </ResizablePanel>

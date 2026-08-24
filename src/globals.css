@@ -193,6 +193,33 @@ textarea::placeholder {
   .prose ol ol ol ol ol {
     list-style-type: upper-roman;
   }
+  /* Numbered-list regimes. The list carries its own choice as data-regime on
+     the outermost <ol>; these rules make the editor show what the .docx will
+     print. They mirror LIST_REGIMES in lib/list-regimes.ts — change both
+     together. (No rules for "decimal": that is the default cascade above.) */
+  .prose ol[data-regime="lower-alpha"]            { list-style-type: lower-alpha; }
+  .prose ol[data-regime="lower-alpha"] ol         { list-style-type: lower-roman; }
+  .prose ol[data-regime="lower-alpha"] ol ol      { list-style-type: decimal; }
+  .prose ol[data-regime="lower-alpha"] ol ol ol   { list-style-type: upper-alpha; }
+  .prose ol[data-regime="lower-alpha"] ol ol ol ol { list-style-type: upper-roman; }
+
+  .prose ol[data-regime="lower-roman"]            { list-style-type: lower-roman; }
+  .prose ol[data-regime="lower-roman"] ol         { list-style-type: lower-alpha; }
+  .prose ol[data-regime="lower-roman"] ol ol      { list-style-type: decimal; }
+  .prose ol[data-regime="lower-roman"] ol ol ol   { list-style-type: upper-alpha; }
+  .prose ol[data-regime="lower-roman"] ol ol ol ol { list-style-type: upper-roman; }
+
+  .prose ol[data-regime="upper-alpha"]            { list-style-type: upper-alpha; }
+  .prose ol[data-regime="upper-alpha"] ol         { list-style-type: lower-alpha; }
+  .prose ol[data-regime="upper-alpha"] ol ol      { list-style-type: lower-roman; }
+  .prose ol[data-regime="upper-alpha"] ol ol ol   { list-style-type: decimal; }
+  .prose ol[data-regime="upper-alpha"] ol ol ol ol { list-style-type: upper-roman; }
+
+  .prose ol[data-regime="upper-roman"]            { list-style-type: upper-roman; }
+  .prose ol[data-regime="upper-roman"] ol         { list-style-type: upper-alpha; }
+  .prose ol[data-regime="upper-roman"] ol ol      { list-style-type: lower-alpha; }
+  .prose ol[data-regime="upper-roman"] ol ol ol   { list-style-type: lower-roman; }
+  .prose ol[data-regime="upper-roman"] ol ol ol ol { list-style-type: decimal; }
   .prose blockquote {
     @apply border-l-4 border-muted-foreground/50 pl-4 italic text-muted-foreground;
     position: relative;

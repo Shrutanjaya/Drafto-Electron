@@ -12,6 +12,12 @@ import { PDFDocument, rgb, StandardFonts, PDFName, PDFDict, PDFArray, PDFRef, PD
 import { convertDocxToPdf as ipcConvertDocxToPdf } from "@/lib/ipc/pdf";
 import { pageRotation } from "@/lib/pdf-rotation";
 import {
+  groundsSequence,
+  getGroundsHeadingStyle,
+  groundsHeadingRuns,
+  groundsHeadingHang,
+} from "@/lib/grounds-headings";
+import {
   getActiveAppendixItems,
   appendixIndexText,
   appendixLabel,
@@ -1455,28 +1461,55 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
         },
     }) : null;
 
-    const groundsRows = projectData.grounds
-        .filter(g => g.particulars.trim() !== '')
-        .map((g, index) => {
-            const { paragraphs, numbering } = parseHtml(g.particulars);
-            if (numbering.length > 0) {
-                allNumberingConfigs.push(...numbering);
-            }
+    // Grounds, with any headings the user has placed between them. A heading is
+    // a full-width row of the SAME table: the table is never split, so nothing
+    // downstream shifts and the petition's paragraph numbering is untouched.
+    // It sits at the table's left edge, one notch in from the ground text.
+    // Lettering counts grounds only, so A, B, C run on across a heading.
+    const slpGroundsHeadingStyle = getGroundsHeadingStyle(projectData);
+    const slpGroundsEntries = groundsSequence(projectData.grounds, slpGroundsHeadingStyle);
+    const slpHeadingHang = groundsHeadingHang(slpGroundsEntries);
+    const groundsRows = slpGroundsEntries.map(entry => {
+        if (entry.kind === 'heading') {
             return new TableRow({
                 children: [
                     new TableCell({
-                        children: [new Paragraph({ text: `${getAlphabeticalLabel(index)}.`, style: "Normal" })],
+                        columnSpan: 2,
                         borders: noBorders,
-                        width: { size: 8, type: WidthType.PERCENTAGE },
-                    }),
-                    new TableCell({
-                        children: paragraphs,
-                        borders: noBorders,
-                        width: { size: 92, type: WidthType.PERCENTAGE },
+                        // No spacing of its own: "Normal" carries the line and
+                        // paragraph spacing the user has set for the output, so
+                        // the heading sits in the same rhythm as the grounds.
+                        // The hanging indent keeps the number out at the left,
+                        // level with the ground letters, and holds a heading
+                        // that runs to several lines in one clean block.
+                        children: [new Paragraph({
+                            style: "Normal",
+                            indent: { left: slpHeadingHang, hanging: slpHeadingHang },
+                            children: groundsHeadingRuns(entry.label, entry.text, slpGroundsHeadingStyle),
+                        })],
                     }),
                 ],
             });
+        }
+        const { paragraphs, numbering } = parseHtml(entry.row.particulars || '');
+        if (numbering.length > 0) {
+            allNumberingConfigs.push(...numbering);
+        }
+        return new TableRow({
+            children: [
+                new TableCell({
+                    children: [new Paragraph({ text: `${getAlphabeticalLabel(entry.ordinal)}.`, style: "Normal" })],
+                    borders: noBorders,
+                    width: { size: 8, type: WidthType.PERCENTAGE },
+                }),
+                new TableCell({
+                    children: paragraphs,
+                    borders: noBorders,
+                    width: { size: 92, type: WidthType.PERCENTAGE },
+                }),
+            ],
         });
+    });
 
     const groundsTable = new Table({
         width: { size: 91.66, type: WidthType.PERCENTAGE },

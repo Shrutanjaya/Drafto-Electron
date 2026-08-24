@@ -280,7 +280,7 @@ export function OaWorkspace() {
   const groundsEditor = (
     <div className="space-y-2">
       <div className="flex items-center justify-end"><StylePicker name="oa.numbering.grounds" options={subparaStyles(5)} /></div>
-      <AamTable name="grounds" />
+      <AamTable name="grounds" allowHeadings />
     </div>
   );
 

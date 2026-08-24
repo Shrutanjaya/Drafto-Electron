@@ -16,6 +16,7 @@ import { escapeRegExp } from '@/lib/find-replace'
 import TextAlign from '@tiptap/extension-text-align'
 import { Paragraph } from '@tiptap/extension-paragraph'
 import ListItem from '@tiptap/extension-list-item'
+import OrderedList from '@tiptap/extension-ordered-list'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { joinTextblockBackward } from '@tiptap/pm/commands'
@@ -298,10 +299,8 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
           keepMarks: true,
           keepAttributes: false,
         },
-        orderedList: {
-          keepMarks: true,
-          keepAttributes: false,
-        },
+        // Replaced below with a version that remembers its numbering regime.
+        orderedList: false,
         // Replaced below with a ListItem that permits a leading blockquote, so the
         // Quote button works inside lists (default 'paragraph block*' forbids it).
         listItem: false,
@@ -316,6 +315,24 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
       // Allow a list item to start with a paragraph OR a blockquote (then any
       // blocks). Keeps normal list behaviour while letting users quote inside lists.
       ListItem.extend({ content: '(paragraph | blockquote) block*' }),
+      // A numbered list remembers which regime it follows (1. → a. → i. by
+      // default; see lib/list-regimes.ts). The choice rides on the list itself
+      // as data-regime, so it is saved, reloaded and exported with the text
+      // rather than living in a setting somewhere else. Only the outermost list
+      // carries it — the levels below follow from it.
+      OrderedList.extend({
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            regime: {
+              default: null,
+              parseHTML: (element: HTMLElement) => element.getAttribute('data-regime'),
+              renderHTML: (attributes: Record<string, any>) =>
+                attributes.regime ? { 'data-regime': attributes.regime } : {},
+            },
+          };
+        },
+      }).configure({ keepMarks: true, keepAttributes: false }),
       Underline,
       Highlight.configure({ multicolor: true }),
       TextAlign.configure({

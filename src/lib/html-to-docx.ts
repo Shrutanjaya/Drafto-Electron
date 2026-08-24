@@ -1,6 +1,7 @@
 ﻿
 import { AlignmentType, Indent, Paragraph, TextRun, UnderlineType, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, LineRuleType, TableLayoutType } from "docx";
 import { convertToSmartQuotes } from "./docx-helpers";
+import { listRegime } from "./list-regimes";
 
 // Smart (curly) quotation marks used to wrap a quoted block on export.
 const SMART_OPEN_QUOTE = '“';  // "
@@ -510,7 +511,15 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
             case 'ol':
                 // Only create a new numbering definition for a top-level <ol>
                 if (listLevel === 0) {
-                    currentOlRef = `ol-${olCounterRef.value++}`;
+                    // Which glyph each level uses is the list's own choice, made
+                    // in the editor and carried on the list as data-regime; a
+                    // list without one is the traditional 1. → a. → i.
+                    // A list that names its regime gets an "olx-" reference so
+                    // that a section-wide cascade (the writ petition's Facts
+                    // style) leaves the user's explicit choice alone.
+                    const regime = listRegime(node.attributes['data-regime']);
+                    const isExplicit = !!node.attributes['data-regime'];
+                    currentOlRef = `${isExplicit ? 'olx' : 'ol'}-${olCounterRef.value++}`;
                     // TipTap serializes a list resumed after a break as <ol start="N">
                     // (typing "2." after a paragraph restarts numbering at 2). Word
                     // needs that as the level's start value, else the resumed list
@@ -518,33 +527,13 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                     const startAt = Math.max(1, parseInt(node.attributes.start || '1', 10) || 1);
                     result.numbering.push({
                         reference: currentOlRef,
-                        levels: [{
-                            level: 0,
-                            format: "decimal",
-                            text: "%1.",
+                        levels: regime.levels.map((format, level) => ({
+                            level,
+                            format,
+                            text: `%${level + 1}.`,
                             alignment: AlignmentType.START,
-                            start: startAt,
-                        },{
-                            level: 1,
-                            format: "lowerLetter",
-                            text: "%2.",
-                            alignment: AlignmentType.START,
-                        },{
-                            level: 2,
-                            format: "lowerRoman",
-                            text: "%3.",
-                            alignment: AlignmentType.START,
-                        },{
-                            level: 3,
-                            format: "upperLetter",
-                            text: "%4.",
-                            alignment: AlignmentType.START,
-                        },{
-                            level: 4,
-                            format: "upperRoman",
-                            text: "%5.",
-                            alignment: AlignmentType.START,
-                        }],
+                            ...(level === 0 ? { start: startAt } : {}),
+                        })),
                     });
                 }
                 const olResult = treeToDocx(node.children, olCounterRef, listLevel + 1, currentInBlockquote, currentOlRef, spacing, defaultNumbering, exportHighlight);

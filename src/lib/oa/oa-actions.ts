@@ -11,6 +11,7 @@ import {
 } from "docx";
 import { getPartyHeader, smartTextRun } from "@/lib/docx-helpers";
 import { parseHtml } from "@/lib/html-to-docx";
+import { groundsSequence, getGroundsHeadingStyle, groundsHeadingRuns, groundsHeadingHang } from "@/lib/grounds-headings";
 import type { DraftoProject } from "@/lib/schema";
 import { createWpFiledBy, NO_BORDERS } from "@/lib/wp/wp-helpers";
 import { cascadeFor, enumLabel, type EnumStyle } from "@/lib/wp/wp-numbering";
@@ -114,16 +115,16 @@ const SUB_HANG = 600;
 // Quote indents inside OA lists follow the same geometry: level L text sits at
 // (720 + L*480), i.e. SUB_LEFT at the first level.
 const OA_LIST_GEOM = { base: 720, step: 480 };
-function listDef(reference: string, style: OaStyle, parentNum?: number) {
+function listDef(reference: string, style: OaStyle, parentNum?: number, start = 1) {
   if (style === "decimal-sub") {
     const deeper = cascadeFor("lower-alpha");
     return { reference, levels: [
-      { level: 0, format: "decimal", text: `${parentNum ?? 1}.%1`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: SUB_LEFT, hanging: SUB_HANG } } } },
+      { level: 0, format: "decimal", text: `${parentNum ?? 1}.%1`, start, alignment: AlignmentType.START, style: { paragraph: { indent: { left: SUB_LEFT, hanging: SUB_HANG } } } },
       ...deeper.map((fmt, i) => ({ level: i + 1, format: fmt, text: `%${i + 2})`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: SUB_LEFT + (i + 1) * 480, hanging: SUB_HANG } } } })),
     ] };
   }
   const cascade = cascadeFor(style);
-  return { reference, levels: cascade.map((fmt, i) => ({ level: i, format: fmt, text: `%${i + 1})`, alignment: AlignmentType.START, style: { paragraph: { indent: { left: SUB_LEFT + i * 480, hanging: SUB_HANG } } } })) };
+  return { reference, levels: cascade.map((fmt, i) => ({ level: i, format: fmt, text: `%${i + 1})`, alignment: AlignmentType.START, ...(i === 0 ? { start } : {}), style: { paragraph: { indent: { left: SUB_LEFT + i * 480, hanging: SUB_HANG } } } })) };
 }
 function decimalDef(reference: string, start = 1) {
   return { reference, levels: [{ level: 0, format: "decimal", text: "%1.", start, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 480, hanging: 480 } } } }] };
@@ -151,6 +152,54 @@ function htmlListItems(reference: string, items: string[], collect: any[]): Para
     const parsed = parseHtml(html || "", undefined, { reference, level: 0 }, OA_LIST_GEOM);
     if (parsed.numbering.length) collect.push(...parsed.numbering);
     out.push(...parsed.paragraphs);
+  }
+  return out;
+}
+
+// The Grounds, with any headings the user has placed between them.
+//
+// A heading is an ordinary paragraph, and Word restarts a numbered list wherever
+// a paragraph interrupts it. So after a heading the grounds resume in a FRESH
+// list that states the number it must continue from: the count runs on across
+// headings whether or not Word would have restarted. The heading itself carries
+// its number as literal text (never a Word list), so it cannot collide with any
+// other numbering in the document, and sits one notch left of the ground text.
+function groundsBlocks(project: DraftoProject, style: OaStyle, numbering: any[]): Paragraph[] {
+  const headingStyle = getGroundsHeadingStyle(project);
+  const entries = groundsSequence(project.grounds, headingStyle);
+  // The number keeps the grounds' label column; the gap after it widens only if
+  // a heading number needs the room.
+  const anchor = SUB_LEFT - SUB_HANG;
+  const hang = groundsHeadingHang(entries);
+  const out: Paragraph[] = [];
+  const newGroundsRef = (start = 1) => {
+    const r = newRef();
+    numbering.push(listDef(r, style, 5, start));
+    return r;
+  };
+  let reference = newGroundsRef();
+  let restartPending = false;
+
+  for (const entry of entries) {
+    if (entry.kind === "heading") {
+      // "Normal" carries the line and paragraph spacing configured for the
+      // output, so the heading keeps the same rhythm as the grounds; only the
+      // indent is its own — and it is the grounds' own geometry, so the number
+      // sits in their label column and the title lines up with their text on
+      // every line of a heading that wraps.
+      out.push(new Paragraph({
+        style: "Normal",
+        indent: { left: anchor + hang, hanging: hang },
+        children: groundsHeadingRuns(entry.label, entry.text, headingStyle),
+      }));
+      restartPending = true;
+      continue;
+    }
+    if (restartPending) {
+      reference = newGroundsRef(entry.ordinal + 1);
+      restartPending = false;
+    }
+    out.push(...htmlListItems(reference, [entry.row.particulars || ""], numbering));
   }
   return out;
 }
@@ -316,8 +365,7 @@ function buildOaBody(project: DraftoProject, numbering: any[], mainRef: string):
   const factStrings = splitListItems(resolveFactsHtml(project) || "");
   const factsRef = newRef(); numbering.push(listDef(factsRef, num.facts as OaStyle, 4));
 
-  const groundStrings = (project.grounds || []).map((g) => g.particulars).filter(htmlHasText);
-  const groundsRef = newRef(); numbering.push(listDef(groundsRef, num.grounds as OaStyle, 5));
+  const groundsParagraphs = groundsBlocks(project, num.grounds as OaStyle, numbering);
   const prayerRef = newRef(); numbering.push(listDef(prayerRef, num.prayer as OaStyle));
   const interimRef = newRef(); numbering.push(listDef(interimRef, num.interim as OaStyle));
   const interimStrings = [...(project.oa.interimReliefs || []).map((r) => r.particulars).filter(htmlHasText), `<p>${RESIDUARY}</p>`];
@@ -357,7 +405,7 @@ function buildOaBody(project: DraftoProject, numbering: any[], mainRef: string):
     ...oaPara(mainRef, "Facts", "The facts of the case which are necessary for the adjudication of the present Original Application are as under:", numbering),
     ...(factStrings.length ? htmlListItems(factsRef, factStrings, numbering) : [new Paragraph({ children: [smartTextRun("[Facts — generate from the List of Dates.]")] })]),
     ...oaPara(mainRef, "Grounds", "This Original Application is being filed on the following grounds which are taken without prejudice to each other:", numbering),
-    ...htmlListItems(groundsRef, groundStrings, numbering),
+    ...groundsParagraphs,
     ...oaPara(mainRef, "Details of remedies exhausted", esc(`The ${p.Appl} ${p.declares} that ${p.they} ${p.have} availed of all the remedies available to ${p.them} under the relevant provisions before approaching this Tribunal, and that no remedies are available to ${p.them} now other than filing this Original Application before this Hon’ble Tribunal.`), numbering),
     ...oaPara(mainRef, "Matters not previously filed / pending with any other court", esc(`The ${p.Appl} ${p.declares} that ${p.they} ${p.have} not previously filed any Application, Petition, or Suit, regarding the matter in respect of which the present OA has been filed, before any Court or other authority or any other Bench of the Tribunal, nor any such Application, Writ Petition or Suit is pending before any court or tribunal, except those, if any, stated in Para 4 above.`), numbering),
     ...oaPara(mainRef, "Prayers", "In view of the foregoing submissions, it is most respectfully prayed that this Hon’ble Tribunal may be pleased to:", numbering),

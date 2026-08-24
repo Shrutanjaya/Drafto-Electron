@@ -76,6 +76,14 @@ export const iaSchema = z.object({
 export const aamTableItemSchema = z.object({
   id: z.string().default(() => `item_${Math.random()}`),
   particulars: z.string().default(""),
+  // ── Grounds headings ──
+  // A heading between grounds is stored as a row of the grounds list itself, so
+  // it reorders and deletes with everything else. `heading` holds its plain
+  // text; `particulars` stays empty. Only the Grounds tables offer these; every
+  // other list built on this schema simply never sets them.
+  // See lib/grounds-headings.ts.
+  isHeading: z.boolean().default(false),
+  heading: z.string().default(""),
 });
 
 // A CAT Miscellaneous Application (or the Petition for Transfer). Auto MAs
@@ -234,6 +242,16 @@ export const draftoProjectSchema = z.object({
   listOfDates: z.array(lodTableItemSchema).default(Array(10).fill(null).map(() => lodTableItemSchema.parse({}))).describe("List of Dates & Events"),
   questionsOfLaw: z.array(aamTableItemSchema).default(Array(10).fill(null).map(() => aamTableItemSchema.parse({}))).describe("Questions of Law"),
   grounds: z.array(aamTableItemSchema).default(Array(10).fill(null).map(() => aamTableItemSchema.parse({}))).describe("Grounds"),
+  // How headings inside the Grounds are numbered and formatted. One choice for
+  // the whole section, shared by all three tools (they share `grounds`).
+  groundsHeadingStyle: z.object({
+    numbering: z.enum(["upper-roman", "lower-roman", "upper-alpha", "lower-alpha", "decimal"]).default("upper-roman"),
+    bold: z.boolean().default(true),
+    italics: z.boolean().default(false),
+    underline: z.boolean().default(false),
+    smallCaps: z.boolean().default(false),
+    allCaps: z.boolean().default(false),
+  }).default({}),
   
   // Interim Relief
   wantsInterimRelief: z.boolean().default(false),

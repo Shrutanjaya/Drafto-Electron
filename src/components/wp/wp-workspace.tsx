@@ -248,7 +248,7 @@ export function WpWorkspace() {
     </div>
   );
 
-  const groundsEditor = <AamTable name="grounds" />;
+  const groundsEditor = <AamTable name="grounds" allowHeadings />;
 
   const editorContent: Record<EditorSection, React.ReactNode> = {
     synopsis: synopsisEditor,

@@ -75,7 +75,11 @@ export function buildSearchableFields(values: DraftoProject): FieldDescriptor[] 
 
   // ── Questions of Law / Grounds / Interim Relief (HTML particulars) ──
   (values.questionsOfLaw ?? []).forEach((_, i) => push(`questionsOfLaw.${i}.particulars`, 'Questions of Law', true));
-  (values.grounds ?? []).forEach((_, i) => push(`grounds.${i}.particulars`, 'Grounds', true));
+  (values.grounds ?? []).forEach((row, i) => {
+    // A grounds heading keeps its text in its own plain-text field.
+    if ((row as any)?.isHeading) push(`grounds.${i}.heading`, 'Grounds');
+    else push(`grounds.${i}.particulars`, 'Grounds', true);
+  });
   (values.interimReliefGrounds ?? []).forEach((_, i) => push(`interimReliefGrounds.${i}.particulars`, 'Interim Relief', true));
   (values.interimReliefPrayers ?? []).forEach((_, i) => push(`interimReliefPrayers.${i}.particulars`, 'Interim Relief', true));
 
