@@ -158,19 +158,38 @@ function LoDTableInner({
 
   const allLods = useWatch({ control: form.control, name: name as "listOfDates" }) || [];
 
+  // Pin the column to exactly one "dd.mm.yyyy" (plus the cell's horizontal
+  // padding). Longer entries wrap inside this fixed width instead of widening
+  // the column.
+  //
+  // The date cell is an ordinary field, so it is drawn in the EDITING font and
+  // size (--input-font / --input-font-size, set from Settings → Appearance),
+  // not in the interface font at text-xs. Measuring the interface font left the
+  // column too narrow for every date as soon as the editing text was enlarged,
+  // and it never re-measured when that setting changed — the column only
+  // caught up when a row happened to be edited.
   useEffect(() => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    // text-xs = 0.75rem; read the actual root font-size to account for Small/Medium/Large setting
-    const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    const textXsPx = 0.75 * rootPx;
-    ctx.font = `${textXsPx}px ui-sans-serif, system-ui, -apple-system, sans-serif`;
-    // Pin the column to exactly one "dd.mm.yyyy" (plus the cell's horizontal
-    // padding). Longer entries wrap inside this fixed width instead of widening
-    // the column; the width tracks the current font-size setting.
-    const oneDateWidth = ctx.measureText('00.00.0000').width;
-    setDateColWidth(Math.ceil(oneDateWidth) + 16);
+    const measure = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const root = getComputedStyle(document.documentElement);
+      const rootPx = parseFloat(root.fontSize) || 16;
+      const rawSize = root.getPropertyValue('--input-font-size').trim();
+      const sizePx = rawSize.endsWith('rem')
+        ? parseFloat(rawSize) * rootPx
+        : parseFloat(rawSize) || 0.75 * rootPx;
+      const family = root.getPropertyValue('--input-font').trim() || 'Arial, Helvetica, sans-serif';
+      ctx.font = `${sizePx}px ${family}`;
+      const oneDateWidth = ctx.measureText('00.00.0000').width;
+      setDateColWidth(Math.ceil(oneDateWidth) + 16);
+    };
+    measure();
+    // Settings writes the font variables onto the root element, so watching its
+    // style attribute is what keeps the column in step, live.
+    const observer = new MutationObserver(measure);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+    return () => observer.disconnect();
   }, [allLods]);
   
   const courtType = useWatch({ control: form.control, name: "courtType" });

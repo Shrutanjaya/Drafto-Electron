@@ -40,6 +40,14 @@ function briefingStyles() {
   };
 }
 
+// Column widths. The Particulars column carries the text and gets everything
+// that is left over; Date is the narrowest width that still holds "01.01.2026"
+// on one line at Arial 11 with the cell margins below (13% and under wrap it),
+// and the Page column only ever holds a page number.
+const DATE_PCT = 15;
+const PARTICULARS_PCT = 78;
+const PAGE_PCT = 7;
+
 const cellMargins = { top: 40, bottom: 40, left: 115, right: 115 };
 const cellBorder = { style: BorderStyle.SINGLE, size: 4, color: "000000" };
 const allBorders = { top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder, insideHorizontal: cellBorder, insideVertical: cellBorder };
@@ -74,7 +82,7 @@ export async function generateBriefingNoteDocx(
 
   const headerRow = new TableRow({
     tableHeader: true,
-    children: [headerCell("Date", 18), headerCell("Particulars", 66), headerCell("Page Nos.", 16)],
+    children: [headerCell("Date", DATE_PCT), headerCell("Particulars", PARTICULARS_PCT), headerCell("Page Nos.", PAGE_PCT)],
   });
 
   const bodyRows = (project.listOfDates || []).map((lod) => {
@@ -93,19 +101,19 @@ export async function generateBriefingNoteDocx(
     return new TableRow({
       children: [
         new TableCell({
-          width: { size: 18, type: WidthType.PERCENTAGE },
+          width: { size: DATE_PCT, type: WidthType.PERCENTAGE },
           verticalAlign: VerticalAlign.TOP,
           margins: cellMargins,
           children: [new Paragraph({ spacing: BRIEFING_SPACING, children: [smartTextRun(convertToSmartQuotes(lod.date || ""))] })],
         }),
         new TableCell({
-          width: { size: 66, type: WidthType.PERCENTAGE },
+          width: { size: PARTICULARS_PCT, type: WidthType.PERCENTAGE },
           verticalAlign: VerticalAlign.TOP,
           margins: cellMargins,
           children: particulars,
         }),
         new TableCell({
-          width: { size: 16, type: WidthType.PERCENTAGE },
+          width: { size: PAGE_PCT, type: WidthType.PERCENTAGE },
           verticalAlign: VerticalAlign.TOP,
           margins: cellMargins,
           children: [new Paragraph({ alignment: AlignmentType.CENTER, spacing: BRIEFING_SPACING, children: [smartTextRun(pageText)] })],
@@ -118,7 +126,7 @@ export async function generateBriefingNoteDocx(
 
   const table = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
-    columnWidths: [1600, 6400, 1600],
+    columnWidths: [DATE_PCT * 100, PARTICULARS_PCT * 100, PAGE_PCT * 100],
     borders: allBorders,
     rows: [headerRow, ...bodyRows],
   });

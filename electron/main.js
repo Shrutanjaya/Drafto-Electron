@@ -1226,12 +1226,31 @@ ipcMain.handle("open-projects-folder", () => {
 // window each time (macOS reuses a single Finder window), so without this the
 // user gets N windows. Opening the same folder again after a short gap still works.
 let lastFolderOpen = { path: null, at: 0 };
+const coalesceFolderOpen = (folderPath) => {
+  const now = Date.now();
+  if (folderPath === lastFolderOpen.path && now - lastFolderOpen.at < 10000) return false;
+  lastFolderOpen = { path: folderPath, at: now };
+  return true;
+};
+
 ipcMain.handle("open-folder-path", (_event, folderPath) => {
   if (!folderPath || typeof folderPath !== "string") return;
-  const now = Date.now();
-  if (folderPath === lastFolderOpen.path && now - lastFolderOpen.at < 10000) return;
-  lastFolderOpen = { path: folderPath, at: now };
+  if (!coalesceFolderOpen(folderPath)) return;
   shell.openPath(folderPath);
+});
+
+// Show a file the app has just written. Preferred over open-folder-path:
+// shell.openPath on a directory always spawns a NEW Explorer window on Windows,
+// even when that folder is already open, whereas showItemInFolder reuses a
+// window that is already showing the folder — and it selects the file, so the
+// user can see which one was just written. Same behaviour on macOS (Finder
+// reveals and selects the file).
+ipcMain.handle("reveal-file-path", (_event, filePath) => {
+  if (!filePath || typeof filePath !== "string") return;
+  const folder = path.dirname(filePath);
+  if (!coalesceFolderOpen(folder)) return;
+  if (!fs.existsSync(filePath)) { shell.openPath(folder); return; }
+  shell.showItemInFolder(filePath);
 });
 
 ipcMain.handle("list-drafto-files-from-path", (_event, folderPath) => {

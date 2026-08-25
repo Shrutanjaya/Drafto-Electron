@@ -195,6 +195,32 @@ const getChecklistFormatting = () => {
     }
 };
 
+// Listing Proforma formatting. It has always been a rigid one-page form (13pt,
+// single spaced) and the defaults keep that; the user can loosen it, or have it
+// follow the checklist's settings. A proforma that then runs past two pages is
+// described honestly in the Index and the bookmark — see the LP page count in
+// generatePdf.
+const getLpFormatting = () => {
+    const d = { sizePt: 13, lineSpacing: 1, paraSpacingPt: 0, marginTopInches: 1.5, marginLeftInches: 1.5 };
+    if (typeof window === 'undefined') return d;
+    try {
+        const s = JSON.parse(window.localStorage.getItem('drafto-settings') || '{}');
+        if (s.lpFollowChecklist) {
+            const c = getChecklistFormatting();
+            return { sizePt: c.sizePt, lineSpacing: c.lineSpacing, paraSpacingPt: c.paraSpacingPt, marginTopInches: c.marginTopInches, marginLeftInches: c.marginLeftInches };
+        }
+        return {
+            sizePt: s.lpFontSizePt ?? d.sizePt,
+            lineSpacing: s.lpLineSpacing ?? d.lineSpacing,
+            paraSpacingPt: s.lpParaSpacingPt ?? d.paraSpacingPt,
+            marginTopInches: s.lpMarginTopInches ?? d.marginTopInches,
+            marginLeftInches: s.lpMarginLeftInches ?? d.marginLeftInches,
+        };
+    } catch {
+        return d;
+    }
+};
+
 const getDefaultStyles = () => {
     const f = getOutputFormatting();
     return {
@@ -258,6 +284,24 @@ const getConstrainedStyles = () => {
 // Page margins for every SLP document — user-configurable (Settings →
 // Formatting); historical defaults 1.5" top/left, 1" bottom/right. Read from
 // drafto-settings at export time, in the renderer.
+// "Annexures P-1 to P-N" — the phrase used by the affidavit, the SLP's own
+// declaration and the checklist. With no annexures on the record it used to
+// read "P-1 to P-0"; it now leaves the number blank for the deponent to fill
+// in. Settings → SLP can also force the blank form even when annexures exist,
+// for drafters who prefer the affidavit not to commit to a number.
+const annexureRangeText = (lastNumber: number, alwaysBlank = false): string =>
+    (alwaysBlank || lastNumber < 1) ? "Annexures P-1 to P-__" : `Annexures P-1 to P-${lastNumber}`;
+
+// Whether the affidavit states the actual last annexure number or always leaves
+// it blank (Settings → SLP → Affidavit).
+const affidavitWantsBlankAnnexureRange = (): boolean => {
+    if (typeof window === 'undefined') return false;
+    try {
+        const s = JSON.parse(window.localStorage.getItem('drafto-settings') || '{}');
+        return s.slpAffidavitAnnexureRef === 'blank';
+    } catch { return false; }
+};
+
 const getSlpMargins = () => {
     const d = { top: 1.5, right: 1, bottom: 1, left: 1.5 };
     if (typeof window !== 'undefined') {
@@ -294,6 +338,51 @@ const tableParagraphSpacing = {
     before: 120, // 6pt = 120 twips
     after: 120,  // 6pt = 120 twips
 };
+
+// ── Index of Record of Proceedings ───────────────────────────────────────────
+// The registry fills this in by hand, so Drafto supplies the title and an empty
+// ruled table. It sits between the cover page and the Index, which is exactly
+// where the Index's own row 5 ("Index of Record of Proceedings", p. A4) says it
+// is.
+//
+// Ten rows, fixed. Sizing the table to the page filled it to within a line, and
+// LibreOffice lays rows out a shade taller than Word's own arithmetic predicts,
+// so the last row tipped onto a second page — taking a repeated header row with
+// it. Ten rows is comfortably inside one page at any margin setting the app
+// allows, and the registry writes on the ruled lines regardless.
+const ROP_ROW_COUNT = 10;
+
+function createRecordOfProceedings(): (Paragraph | Table)[] {
+    const cell = (text: string, bold = false) => new TableCell({
+        children: [new Paragraph({
+            children: text ? [smartTextRun({ text, bold })] : [],
+            alignment: AlignmentType.CENTER,
+            style: "Normal",
+            spacing: tableParagraphSpacing,
+        })],
+        verticalAlign: VerticalAlign.CENTER,
+        margins: defaultCellMargins,
+    });
+
+    const rows = [
+        new TableRow({ tableHeader: true, children: [cell("S. No.", true), cell("Record of Proceedings", true), cell("Page No.", true)] }),
+        ...Array.from({ length: ROP_ROW_COUNT }, () => new TableRow({ children: [cell(""), cell(""), cell("")] })),
+    ];
+
+    return [
+        new Paragraph({
+            // The break stays in a paragraph of its own on the cover page (see
+            // below) rather than riding on this heading: the "Advocate for the
+            // Petitioner(s)" line is in a frame pinned to the bottom margin, and
+            // with pageBreakBefore here LibreOffice carries that frame onto this
+            // page instead of leaving it at the foot of the cover page.
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 240 },
+            children: [smartTextRun({ text: "INDEX OF RECORD OF PROCEEDINGS", bold: true })],
+        }),
+        new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: [1000, 7000, 1500], rows }),
+    ];
+}
 
 // ── Volume-splitting utilities ─────────────────────────────────────────────────
 
@@ -604,7 +693,7 @@ interface CiVolumeOptions {
 }
 
 // IDs that are user-uploaded and optional (Criminal SLPs only)
-const OPTIONAL_CRIMINAL_DOC_IDS = new Set(['custodyCertificate', 'firDetails']);
+const OPTIONAL_CRIMINAL_DOC_IDS = new Set(['custodyCertificate', 'firDetails', 'proofOfService']);
 
 export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Map<number, string>, volumeOptions?: CiVolumeOptions, optionalDocIds?: Set<string>) {
   const ioText = ` ${calculateIoText(projectData)}`;
@@ -770,8 +859,10 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
     // When undefined (DOCX-only generation), always include both entries.
     const includeCustody = !optionalDocIds || optionalDocIds.has('custodyCertificate');
     const includeFir     = !optionalDocIds || optionalDocIds.has('firDetails');
+    const includeService = !optionalDocIds || optionalDocIds.has('proofOfService');
     if (includeCustody) particularsList.push("Custody Certificate");
     if (includeFir)     particularsList.push("FIR Details");
+    if (includeService) particularsList.push("Proof of Service");
   }
   particularsList.push("Memo of Parties", "Filing Memo", "Vakalatnama(s)");
 
@@ -802,9 +893,13 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
           if (sNo === 2) {
               part1PageNum = "A";
           }
-          // Row 3: Listing Proforma → Part 1: A1-A2
+          // Row 3: Listing Proforma → Part 1: A1-A2, or however many pages it
+          // actually runs to (its formatting is the user's to set). The page
+          // count arrives in pageRanges under this row's own number; without it
+          // — a DOCX-only export, where no pages have been counted — the
+          // customary two-page form is assumed.
           else if (sNo === 3) {
-              part1PageNum = "A1-A2";
+              part1PageNum = pageRanges?.get(3) || "A1-A2";
           }
           // Row 4: Cover Page of Paper Book → Part 2: A3
           else if (sNo === 4) {
@@ -904,13 +999,33 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
     ? new Paragraph('')
     : new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: `VOLUME ${toRomanNumeral(vo.volumeNum)}`, bold: true })] });
 
+  // Each page of the front matter is its OWN section, so Word starts the next
+  // one on a fresh page by itself.
+  //
+  // A manual page break cannot do this job here. The break has to live in a
+  // paragraph, and that paragraph needs room on the cover page — on a full
+  // cover page (a long cause title, several applications listed) there is none,
+  // so the paragraph slid onto page 2 and its break then pushed the Record of
+  // Proceedings to page 3, leaving page 2 empty. Moving the break onto the next
+  // heading instead (pageBreakBefore) is no better: LibreOffice then carries the
+  // framed "Advocate for the Petitioner(s)" line off the cover page along with
+  // it. A section break belongs to no paragraph and so has neither problem.
+  const sectionBase = {
+    properties: { page: { margin: getSlpMargins() } },
+    headers: { default: new Header({ children: [] }) },
+    footers: { default: new Footer({ children: [] }) },
+  };
+  const nextPage = {
+    properties: { type: SectionType.NEXT_PAGE, page: { margin: getSlpMargins() } },
+    headers: { default: new Header({ children: [] }) },
+    footers: { default: new Footer({ children: [] }) },
+  };
+
   const doc = new Document({
     styles: getConstrainedStyles(),
     sections: [
-      { // Cover Page & Index
-        properties: { page: { margin: getSlpMargins() } },
-        headers: { default: new Header({ children: [] }) },
-        footers:  { default: new Footer({ children: [] }) },
+      { // Cover Page
+        ...sectionBase,
         children: [
           ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle),
           ...createPartiesHeader(petHeader, resHeader),
@@ -933,9 +1048,15 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
             alignment: AlignmentType.CENTER,
             children: [smartTextRun({ text: `Advocate for the Petitioner(s): ${aorName}`, bold: true })],
           }),
-          new Paragraph({ children: [new PageBreak()] }),
-          ...indexChildren,
         ],
+      },
+      // One record of proceedings per file, so Volume I carries it.
+      ...(!vo || vo.volumeNum === 1
+        ? [{ ...nextPage, children: createRecordOfProceedings() }]
+        : []),
+      { // Index
+        ...nextPage,
+        children: indexChildren,
       },
     ],
   });
@@ -997,10 +1118,12 @@ export async function generateCiorDocx(projectData: DraftoProject, pageRanges?: 
   return await generateCiDocx(projectData, pageRanges);
 }
 
-export async function generateLpDocx(projectData: DraftoProject) {
-    // Listing Proforma is a rigid SC format: size (13pt) and spacing are fixed so
-    // it keeps its prescribed one-page structure, but the font family follows the
-    // user's choice (Output Text Formatting).
+export async function generateLpDocx(projectData: DraftoProject, includeSignature = false) {
+    // The font family follows Output Text Formatting; size, spacing and margins
+    // are the Listing Proforma's own (Settings → SLP → Listing Proforma), which
+    // default to the rigid 13pt single-spaced form.
+    const lpf = getLpFormatting();
+    const lpMargins = { ...getSlpMargins(), top: Math.round(lpf.marginTopInches * 1440), left: Math.round(lpf.marginLeftInches * 1440) };
     const lpStyles = {
         paragraphStyles: [
           {
@@ -1011,12 +1134,12 @@ export async function generateLpDocx(projectData: DraftoProject) {
             quickFormat: true,
             run: {
               font: getOutputFormatting().font,
-              size: 26, // 13pt
+              size: Math.round(lpf.sizePt * 2), // half-points
             },
             paragraph: {
               spacing: {
-                line: 240, // single line
-                after: 0, // 0pt
+                line: Math.round(lpf.lineSpacing * 240),
+                after: Math.round(lpf.paraSpacingPt * 20),
                 before: 0,
               },
               alignment: AlignmentType.JUSTIFIED,
@@ -1029,7 +1152,7 @@ export async function generateLpDocx(projectData: DraftoProject) {
         styles: lpStyles,
         sections: [{
             properties: { 
-                page: { margin: getSlpMargins() },
+                page: { margin: lpMargins },
                 type: SectionType.NEXT_PAGE,
                 pageNumberStart: 1,
             },
@@ -1039,7 +1162,7 @@ export async function generateLpDocx(projectData: DraftoProject) {
             footers: {
                 default: new Footer({ children: [] }),
             },
-            children: createListingProforma(projectData),
+            children: createListingProforma(projectData, includeSignature),
         }],
     });
 
@@ -1731,7 +1854,7 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
             ),
             ...headingWithText(
                 `DECLARATION IN TERMS OF RULE ${projectData.caseType === 'Criminal' ? '4' : '5'}:`,
-                `Annexures P-1 to P-${lastNonAdPNumber} produced along with the Special Leave Petition are true copies of the pleadings/documents which formed part of the Courts below.`,
+                `${annexureRangeText(lastNonAdPNumber)} produced along with the Special Leave Petition are true copies of the pleadings/documents which formed part of the Courts below.`,
                 "slp-intro-list-3",
             ),
             ...headingWithText("GROUNDS:", "This Special Leave Petition is preferred on the following grounds taken without prejudice against each other:", "slp-intro-list-3"),
@@ -1781,6 +1904,41 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
 // document (this is what the paper-book merges, one component per Appendix);
 // without one it produces every typed Appendix in a single file, each starting
 // on a fresh page, which is what the stand-alone DOCX export hands over.
+// ── Refiling declaration ─────────────────────────────────────────────────────
+// Filed when a paper-book goes back to the registry after defects have been
+// cured. It is the first page of the paper-book, ahead of the cover page, and
+// is not part of the Index — the Index's numbered rows follow the Supreme
+// Court's own form and take no additions.
+//
+// Headings and body use the same styles as the Synopsis and List of Dates, so
+// it follows the user's output text formatting like every other drafted page.
+export async function generateRefilingDocx(projectData: DraftoProject, includeSignature = false) {
+    const ioText = ` ${calculateIoText(projectData)}`;
+    const petHeader = getPartyHeader(projectData.petitioners);
+    const resHeader = getPartyHeader(projectData.respondents);
+
+    const doc = new Document({
+        styles: getDefaultStyles(),
+        sections: [{
+            properties: { page: { margin: getSlpMargins() } },
+            children: [
+                ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle),
+                ...createPartiesHeader(petHeader, resHeader),
+                new Paragraph({ children: [smartTextRun({ text: "DECLARATION", bold: true })], alignment: AlignmentType.CENTER, style: "Normal" }),
+                new Paragraph({
+                    children: [smartTextRun("It is certified and declared that all defects marked in the captioned matter stand cured. Accordingly, the matter may kindly be processed for listing.")],
+                    style: "Normal",
+                }),
+                new Paragraph(""),
+                ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature }),
+            ],
+        }],
+    });
+
+    const b64string = await Packer.toBase64String(doc);
+    return { success: true, docx: b64string, fileName: `Refiling Declaration.docx` };
+}
+
 export async function generateAppendixDocx(projectData: DraftoProject, itemId?: string) {
     const activeItems = getActiveAppendixItems(projectData);
     const total = activeItems.length;
@@ -2450,7 +2608,7 @@ export async function generateFilingMemoDocx(projectData: DraftoProject, include
         new TableRow({
             children: [
                 new TableCell({ children: [new Paragraph({ text: "2.", alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
-                new TableCell({ children: [new Paragraph({ text: `Annexures P-1 to P-${lastAnnexureNumber}`, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+                new TableCell({ children: [new Paragraph({ text: annexureRangeText(lastAnnexureNumber), spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
                 new TableCell({ children: [new Paragraph({ text: "", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
                 new TableCell({ children: [new Paragraph({ text: "", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
             ]
@@ -2733,7 +2891,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
             numbering: { reference: "affidavit-numbering", level: 0 }
         }),
         new Paragraph({
-            text: `Annexures P-1 to P-${lastNonAdPNumber} to the petition and all annexures to the accompanying applications/IAs are true/translated copies of their respective originals.`,
+            text: `${annexureRangeText(lastNonAdPNumber, affidavitWantsBlankAnnexureRange())} to the petition and all annexures to the accompanying applications/IAs are true/translated copies of their respective originals.`,
             numbering: { reference: "affidavit-numbering", level: 0 }
         }),
         new Paragraph({ children: [new TextRun({ text: "DEPONENT", bold: true })], alignment: AlignmentType.RIGHT }),
@@ -3076,6 +3234,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
     const getBookmarkText = (meta: {id: string, label: string}): string | null => {
         // Non-paginated items
         if (meta.id === 'advocateChecklist') return 'Checklist';
+        if (meta.id === 'refiling') return 'Refiling Declaration';
         if (meta.id === 'ci') return null; // Cover Page and Index - no bookmark needed
         if (meta.id === 'or') return 'Office Report';
         
@@ -3157,6 +3316,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         if (meta.id.startsWith('ia_affidavit_')) return null; // Part of IA
         
         if (meta.id === 'custodyCertificate') return 'Custody Certificate';
+        if (meta.id === 'proofOfService') return 'Proof of Service';
         if (meta.id === 'firDetails') return 'FIR Details';
         if (meta.id === 'memoOfParties') return 'Memo of Parties';
         if (meta.id === 'filingMemo') return 'Filing Memo';
@@ -3652,6 +3812,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         startPageNum?: number; // Printed page number (for paginated bookmarks)
         endPageNum?: number;   // Printed page number (for paginated bookmarks)
         isAlphabetical?: boolean; // True if page numbers are alphabetical (A, B, C...)
+        isAPrefixed?: boolean;    // True if page numbers are A1, A2, A3… (the Listing Proforma)
     }
     const bookmarks: BookmarkEntry[] = [];
 
@@ -3671,7 +3832,11 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 let title = bm.title;
                 if (bm.isPaginated && bm.startPageNum !== undefined && bm.endPageNum !== undefined) {
                     let suffix: string;
-                    if (bm.isAlphabetical) {
+                    if (bm.isAPrefixed) {
+                        suffix = bm.startPageNum === bm.endPageNum
+                            ? ` [p.A${bm.startPageNum}]`
+                            : ` [pp.A${bm.startPageNum}-A${bm.endPageNum}]`;
+                    } else if (bm.isAlphabetical) {
                         const s = numberToAlphabet(bm.startPageNum);
                         const e = numberToAlphabet(bm.endPageNum);
                         suffix = s === e ? ` [p.${s}]` : ` [pp.${s}-${e}]`;
@@ -3766,11 +3931,13 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 } else if (meta.id === 'cior') {
                     // Legacy support - generate CI only
                     result = await generateCiDocx(projectData, undefined, undefined, optionalDocIds);
+                } else if (meta.id === 'refiling') {
+                    result = await generateRefilingDocx(projectData, true);
                 } else if (isAppendixComponentId(meta.id)) {
                     result = await generateAppendixDocx(projectData, appendixItemIdFromComponentId(meta.id));
                 } else {
                     switch (meta.id) {
-                        case 'lp': result = await generateLpDocx(projectData); break;
+                        case 'lp': result = await generateLpDocx(projectData, true); break;
                         case 'slod': result = await generateSlodDocx(projectData); break;
                         case 'slp': result = await generateSlpDocx(projectData, true); break;
                         case 'filingMemo': result = await generateFilingMemoDocx(projectData, true); break;
@@ -3839,7 +4006,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         if (!pageInfo) continue;
         
         // Skip certain items that don't get their own Index entry
-        if (meta.id === 'advocateChecklist' || meta.id === 'ci' || meta.id === 'or' || meta.id === 'lp') {
+        if (meta.id === 'advocateChecklist' || meta.id === 'refiling' || meta.id === 'ci' || meta.id === 'or' || meta.id === 'lp') {
             continue; // These are handled separately in CI generation
         }
         
@@ -3897,6 +4064,12 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         sNo++;
     }
     
+    // Row 3 of the Index is the Listing Proforma, whose pages are stamped A1,
+    // A2, A3… Its formatting is the user's to set, so the row states the pages
+    // it actually runs to rather than the customary two.
+    const lpPageCount = Math.max(1, docPageCounts.get('lp')?.pageCount ?? 2);
+    indexPageRanges.set(3, lpPageCount === 1 ? 'A1' : `A1-A${lpPageCount}`);
+
     console.log('[PDF GEN] Index page ranges calculated:', Array.from(indexPageRanges.entries()));
     
     // ===== Calculate Annexure Page Ranges for List of Dates =====
@@ -4118,6 +4291,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         if (projectData.caseType === 'Criminal') {
             if (!optionalDocIds || optionalDocIds.has('custodyCertificate')) _pl.push('Custody Certificate');
             if (!optionalDocIds || optionalDocIds.has('firDetails'))         _pl.push('FIR Details');
+            if (!optionalDocIds || optionalDocIds.has('proofOfService'))     _pl.push('Proof of Service');
         }
         _pl.push('Memo of Parties', 'Filing Memo', 'Vakalatnama(s)');
         ciParticularsListForVolume = _pl;
@@ -4173,7 +4347,8 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                         // Legacy support - generate CI with page ranges
                         result = await generateCiDocx(projectData, indexPageRanges, undefined, optionalDocIds);
                         break;
-                    case 'lp': result = await generateLpDocx(projectData); break;
+                    case 'refiling': result = await generateRefilingDocx(projectData, true); break;
+                    case 'lp': result = await generateLpDocx(projectData, true); break;
                     case 'slod':
                         // Regenerate SLOD with calculated annexure page ranges
                         result = await generateSlodDocx(projectData, annexurePageRanges);
@@ -4309,14 +4484,21 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                     
                     // Special handling for CI: Add Cover Page and Index as separate bookmarks
                     if (meta.id === 'ci' && copiedPages.length >= 2) {
+                        // Cover page, then the (blank) Index of Record of
+                        // Proceedings, then the Index itself.
                         bookmarks.push({
                             title: 'Cover Page',
                             pageIndex: totalPagesBefore,
                             isPaginated: false
                         });
                         bookmarks.push({
-                            title: 'Index',
+                            title: 'Record of Proceedings',
                             pageIndex: totalPagesBefore + 1,
+                            isPaginated: false
+                        });
+                        bookmarks.push({
+                            title: 'Index',
+                            pageIndex: totalPagesBefore + 2,
                             isPaginated: false
                         });
                     } else if (meta.id === 'or') {
@@ -4337,16 +4519,21 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                             isPaginated: false
                         });
                         bookmarks.push({
-                            title: 'Index',
+                            title: 'Record of Proceedings',
                             pageIndex: totalPagesBefore + 1,
                             isPaginated: false
                         });
+                        bookmarks.push({
+                            title: 'Index',
+                            pageIndex: totalPagesBefore + 2,
+                            isPaginated: false
+                        });
                         // Office Report starts on the next page after Index
-                        if (copiedPages.length >= 3) {
+                        if (copiedPages.length >= 4) {
                             // Office Report always has page A (fixed)
                             bookmarks.push({
                                 title: 'Office Report',
-                                pageIndex: totalPagesBefore + 2,
+                                pageIndex: totalPagesBefore + 3,
                                 isPaginated: true,
                                 startPageNum: 1, // A = 1
                                 endPageNum: 1,   // A = 1 (single page)
@@ -4363,13 +4550,17 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                         let startPageNum: number | undefined;
                         let endPageNum: number | undefined;
                         let isAlphabetical = false;
+                        let isAPrefixed = false;
                         
                         // Special handling for specific documents
                         if (meta.id === 'lp') {
-                            // Listing Proforma: Always [pp.A1-A2]
-                            startPageNum = 1; // A1 = 1
-                            endPageNum = 2;   // A2 = 2
-                            isAlphabetical = true;
+                            // Listing Proforma: A1 to however many pages it runs
+                            // to. Its pages are stamped A1, A2, A3… so the
+                            // bookmark reads the same way — it used to say
+                            // "pp.A-B", numbering them like the Synopsis.
+                            startPageNum = 1;
+                            endPageNum = Math.max(1, docPageCounts.get('lp')?.pageCount ?? 2);
+                            isAPrefixed = true;
                         } else if (meta.id === 'slod') {
                             // Synopsis and List of Dates: Use Index S.No. 9 range (B-X)
                             const synopsisRange = indexPageRanges.get(9);
@@ -4400,7 +4591,8 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                             isPaginated: isPaginated,
                             startPageNum,
                             endPageNum,
-                            isAlphabetical
+                            isAlphabetical,
+                            isAPrefixed
                         });
                     }
                 }
@@ -4444,8 +4636,13 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 if (bookmark.isPaginated && bookmark.startPageNum !== undefined && bookmark.endPageNum !== undefined) {
                     // Format page range
                     let pageRangeSuffix: string;
-                    
-                    if (bookmark.isAlphabetical) {
+
+                    if (bookmark.isAPrefixed) {
+                        // A1, A2, A3… (the Listing Proforma)
+                        pageRangeSuffix = bookmark.startPageNum === bookmark.endPageNum
+                            ? ` [p.A${bookmark.startPageNum}]`
+                            : ` [pp.A${bookmark.startPageNum}-A${bookmark.endPageNum}]`;
+                    } else if (bookmark.isAlphabetical) {
                         // Convert numbers to letters (1=A, 2=B, 3=C, etc.)
                         const startLetter = numberToAlphabet(bookmark.startPageNum);
                         const endLetter = numberToAlphabet(bookmark.endPageNum);
@@ -4662,13 +4859,20 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             }
 
             // CI bookmarks
+            // Volume I: cover page, the blank Index of Record of Proceedings,
+            // the Master Index, then Volume I's own index. Volume II onwards
+            // have no record of proceedings, so their index follows the cover.
             volBookmarkEntries.push({ title: 'Cover Page', pageIndex: ciStartInVol, isPaginated: false });
-            if (ciPageCount >= 2) {
-                const idxTitle = v === 1 ? 'Master Index' : `Index – Volume ${toRomanNumeral(v)}`;
-                volBookmarkEntries.push({ title: idxTitle, pageIndex: ciStartInVol + 1, isPaginated: false });
+            const ropPages = v === 1 ? 1 : 0;
+            if (ropPages) {
+                volBookmarkEntries.push({ title: 'Record of Proceedings', pageIndex: ciStartInVol + 1, isPaginated: false });
             }
-            if (v === 1 && ciPageCount >= 3) {
-                volBookmarkEntries.push({ title: `Index – Volume ${toRomanNumeral(1)}`, pageIndex: ciStartInVol + 2, isPaginated: false });
+            if (ciPageCount >= 2 + ropPages) {
+                const idxTitle = v === 1 ? 'Master Index' : `Index – Volume ${toRomanNumeral(v)}`;
+                volBookmarkEntries.push({ title: idxTitle, pageIndex: ciStartInVol + 1 + ropPages, isPaginated: false });
+            }
+            if (v === 1 && ciPageCount >= 3 + ropPages) {
+                volBookmarkEntries.push({ title: `Index – Volume ${toRomanNumeral(1)}`, pageIndex: ciStartInVol + 2 + ropPages, isPaginated: false });
             }
 
             // Content bookmarks (non-checklist): remap mergedPdf index P → volPdf index

@@ -55,7 +55,7 @@ export function BriefingNotePrompt() {
           });
           if (savedPath) {
             toast({ title: "Briefing Note Generated", description: `Saved to ${savedPath}` });
-            window.electron.openFolderPath?.(savedPath.replace(/[\\/][^\\/]+$/, ""));
+            window.electron.revealFilePath?.(savedPath);
             return;
           }
         }

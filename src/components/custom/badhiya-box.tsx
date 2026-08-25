@@ -17,6 +17,7 @@ import TextAlign from '@tiptap/extension-text-align'
 import { Paragraph } from '@tiptap/extension-paragraph'
 import ListItem from '@tiptap/extension-list-item'
 import OrderedList from '@tiptap/extension-ordered-list'
+import Blockquote from '@tiptap/extension-blockquote'
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { joinTextblockBackward } from '@tiptap/pm/commands'
@@ -304,7 +305,8 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
         // Replaced below with a ListItem that permits a leading blockquote, so the
         // Quote button works inside lists (default 'paragraph block*' forbids it).
         listItem: false,
-        blockquote: {}, // Enable blockquote
+        // Replaced below with a version that remembers its emphasis label.
+        blockquote: false,
         paragraph: false, // Disable default paragraph to customize
         // Replaced with asterisk-only variants (no underscore markdown shortcut).
         bold: false,
@@ -320,6 +322,23 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
       // as data-regime, so it is saved, reloaded and exported with the text
       // rather than living in a setting somewhere else. Only the outermost list
       // carries it — the levels below follow from it.
+      // A quote remembers the emphasis label the user chose for it ("emphasis
+      // supplied" and the like; see lib/quote-emphasis.ts). It rides on the
+      // block as data-emphasis so it travels with the quote, and prints on its
+      // own line outside the closing quotation mark.
+      Blockquote.extend({
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            emphasis: {
+              default: null,
+              parseHTML: (element: HTMLElement) => element.getAttribute('data-emphasis'),
+              renderHTML: (attributes: Record<string, any>) =>
+                attributes.emphasis ? { 'data-emphasis': attributes.emphasis } : {},
+            },
+          };
+        },
+      }),
       OrderedList.extend({
         addAttributes() {
           return {

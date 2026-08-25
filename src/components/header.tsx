@@ -766,7 +766,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           incrementGenerationCount('docx');
           toast({ title: "DOCX Generated", description: `Saved to ${savedPath}` });
           const dir = savedPath.replace(/[\\/][^\\/]+$/, '');
-          window.electron.openFolderPath?.(dir);
+          window.electron.revealFilePath?.(savedPath);
           return;
         }
       }
@@ -844,7 +844,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           });
           if (savedPath) {
             toast({ title: "PDF Saved", description: savedPath });
-            window.electron.openFolderPath?.(savedPath.replace(/[\\/][^\\/]+$/, ""));
+            window.electron.revealFilePath?.(savedPath);
             return;
           }
         }
@@ -909,7 +909,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           const savedPath = await window.electron.savePdf({ fileName: result.fileName, content: result.pdfBase64, defaultPath: (settings as any).defaultPdfPath || undefined });
           if (savedPath) {
             toast({ title: "PDF Saved", description: savedPath });
-            window.electron.openFolderPath?.(savedPath.replace(/[\\/][^\\/]+$/, ""));
+            window.electron.revealFilePath?.(savedPath);
             offerBriefing();
             return;
           }

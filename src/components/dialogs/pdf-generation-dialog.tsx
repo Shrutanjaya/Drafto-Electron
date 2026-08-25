@@ -251,6 +251,9 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
     const abortControllerRef = useRef<AbortController | null>(null);
     const [isProcessingOcr, setIsProcessingOcr] = useState(false);
     const [enableOcr, setEnableOcr] = useState(false);
+    // Refiling: the paper-book is going back to the registry after defects were
+    // cured, so it opens with a declaration to that effect.
+    const [isRefiling, setIsRefiling] = useState(false);
     const isMac = window.electron?.platform === 'darwin';
     const [activeUploadIndex, setActiveUploadIndex] = useState<number | null>(null);
     const [errorDialogOpen, setErrorDialogOpen] = useState(false);
@@ -262,6 +265,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         const projectData = mainFormValues;
         const list: Omit<MergeItem, 'userFile' | 'useSystem'>[] = [];
 
+        if (isRefiling) list.push({ id: 'refiling', label: 'Refiling Declaration' });
         list.push({ id: 'advocateChecklist', label: "Advocate's Checklist" });
         list.push({ id: 'ci', label: "Cover Page and Index" });
         list.push({ id: 'or', label: "Office Report" });
@@ -376,10 +380,12 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
              }
         });
 
-        // Custody Certificate and FIR Details are required for Criminal SLPs (optional to attach)
+        // Custody Certificate, FIR Details and Proof of Service are required for
+        // Criminal SLPs (optional to attach)
         if (projectData.caseType === 'Criminal') {
             list.push({ id: 'custodyCertificate', label: 'Custody Certificate' });
             list.push({ id: 'firDetails', label: 'FIR Details' });
+            list.push({ id: 'proofOfService', label: 'Proof of Service' });
         }
 
         list.push({ id: 'memoOfParties', label: 'Memo of Parties' });
@@ -387,7 +393,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         list.push({ id: 'vakalatnama', label: 'Vakalatnama(s)' });
 
         return list;
-    }, [mainFormValues]);
+    }, [mainFormValues, isRefiling]);
 
     const uploadForm = useForm<PdfMergeForm>({
         resolver: zodResolver(pdfMergeSchema),
@@ -482,7 +488,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             }
             
             // Optional Criminal SLP docs — user-upload, but not mandatory
-            if (c.id === 'custodyCertificate' || c.id === 'firDetails') {
+            if (c.id === 'custodyCertificate' || c.id === 'firDetails' || c.id === 'proofOfService') {
                 const savedItem = savedPdfMergeItems?.find((s: any) => s.id === c.id);
                 return {
                     ...c,
@@ -722,7 +728,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                 // IA Affidavits are optional in all SLPs.
                 if (isOptionalUpload(item.id)) return true;
                 // Custody Certificate / FIR Details are optional in Criminal SLPs.
-                return isCriminal && ['custodyCertificate', 'firDetails'].includes(item.id);
+                return isCriminal && ['custodyCertificate', 'firDetails', 'proofOfService'].includes(item.id);
             })
             .filter(item => !(item.userFile instanceof File))
             .map(item => item.label);
@@ -815,8 +821,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                             if (savedPath) {
                                 saved = true;
                                 toast({ title: `${vol.label} Saved`, description: savedPath });
-                                const dir = savedPath.replace(/[\\/][^\\/]+$/, '');
-                                window.electron.openFolderPath?.(dir);
+                                window.electron.revealFilePath?.(savedPath);
                             }
                         }
                     } catch { /* fall through to download */ }
@@ -892,8 +897,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                             setProgress(100);
                             incrementGenerationCount('paperbook');
                             toast({ title: "PDF Generated", description: `Saved to ${savedPath}` });
-                            const dir = savedPath.replace(/[\\/][^\\/]+$/, '');
-                            window.electron.openFolderPath?.(dir);
+                            window.electron.revealFilePath?.(savedPath);
                             offerBriefingNote();
                             onClose();
                             return;
@@ -1018,7 +1022,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
     // the same missing-upload computations) ──
     const sectionForId = (id: string): { key: string; label: string } => {
         if (id.startsWith('annexure_')) return { key: 'annexures', label: 'Annexures' };
-        if (id === 'custodyCertificate' || id === 'firDetails' || id.startsWith('ia_')) return { key: 'ias', label: 'Applications (IAs)' };
+        if (id === 'custodyCertificate' || id === 'firDetails' || id === 'proofOfService' || id.startsWith('ia_')) return { key: 'ias', label: 'Applications (IAs)' };
         return { key: 'court', label: 'Petition & Court Documents' };
     };
     const optionalMissing = getMissingOptionalDocs({ mergeItems: watchedItems });
@@ -1224,7 +1228,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                                     const isLocked = isLockedId(currentItem.id);
                                     const hasFile = currentItem.userFile instanceof File;
                                     const isSystemMode = currentItem.useSystem;
-                                    const isOptionalCriminal = currentItem.id === 'custodyCertificate' || currentItem.id === 'firDetails';
+                                    const isOptionalCriminal = currentItem.id === 'custodyCertificate' || currentItem.id === 'firDetails' || currentItem.id === 'proofOfService';
                                     // Optional uploads share the same (yellow) treatment: Custody/FIR in
                                     // Criminal SLPs, plus IA Affidavits in every SLP.
                                     const isOptional = isOptionalCriminal || isOptionalUpload(currentItem.id);
@@ -1319,6 +1323,21 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                     />
                 </form>
                 <div className="mt-4 border-t pt-3 space-y-1.5">
+                    <div className="flex items-start space-x-2">
+                        <Checkbox
+                            id="is-refiling"
+                            checked={isRefiling}
+                            onCheckedChange={(checked) => setIsRefiling(checked as boolean)}
+                            disabled={isGenerating}
+                            className="mt-0.5"
+                        />
+                        <label htmlFor="is-refiling" className="text-xs leading-snug peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                            <span className="font-medium">Refiling after defects</span>
+                            <span className="block text-[11px] text-muted-foreground">
+                                Opens the paper-book with a declaration that the defects marked by the registry stand cured. Not an Index entry.
+                            </span>
+                        </label>
+                    </div>
                     <div className="flex items-start space-x-2">
                         <Checkbox
                             id="enable-ocr"

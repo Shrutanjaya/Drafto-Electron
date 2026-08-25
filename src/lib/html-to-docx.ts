@@ -2,6 +2,7 @@
 import { AlignmentType, Indent, Paragraph, TextRun, UnderlineType, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, LineRuleType, TableLayoutType } from "docx";
 import { convertToSmartQuotes } from "./docx-helpers";
 import { listRegime } from "./list-regimes";
+import { normaliseEmphasisLabel } from "./quote-emphasis";
 
 // Smart (curly) quotation marks used to wrap a quoted block on export.
 const SMART_OPEN_QUOTE = '“';  // "
@@ -13,6 +14,9 @@ const SMART_CLOSE_QUOTE = '”'; // "
 // normal text equals the gap between two normal paragraphs (see
 // computeQuoteAfterTwips). Otherwise quotes inherit the document's default spacing.
 let exportQuoteSingleSpacing = false;
+// Whether quoted blocks are italicised in the generated documents (Settings →
+// Quotes). The editor always shows quotes the same way; this is export only.
+let exportQuoteItalics = true;
 // Geometry of the enclosing numbered list, so a quote inside a list indents
 // RELATIVE to that list instead of the page margin. Text indent of list level L
 // is (base + L*step); a quote sits 0.25" further in. Defaults to the SLP/HC list
@@ -454,6 +458,10 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 // the caller (defaultNumbering) — which is how Grounds/Facts
                 // items are numbered, each parsed on its own with no wrapper.
                 // Both must indent the quote relative to that list.
+                // The label the user chose for this quote, carried on the block
+                // itself as data-emphasis (see lib/quote-emphasis.ts).
+                const emphasisLabel = normaliseEmphasisLabel(node.attributes['data-emphasis']);
+
                 const effectiveListLevel = listLevel > 0
                     ? listLevel
                     : (defaultNumbering ? defaultNumbering.level + 1 : 0);
@@ -474,17 +482,18 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
 
                     const quotePlainText = extractPlainText(childSet);
                     const quoteConvertedText = convertToSmartQuotes(quotePlainText);
-                    // Force italics on every run by seeding the inline style.
-                    const runs = processInline(childSet, { italics: true }, quoteConvertedText, 0, exportHighlight).runs;
+                    // Seed the inline style so every run in the block follows the
+                    // user's choice of italics or roman for quoted text.
+                    const runs = processInline(childSet, { italics: exportQuoteItalics }, quoteConvertedText, 0, exportHighlight).runs;
 
                     // Wrap the whole block (not each paragraph) in one pair of smart
                     // quotes, skipping an end the user already quoted. An empty block
                     // has neither boundary quote, so it correctly emits a bare "".
-                    if (isFirst && !hasLeadingQuote) runs.unshift(new TextRun({ text: wrapOpen, italics: true }));
-                    if (isLast && !hasTrailingQuote) runs.push(new TextRun({ text: wrapClose, italics: true }));
+                    if (isFirst && !hasLeadingQuote) runs.unshift(new TextRun({ text: wrapOpen, italics: exportQuoteItalics }));
+                    if (isLast && !hasTrailingQuote) runs.push(new TextRun({ text: wrapClose, italics: exportQuoteItalics }));
 
                     const quoteParaProps: any = {
-                        children: runs.length > 0 ? runs : [new TextRun({ text: '', italics: true })],
+                        children: runs.length > 0 ? runs : [new TextRun({ text: '', italics: exportQuoteItalics })],
                         alignment: quoteAlignment,
                         style: "Normal",
                         indent: { left: quoteLeftIndent, right: 720 },
@@ -494,13 +503,36 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                         quoteParaProps.spacing = { line: 240, lineRule: LineRuleType.AUTO };
                         // Last paragraph: trailing space matched to a normal-to-normal gap,
                         // derived from the user's font size, line spacing and after-spacing.
-                        if (isLast) quoteParaProps.spacing = { ...quoteParaProps.spacing, after: computeQuoteAfterTwips() };
+                        // When an emphasis label follows, that gap belongs after the
+                        // LABEL — the label is part of the quoted block, not the
+                        // paragraph after it.
+                        if (isLast && !emphasisLabel) quoteParaProps.spacing = { ...quoteParaProps.spacing, after: computeQuoteAfterTwips() };
                     } else if (spacing) {
                         quoteParaProps.spacing = spacing;
                     }
 
                     result.paragraphs.push(new Paragraph(quoteParaProps));
                 });
+
+                // "(emphasis supplied)" and the like: the user's own note about
+                // emphasis in the extract. It sits OUTSIDE the closing quotation
+                // mark, on its own line, ranged right to the same right indent as
+                // the quote — and it closes the block, so the gap to whatever
+                // follows is measured from the label.
+                if (emphasisLabel) {
+                    const labelProps: any = {
+                        children: [new TextRun({ text: `(${emphasisLabel})` })],
+                        alignment: AlignmentType.RIGHT,
+                        style: "Normal",
+                        indent: { left: quoteLeftIndent, right: 720 },
+                    };
+                    if (exportQuoteSingleSpacing) {
+                        labelProps.spacing = { line: 240, lineRule: LineRuleType.AUTO, after: computeQuoteAfterTwips() };
+                    } else if (spacing) {
+                        labelProps.spacing = spacing;
+                    }
+                    result.paragraphs.push(new Paragraph(labelProps));
+                }
                 break;
             }
             case 'ul':
@@ -699,6 +731,7 @@ export function parseHtml(html: string, spacing?: ParagraphSpacing, defaultNumbe
             const parsed = stored ? JSON.parse(stored) : null;
             exportHighlight = parsed?.exportHighlight === true;
             exportQuoteSingleSpacing = parsed?.quoteLineSpacing === 'single';
+            exportQuoteItalics = parsed?.quoteItalics !== false;
             exportOutputFontSizePt = parsed?.outputFontSizePt ?? 14;
             exportOutputLineSpacing = parsed?.outputLineSpacing ?? 1.5;
             exportOutputParaAfterPt = parsed?.outputParaAfterPt ?? 12;

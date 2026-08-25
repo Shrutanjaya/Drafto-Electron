@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("electron", {
   saveProject:      (data)       => ipcRenderer.invoke("save-project", data),
   openProjectsFolder: ()         => ipcRenderer.invoke("open-projects-folder"),
   openFolderPath:     (fp)        => ipcRenderer.invoke("open-folder-path", fp),
+  revealFilePath:     (fp)        => ipcRenderer.invoke("reveal-file-path", fp),
   listDraftoFilesFromPath: (fp)   => ipcRenderer.invoke("list-drafto-files-from-path", fp),
 
   // Dialogs

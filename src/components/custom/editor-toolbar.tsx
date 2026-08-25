@@ -1,8 +1,10 @@
 "use client"
 
 import { Editor } from '@tiptap/react'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { LIST_REGIMES, DEFAULT_LIST_REGIME, regimePreview } from "@/lib/list-regimes"
+import { EMPHASIS_PRESETS, normaliseEmphasisLabel } from "@/lib/quote-emphasis"
+import { Input } from "@/components/ui/input"
 import {
   Bold,
   Italic,
@@ -137,6 +139,34 @@ export const EditorToolbar = () => {
 
   const currentRegime = (): string => outermostOrderedList()?.node.attrs.regime || DEFAULT_LIST_REGIME;
 
+  // ── Emphasis label on a quote ──
+  // The label belongs to the quote block the cursor is inside; picking one when
+  // not in a quote makes the selection a quote first, so the button always does
+  // something sensible.
+  const currentBlockquote = (): { pos: number; node: any } | null => {
+    if (!editor) return null;
+    const { $from } = editor.state.selection;
+    for (let depth = $from.depth; depth >= 1; depth--) {
+      const node = $from.node(depth);
+      if (node.type.name === 'blockquote') return { pos: $from.before(depth), node };
+    }
+    return null;
+  };
+
+  const currentEmphasis = (): string => normaliseEmphasisLabel(currentBlockquote()?.node.attrs.emphasis);
+
+  const applyEmphasis = (label: string | null) => {
+    if (!editor) return;
+    if (!editor.isActive('blockquote')) editor.chain().focus().toggleBlockquote().run();
+    const target = currentBlockquote();
+    if (!target) return;
+    const value = normaliseEmphasisLabel(label);
+    editor.view.dispatch(
+      editor.state.tr.setNodeMarkup(target.pos, undefined, { ...target.node.attrs, emphasis: value || null }),
+    );
+    editor.commands.focus();
+  };
+
   const applyRegime = (id: string) => {
     if (!editor) return;
     if (!editor.isActive('orderedList')) editor.chain().focus().toggleOrderedList().run();
@@ -177,7 +207,45 @@ export const EditorToolbar = () => {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <Button variant="ghost" size="icon" onClick={() => editor?.chain().focus().toggleBlockquote().run()} className={cn("h-6 w-6 p-1", editor?.isActive('blockquote') ? 'bg-accent' : '')}><Quote /></Button>
+      <div className="flex items-center">
+        <Button variant="ghost" size="icon" onClick={() => editor?.chain().focus().toggleBlockquote().run()} className={cn("h-6 w-6 p-1 rounded-r-none", editor?.isActive('blockquote') ? 'bg-accent' : '')} title="Quote"><Quote /></Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-6 w-3 rounded-l-none p-0 text-muted-foreground" title="Emphasis label — prints outside the quotation marks">
+              <ChevronDown className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-[190px]">
+            {EMPHASIS_PRESETS.map((label) => (
+              <DropdownMenuItem key={label} onSelect={() => applyEmphasis(label)} className="justify-between gap-3 text-xs">
+                <span>({label})</span>
+                {currentEmphasis() === label && <Check className="h-3 w-3" />}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+            <div className="px-2 py-1.5">
+              <p className="pb-1 text-[10px] uppercase tracking-wide text-muted-foreground">Your own wording</p>
+              <Input
+                defaultValue={EMPHASIS_PRESETS.includes(currentEmphasis() as any) ? '' : currentEmphasis()}
+                placeholder="italics supplied, underlining original"
+                className="h-6 text-[11px]"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    applyEmphasis((e.target as HTMLInputElement).value);
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => applyEmphasis(null)} className="text-xs text-muted-foreground">
+              No label
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <Button variant="ghost" size="icon" onClick={() => editor?.chain().focus().setTextAlign('left').run()} className={cn("h-6 w-6 p-1", editor?.isActive({ textAlign: 'left' }) ? 'bg-accent' : '')}><AlignLeft /></Button>
       <Button variant="ghost" size="icon" onClick={() => editor?.chain().focus().setTextAlign('center').run()} className={cn("h-6 w-6 p-1", editor?.isActive({ textAlign: 'center' }) ? 'bg-accent' : '')}><AlignCenter /></Button>
       <Button variant="ghost" size="icon" onClick={() => editor?.chain().focus().setTextAlign('right').run()} className={cn("h-6 w-6 p-1", editor?.isActive({ textAlign: 'right' }) ? 'bg-accent' : '')}><AlignRight /></Button>

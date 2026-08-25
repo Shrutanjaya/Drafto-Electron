@@ -72,11 +72,21 @@ interface SettingsData {
   checklistMarginTopInches: number;   // page top margin (inches)
   checklistMarginLeftInches: number;  // page left margin (inches)
 
+  // Listing Proforma formatting (PDF paperbook). Defaults reproduce the rigid
+  // 13pt single-spaced form Drafto has always produced.
+  lpFollowChecklist: boolean;      // use the checklist's formatting instead
+  lpFontSizePt: number;
+  lpLineSpacing: number;
+  lpParaSpacingPt: number;
+  lpMarginTopInches: number;
+  lpMarginLeftInches: number;
+
   exportHighlight: boolean;
   autosaveInterval: number;
   toastDuration: number;
   slpTabView: SlpTabView;
   quoteLineSpacing: QuoteLineSpacing;
+  quoteItalics: boolean;
 
   // Volume splitting
   volumeSplitThreshold: number;
@@ -106,6 +116,7 @@ interface SettingsData {
   slpHeaderStyle: SlpHeaderStyle;       // short title block, or the SCI long form
   slpHeadingBreak: boolean;             // heading on its own line, text beneath
   slpTranslatedCopyFirst: boolean;      // translated/typed copy before the true copy
+  slpAffidavitAnnexureRef: 'actual' | 'blank'; // affidavit: real last annexure number, or a blank to fill in
 
   // HC / CAT: reproduce the List of Dates in the Facts (the historical way), or
   // keep a concise List of Dates and a Facts table of its own.
@@ -678,11 +689,18 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     checklistParaSpacingPt: 6,
     checklistMarginTopInches: 1,
     checklistMarginLeftInches: 1,
+    lpFollowChecklist: false,
+    lpFontSizePt: 13,
+    lpLineSpacing: 1,
+    lpParaSpacingPt: 0,
+    lpMarginTopInches: 1.5,
+    lpMarginLeftInches: 1.5,
     exportHighlight: false,
     autosaveInterval: 60,
     toastDuration: 1,
     slpTabView: 'splitter',
     quoteLineSpacing: 'default',
+    quoteItalics: true,
     volumeSplitThreshold: 400,
     volumeStepSize: 200,
     maxComponentSplitPages: 50,
@@ -704,6 +722,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     slpHeaderStyle: 'short',
     slpHeadingBreak: false,
     slpTranslatedCopyFirst: false,
+    slpAffidavitAnnexureRef: 'actual' as const,
     wpFactsFromLod: true,
     oaFactsFromLod: true,
     aiPluginEnabled: false,
@@ -813,11 +832,18 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           checklistParaSpacingPt: parsed.checklistParaSpacingPt ?? 6,
           checklistMarginTopInches: parsed.checklistMarginTopInches ?? 1,
           checklistMarginLeftInches: parsed.checklistMarginLeftInches ?? 1,
+          lpFollowChecklist: parsed.lpFollowChecklist ?? false,
+          lpFontSizePt: parsed.lpFontSizePt ?? 13,
+          lpLineSpacing: parsed.lpLineSpacing ?? 1,
+          lpParaSpacingPt: parsed.lpParaSpacingPt ?? 0,
+          lpMarginTopInches: parsed.lpMarginTopInches ?? 1.5,
+          lpMarginLeftInches: parsed.lpMarginLeftInches ?? 1.5,
           exportHighlight: parsed.exportHighlight ?? false,
           autosaveInterval: parsed.autosaveInterval ?? 60,
           toastDuration: parsed.toastDuration ?? 1,
           slpTabView: (parsed.slpTabView || 'splitter') as SlpTabView,
           quoteLineSpacing: (parsed.quoteLineSpacing || 'default') as QuoteLineSpacing,
+          quoteItalics: parsed.quoteItalics !== false,
           volumeSplitThreshold: parsed.volumeSplitThreshold ?? 400,
           volumeStepSize: parsed.volumeStepSize ?? 200,
           maxComponentSplitPages: parsed.maxComponentSplitPages ?? 50,
@@ -839,6 +865,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           slpHeaderStyle: (parsed.slpHeaderStyle === 'sci' ? 'sci' : 'short') as SlpHeaderStyle,
           slpHeadingBreak: parsed.slpHeadingBreak ?? false,
           slpTranslatedCopyFirst: parsed.slpTranslatedCopyFirst ?? false,
+          slpAffidavitAnnexureRef: (parsed.slpAffidavitAnnexureRef === 'blank' ? 'blank' : 'actual') as 'actual' | 'blank',
           wpFactsFromLod: parsed.wpFactsFromLod ?? true,
           oaFactsFromLod: parsed.oaFactsFromLod ?? true,
           aiPluginEnabled: parsed.aiPluginEnabled ?? false,
@@ -1935,13 +1962,20 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
 
                 <SettingsGroup
                   title="Quotes"
-                  info="Line spacing applied to text formatted as a Quote. Quoted blocks are wrapped in quotation marks and italicised on export."
+                  info={"How text formatted as a Quote is exported. Quoted blocks are always wrapped in quotation marks; the line spacing and whether they are italicised are yours to set.\n\nBoth apply to the generated documents only — quotes look the same while you are editing. Shared by all three document types."}
                 >
                   <SettingRow label="Quote line spacing">
                     <SegGroup
                       value={settings.quoteLineSpacing}
                       onChange={(v: QuoteLineSpacing) => setSettings((prev) => ({ ...prev, quoteLineSpacing: v }))}
                       options={[{ value: 'default', label: 'Default' }, { value: 'single', label: 'Single' }]}
+                    />
+                  </SettingRow>
+                  <SettingRow label="Italicise quoted text">
+                    <SegGroup
+                      value={settings.quoteItalics ? 'yes' : 'no'}
+                      onChange={(v: string) => setSettings((prev) => ({ ...prev, quoteItalics: v === 'yes' }))}
+                      options={[{ value: 'yes', label: 'Italics' }, { value: 'no', label: 'Roman' }]}
                     />
                   </SettingRow>
                 </SettingsGroup>
@@ -2011,6 +2045,17 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       value={settings.slpTranslatedCopyFirst ? 'translated' : 'true'}
                       onChange={(v) => setSettings((prev) => ({ ...prev, slpTranslatedCopyFirst: v === 'translated' }))}
                       options={[{ value: 'true', label: 'True copy first' }, { value: 'translated', label: 'Translated first' }]}
+                    />
+                  </SettingRow>
+
+                  <SettingRow
+                    label="Affidavit: annexure range"
+                    info={"Paragraph 3 of the affidavit swears to \"Annexures P-1 to P-N\".\n\nActual number: N is the last annexure on the List of Dates.\n\nLeave blank: the affidavit always reads \"P-__\", for the deponent to complete by hand.\n\nEither way, an SLP with no annexures yet reads \"P-__\" rather than \"P-0\"."}
+                  >
+                    <SegGroup
+                      value={settings.slpAffidavitAnnexureRef}
+                      onChange={(v: 'actual' | 'blank') => setSettings((prev) => ({ ...prev, slpAffidavitAnnexureRef: v }))}
+                      options={[{ value: 'actual', label: 'Actual number' }, { value: 'blank', label: 'Leave blank' }]}
                     />
                   </SettingRow>
                 </SettingsGroup>
@@ -2111,6 +2156,50 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     {numField('checklistMarginLeftInches', { min: 0.5, max: 2, step: 0.1, width: 'w-16' })}
                     <Unit>inches</Unit>
                   </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Listing Proforma"
+                  info={"The proforma has always been generated as a rigid one-page form — 13 pt, single spaced — which is what these defaults reproduce.\n\nGive it more air if you prefer, or tick \"Follow the checklist\" to use the checklist's settings. Either way the Index and the bookmark follow the real page count, so a proforma that runs to A3 is described as A1-A3."}
+                >
+                  <SettingRow
+                    label="Follow the checklist"
+                    info="Uses whatever is set for the Advocate's checklist above, so the two are formatted alike."
+                  >
+                    <SegGroup
+                      value={settings.lpFollowChecklist ? 'yes' : 'no'}
+                      onChange={(v: string) => setSettings((prev) => ({ ...prev, lpFollowChecklist: v === 'yes' }))}
+                      options={[{ value: 'no', label: 'Its own settings' }, { value: 'yes', label: 'Follow checklist' }]}
+                    />
+                  </SettingRow>
+                  {!settings.lpFollowChecklist && (
+                    <>
+                      <SettingRow label="Size & line spacing">
+                        {numField('lpFontSizePt', { min: 6, max: 18, step: 0.5, width: 'w-16' })}
+                        <Unit>pt</Unit>
+                        <Select value={String(settings.lpLineSpacing)} onValueChange={(v) => setSettings((prev) => ({ ...prev, lpLineSpacing: parseFloat(v) }))}>
+                          <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
+                            <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
+                            <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
+                            <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </SettingRow>
+                      <SettingRow label="Space after paragraph">
+                        {numField('lpParaSpacingPt', { min: 0, max: 18, step: 1, width: 'w-16' })}
+                        <Unit>pt</Unit>
+                      </SettingRow>
+                      <SettingRow label="Margins">
+                        <Unit>Top</Unit>
+                        {numField('lpMarginTopInches', { min: 0.5, max: 2, step: 0.1, width: 'w-16' })}
+                        <Unit>Left</Unit>
+                        {numField('lpMarginLeftInches', { min: 0.5, max: 2, step: 0.1, width: 'w-16' })}
+                        <Unit>inches</Unit>
+                      </SettingRow>
+                    </>
+                  )}
                 </SettingsGroup>
 
                 <SettingsGroup
@@ -3040,11 +3129,18 @@ export function getSettings(): SettingsData {
     checklistParaSpacingPt: 6,
     checklistMarginTopInches: 1,
     checklistMarginLeftInches: 1,
+    lpFollowChecklist: false,
+    lpFontSizePt: 13,
+    lpLineSpacing: 1,
+    lpParaSpacingPt: 0,
+    lpMarginTopInches: 1.5,
+    lpMarginLeftInches: 1.5,
     exportHighlight: false,
     autosaveInterval: 60,
     toastDuration: 1,
     slpTabView: 'splitter' as SlpTabView,
     quoteLineSpacing: 'default' as QuoteLineSpacing,
+    quoteItalics: true,
     volumeSplitThreshold: 400,
     volumeStepSize: 200,
     maxComponentSplitPages: 50,
@@ -3066,6 +3162,7 @@ export function getSettings(): SettingsData {
     slpHeaderStyle: 'short' as SlpHeaderStyle,
     slpHeadingBreak: false,
     slpTranslatedCopyFirst: false,
+    slpAffidavitAnnexureRef: 'actual' as const,
     wpFactsFromLod: true,
     oaFactsFromLod: true,
     aiPluginEnabled: false,
@@ -3175,11 +3272,18 @@ export function getSettings(): SettingsData {
         checklistParaSpacingPt: parsed.checklistParaSpacingPt ?? 6,
         checklistMarginTopInches: parsed.checklistMarginTopInches ?? 1,
         checklistMarginLeftInches: parsed.checklistMarginLeftInches ?? 1,
+        lpFollowChecklist: parsed.lpFollowChecklist ?? false,
+        lpFontSizePt: parsed.lpFontSizePt ?? 13,
+        lpLineSpacing: parsed.lpLineSpacing ?? 1,
+        lpParaSpacingPt: parsed.lpParaSpacingPt ?? 0,
+        lpMarginTopInches: parsed.lpMarginTopInches ?? 1.5,
+        lpMarginLeftInches: parsed.lpMarginLeftInches ?? 1.5,
         exportHighlight: parsed.exportHighlight ?? false,
         autosaveInterval: parsed.autosaveInterval ?? 60,
         toastDuration: parsed.toastDuration ?? 1,
         slpTabView: (parsed.slpTabView || 'splitter') as SlpTabView,
         quoteLineSpacing: (parsed.quoteLineSpacing || 'default') as QuoteLineSpacing,
+        quoteItalics: parsed.quoteItalics !== false,
         volumeSplitThreshold: parsed.volumeSplitThreshold ?? 400,
         volumeStepSize: parsed.volumeStepSize ?? 200,
         maxComponentSplitPages: parsed.maxComponentSplitPages ?? 50,
@@ -3201,6 +3305,7 @@ export function getSettings(): SettingsData {
         slpHeaderStyle: (parsed.slpHeaderStyle === 'sci' ? 'sci' : 'short') as SlpHeaderStyle,
         slpHeadingBreak: parsed.slpHeadingBreak ?? false,
         slpTranslatedCopyFirst: parsed.slpTranslatedCopyFirst ?? false,
+        slpAffidavitAnnexureRef: (parsed.slpAffidavitAnnexureRef === 'blank' ? 'blank' : 'actual') as 'actual' | 'blank',
         wpFactsFromLod: parsed.wpFactsFromLod ?? true,
         oaFactsFromLod: parsed.oaFactsFromLod ?? true,
         aiPluginEnabled: parsed.aiPluginEnabled ?? false,

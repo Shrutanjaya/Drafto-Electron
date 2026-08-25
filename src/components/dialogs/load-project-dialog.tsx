@@ -111,7 +111,7 @@ export function LoadProjectDialog({ open, onOpenChange, onLoadFromPath }: LoadPr
   };
 
   const revealFile = (file: DraftoFileInfo) => {
-    window.electron?.openFolderPath?.(dirOf(file.path));
+    window.electron?.revealFilePath?.(file.path);
   };
 
   const deleteFile = async (file: DraftoFileInfo) => {

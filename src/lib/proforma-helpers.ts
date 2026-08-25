@@ -36,7 +36,7 @@ const createLabelValueRow = (label: string, value: string) => {
     });
 }
 
-export const createListingProforma = (data: DraftoProject) => {
+export const createListingProforma = (data: DraftoProject, includeSignature = false) => {
     const { listingProforma, petitioners, respondents, caseType, advocate } = data;
     const proforma = listingProforma;
 
@@ -186,7 +186,9 @@ export const createListingProforma = (data: DraftoProject) => {
         new Paragraph({ text: "\n", style: "Normal" }),
     ];
 
-    content.push(...createFiledByTable(advocate.filingDate, advocate.aorName || "[AoR Name]"));
+    // The AoR signature goes here as it does on every other signed page; the
+    // Listing Proforma was the one document that never asked for it.
+    content.push(...createFiledByTable(advocate.filingDate, advocate.aorName || "[AoR Name]", { includeSignature }));
     
     content.push(
       new Paragraph({

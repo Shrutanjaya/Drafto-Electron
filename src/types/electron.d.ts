@@ -25,6 +25,10 @@ interface ElectronAPI {
   saveProject: (data: { petitionerName: string; content: string; extension?: string }) => Promise<string | null>;
   openProjectsFolder: () => Promise<void>;
   openFolderPath: (folderPath: string) => Promise<void>;
+  // Reveals and selects a file in Explorer/Finder, reusing a window that is
+  // already showing its folder. Prefer this over openFolderPath after writing a
+  // file — see the handler in electron/main.js.
+  revealFilePath: (filePath: string) => Promise<void>;
   listDraftoFilesFromPath: (folderPath: string) => Promise<DraftoFileInfo[]>;
 
   // Dialogs
