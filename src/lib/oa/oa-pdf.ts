@@ -13,6 +13,7 @@
 //   Authority Letter(s) → Court Fee → Proof of Service
 
 import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
+import { withAnnexureCustomText } from "@/lib/wp/wp-facts";
 import type { DraftoProject } from "@/lib/schema";
 import {
   b64ToBytes, bytesToB64, docxToPdf, fileBytes, pdfFromBytes,
@@ -142,7 +143,7 @@ export async function generateOaPdf(
       if (!src || src.getPageCount() === 0) { src = await PDFDocument.create(); src.addPage(); }
       items.push({
         key: `annex:${a.id}`,
-        title: `${label}: ${a.title || "[description]"}`,
+        title: withAnnexureCustomText(`${label}: ${a.title || "[description]"}`, a).replace(/\.\s*$/, ""),
         pdf: src,
         paginated: true,
         label,

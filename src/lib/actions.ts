@@ -3112,12 +3112,19 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             if (match) {
                 const annexureNum = match[1];
                 const rest = match[2];
-                // Check if it's a typed/translated copy
+                // The merge label carries only the title and date, so the user's
+                // own words for the annexure are added here — the Index has
+                // always shown them, the bookmark never did. Not on a typed or
+                // translated copy, whose label already ends with "(Typed Copy)".
                 if (meta.id.endsWith('_typed')) {
                     return `Annexure ${annexureNum}: ${rest}`;
-                } else {
-                    return `Annexure ${annexureNum}: ${rest}`;
                 }
+                const annexId = meta.id.substring('annexure_'.length);
+                const annex = (projectData.listOfDates || [])
+                    .flatMap(lod => lod.annexures || [])
+                    .find(a => a.id === annexId);
+                const extra = (annex?.customText || '').trim();
+                return `Annexure ${annexureNum}: ${rest}${extra ? ` ${extra}` : ''}`;
             }
         }
 

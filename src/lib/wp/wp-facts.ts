@@ -113,15 +113,26 @@ export function transposeEventHtml(date: string, eventHtml: string): string {
   return (escapeHtml(phrase) + body).trim();
 }
 
+// The user's own words for an annexure, added after the date wherever the
+// annexure is described — the Index, the Facts and the paper-book bookmark —
+// exactly as the Supreme Court tool has always done. Returns the sentence with
+// a single full stop at the end, whether or not the user typed one.
+export function withAnnexureCustomText(sentence: string, annex: { customText?: string }): string {
+  const extra = (annex.customText || "").trim();
+  const base = sentence.replace(/\s*$/, "").replace(/\.$/, "");
+  if (!extra) return `${base}.`;
+  return /[.!?]$/.test(extra) ? `${base} ${extra}` : `${base} ${extra}.`;
+}
+
 // Facts-style annexure sentence (not the colon Index style), split into the
 // "Annexure P-N" label and the rest so renderers can bold the label.
 export function factsAnnexureSentenceParts(pNumber: number, annex: Annexure, prefix: string = "P"): { label: string; rest: string } {
   const label = annexLabel(pNumber, annex, prefix);
   const dated = annex.date ? ` dated ${annex.date}` : "";
-  const rest = annex.isColly
-    ? ` are true copies of ${annex.title || "[description]"}${dated}.`
-    : ` is a ${annex.copyType || "true copy"} of ${annex.title || "[description]"}${dated}.`;
-  return { label, rest };
+  const body = annex.isColly
+    ? ` are true copies of ${annex.title || "[description]"}${dated}`
+    : ` is a ${annex.copyType || "true copy"} of ${annex.title || "[description]"}${dated}`;
+  return { label, rest: withAnnexureCustomText(body, annex) };
 }
 
 export function factsAnnexureSentence(pNumber: number, annex: Annexure, prefix: string = "P"): string {

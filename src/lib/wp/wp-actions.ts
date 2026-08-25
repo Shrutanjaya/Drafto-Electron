@@ -35,7 +35,7 @@ import {
 import { cascadeFor, enumLabel, type EnumStyle } from "./wp-numbering";
 import { wpAnnexureOrder, annexLabel, cmAnnexureOrder, cmAnnexLabel, cmAnnexBodySentence, cmAnnexIndexText, type CmAnnexEntry } from "./wp-annexures";
 import { resolveFactsHtml } from "./facts-mode";
-import { factsAnnexureSentenceParts, inlineHtml } from "./wp-facts";
+import { factsAnnexureSentenceParts, withAnnexureCustomText, inlineHtml } from "./wp-facts";
 import { getWpNumbering, getWpOutputFormatting, getWpVakFormatting, getWpFiledBy } from "./wp-settings";
 
 const cellMargins = { top: 0, bottom: 0, left: 115, right: 115 };
@@ -94,10 +94,11 @@ function annexIndexRuns(pNumber: number, annex: Annexure): (TextRun | string)[] 
     convertToSmartQuotes(`${article}${copy} of ${annex.title || "[description]"}`),
   ];
   if (annex.date) runs.push(convertToSmartQuotes(` dated ${annex.date}`));
+  // The user's own words for this annexure close the sentence (and carry the
+  // full stop), as they do in the Supreme Court tool.
   const last = runs[runs.length - 1];
   if (typeof last === "string") {
-    const t = last.trimEnd();
-    runs[runs.length - 1] = /[.!?]$/.test(t) ? t : t + ".";
+    runs[runs.length - 1] = convertToSmartQuotes(withAnnexureCustomText(last, annex));
   }
   return runs;
 }

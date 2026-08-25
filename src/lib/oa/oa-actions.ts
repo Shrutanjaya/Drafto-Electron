@@ -17,7 +17,7 @@ import { createWpFiledBy, NO_BORDERS } from "@/lib/wp/wp-helpers";
 import { cascadeFor, enumLabel, type EnumStyle } from "@/lib/wp/wp-numbering";
 import { wpAnnexureOrder } from "@/lib/wp/wp-annexures";
 import { resolveFactsHtml } from "@/lib/wp/facts-mode";
-import { factsAnnexureSentenceHtml, inlineHtml } from "@/lib/wp/wp-facts";
+import { factsAnnexureSentenceHtml, withAnnexureCustomText, inlineHtml } from "@/lib/wp/wp-facts";
 import { oaBench } from "@/lib/oa/oa-benches";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 import { getOaFiledBy, getOaFiledByLayout, getOaFiledByLeftPct, getOaSignature, getOaMarginsIn, getOaOutputFormatting, getOaVakFormatting, getOaForceLastPageBreak } from "@/lib/oa/oa-settings";
@@ -699,7 +699,10 @@ function buildOaIndex(project: DraftoProject, pageRanges?: Record<string, string
     const label = oaAnnexLabel(e.pNumber, e.annex);
     const copy = e.annex.isColly ? "True copies of" : `A ${e.annex.copyType || "true copy"} of`;
     const dated = e.annex.date ? ` dated ${e.annex.date}` : "";
-    items.push({ key: `annex:${e.annex.id}`, text: `${label}: ${copy} ${e.annex.title || "[description]"}${dated}` });
+    items.push({
+      key: `annex:${e.annex.id}`,
+      text: withAnnexureCustomText(`${label}: ${copy} ${e.annex.title || "[description]"}${dated}`, e.annex),
+    });
   }
   const sgIdx = oaSigning(project);
   items.push({
