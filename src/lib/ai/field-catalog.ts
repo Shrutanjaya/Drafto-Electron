@@ -663,15 +663,6 @@ export const WP_FIELD_CATALOG: CatalogEntry[] = [
     enumValues: ["226", "227", "226 read with 227"],
   },
   {
-    path: "wp.isIoWrit",
-    tab: "Preliminary",
-    label: "Impugned-order writ",
-    description:
-      "Set true when the writ challenges a specific impugned order. The impugned order's annexure (marked isImpugnedOrder on its List-of-Dates row) becomes Annexure P-1 and a Stay CM becomes available.",
-    isList: false,
-    kind: "boolean",
-  },
-  {
     path: "wp.listingDate",
     tab: "Preliminary",
     label: "Listing date (ISO yyyy-mm-dd)",
@@ -741,7 +732,13 @@ export const WP_FIELD_CATALOG: CatalogEntry[] = [
           { key: "title", label: "Annexure description/title", kind: "longtext" },
           { key: "date", label: "Annexure date (free text, e.g. 12.03.2021)", kind: "text" },
           { key: "copyType", label: "Copy type", kind: "enum", enumValues: ["true copy", "typed copy", "true and typed copy", "translated copy", "true and translated copy"] },
-          { key: "isImpugnedOrder", label: "This annexure IS the impugned order (sorts to Annexure P-1; impugned-order writs only)", kind: "boolean" },
+          {
+            key: "isImpugnedOrder",
+            label: "This annexure IS the impugned order",
+            kind: "boolean",
+            description:
+              "Marks the order the writ challenges. It sorts to Annexure P-1, the opening paragraph refers to it, and the Stay application becomes available — this mark is what makes the petition an impugned-order writ, so there is nothing else to set.",
+          },
         ],
       },
     ],

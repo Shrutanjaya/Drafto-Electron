@@ -256,13 +256,13 @@ const WP_SECTIONS: Section[] = [
     label: "Nature of the writ",
     tab: "Preliminary",
     hint: "Article basis, and whether an order is challenged",
-    paths: ["wp.articleBasis", "wp.isIoWrit", "caseType"],
+    paths: ["wp.articleBasis", "caseType"],
     needsDocuments: true,
     effort: "small",
     model: "haiku",
     isFilled: (v) => text(v?.wp?.articleBasis),
     playbook:
-      "Determine whether this is a writ against a specific order (set wp.isIoWrit true) or against action/inaction, and set the Article basis (226, 227, or both).",
+      "Determine whether this is a writ against a specific order (mark that order's annexure isImpugnedOrder) or against action/inaction, and set the Article basis (226, 227, or both).",
   },
   {
     id: "deponent",

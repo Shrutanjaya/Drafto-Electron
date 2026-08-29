@@ -225,6 +225,19 @@ textarea::placeholder {
     position: relative;
     padding-right: 1rem;
   }
+  /* The emphasis label a quote carries ("emphasis supplied" and the like). It is
+     drawn from the block's own data-emphasis rather than being part of the text,
+     so it cannot be typed into or deleted by accident — the Quote button's menu
+     sets it. Shown where the document prints it: after the quoted text, ranged
+     right, in roman inside parentheses. */
+  .prose blockquote[data-emphasis]::after {
+    content: "(" attr(data-emphasis) ")";
+    display: block;
+    text-align: right;
+    font-style: normal;
+    opacity: 0.85;
+    margin-top: 0.25rem;
+  }
   /* A list item that leads with a quote is not a numbered point: dropping it from
      `display: list-item` removes its marker AND excludes it from the browser's list
      numbering, so the count of real items never skips. Quotes that sit *after* text

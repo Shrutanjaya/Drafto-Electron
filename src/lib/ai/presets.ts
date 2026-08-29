@@ -164,7 +164,7 @@ export const WP_PRESETS: Preset[] = [
       "- Respondents: every authority/party against whom relief is sought, in order. Government respondents get their \"through\" service designation in the through field (e.g. \"Through the Secretary, Ministry of …\", \"Through its Standing Counsel\") — never inside the name or address.\n" +
       "- Petition type (caseType): Criminal only if the writ concerns the criminal-law machinery (FIR, investigation, bail, custody, sentence); otherwise Civil.\n" +
       "- Constitutional basis (wp.articleBasis): 226 read with 227 when a court/tribunal order is challenged; 226 for other state action; 227 alone only for pure supervisory challenges.\n" +
-      "- wp.isIoWrit: true if the writ challenges a specific impugned order.",
+      "- Mark the challenged order's annexure isImpugnedOrder if the writ challenges a specific order.",
   },
   {
     id: "deponent",

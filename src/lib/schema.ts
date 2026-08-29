@@ -488,9 +488,10 @@ export const draftoProjectSchema = z.object({
     drawnOnDate: z.preprocess((arg) => {
       if (typeof arg == "string" || arg instanceof Date) return new Date(arg);
     }, z.date().optional()),
-    // IO writ: the impugned order is the first annexure(s) (marked via
-    // annexure.isImpugnedOrder) and a Stay CM becomes available.
-    isIoWrit: z.boolean().default(false),
+    // Whether the writ challenges an impugned order is NOT stored: it follows
+    // from an annexure being marked isImpugnedOrder (see wpIsIoWrit in
+    // lib/wp/wp-annexures.ts). A stored flag could contradict the record, and
+    // did — it hid the marking control while the marking still applied.
     // Reliefs — single source of truth (lettered list), all user-authored
     // (including any quash relief; residuary prayer last). The full list prints
     // in the top reliefs block, Para 1 (inline) and the final Prayers.

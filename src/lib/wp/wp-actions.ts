@@ -678,7 +678,11 @@ function activeCms(project: DraftoProject): CmSpec[] {
   const c = project.wp.cms;
   const mid = (arr: { particulars: string }[] | undefined) => (arr || []).map(b => b.particulars).filter(htmlHasText);
 
-  if (project.wp.isIoWrit && c.stay.active) {
+  // The Stay application is generated when it is switched on. It used to need a
+  // separate "this writ has impugned orders" flag as well, which could be left
+  // in a state where the application was active but neither generated nor
+  // reachable in the interface.
+  if (c.stay.active) {
     cms.push({
       title: c.stay.title?.trim() || WP_STD_CM_TITLES.stay,
       para2: "This application is being filed praying that this Hon’ble Court be pleased to stay the operation of the Impugned Order during the pendency of the writ petition.",

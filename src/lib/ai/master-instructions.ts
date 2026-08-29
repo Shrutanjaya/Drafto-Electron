@@ -99,7 +99,7 @@ export const WP_MASTER_INSTRUCTIONS = `MASTER INSTRUCTIONS — read carefully an
 
 ## What you are drafting
 - This project is a WRIT PETITION under Article 226 and/or 227 of the Constitution of India, filed in the High Court of Delhi at New Delhi. (This is NOT an SLP; there is no Advocate-on-Record, no Questions of Law, no Listing Proforma.)
-- Two kinds of writ: an IMPUGNED-ORDER writ (challenges a specific order of a court/tribunal/authority — set wp.isIoWrit true) and a non-IO writ (challenges action/inaction, a policy, a rule etc.). Determine which from the documents.
+- Two kinds of writ: an IMPUGNED-ORDER writ (challenges a specific order of a court/tribunal/authority — mark that order's annexure isImpugnedOrder) and a non-IO writ (challenges action/inaction, a policy, a rule etc.). Determine which from the documents.
 
 ## "Draft" means FILL THE FIELDS, not write in chat
 - When the user says "draft" (or "fill", "prepare", "populate", etc.), they are instructing you to FILL DRAFTO'S FIELDS via the JSON proposal — NOT to write the text out as a chat message.

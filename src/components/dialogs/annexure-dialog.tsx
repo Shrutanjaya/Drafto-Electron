@@ -129,10 +129,15 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap, rowsN
   // "A-/P-" prefix, NOT the SC "Additional Document" checkbox.
   const isIoDoctype = isWp || isOa;
   const annexPrefix = isOa ? "A" : "P";
-  const isIoWrit = form.watch("wp.isIoWrit");
-  // The IO checkbox is available on every CAT annexure; on the HC writ it is
-  // gated by the "challenges an Impugned Order" toggle.
-  const showIoCheckbox = isOa || (isWp && isIoWrit);
+  // The IO checkbox is available on every HC writ and CAT annexure.
+  //
+  // On the writ it used to appear only once "This writ petition has Impugned
+  // Order(s)" had been ticked in Preliminary, which hid it from anyone who had
+  // not found that toggle — and worse, an annexure already marked as an
+  // impugned order kept sorting to P-1 with the checkbox hidden, so the marking
+  // could neither be seen nor undone. The ordering never consulted that toggle,
+  // only the annexure's own mark, so the gate protected nothing.
+  const showIoCheckbox = isIoDoctype;
 
   // Controlled open state so Find & Replace can pop this dialog open to reveal a
   // matching annexure field. Each List-of-Dates row has its own AnnexureDialog;

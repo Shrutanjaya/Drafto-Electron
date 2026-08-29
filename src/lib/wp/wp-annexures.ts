@@ -15,6 +15,23 @@ export function wpAnnexureOrderFromLods(listOfDates: { annexures?: Annexure[] }[
   return [...io, ...rest].map((annex, i) => ({ annex, pNumber: i + 1 }));
 }
 
+/**
+ * Whether this writ challenges an impugned order.
+ *
+ * It is not a separate declaration any more — it follows from the record. A
+ * writ challenges an order when an annexure is marked as that order, which is
+ * the same mark that sorts it to P-1 and that the petition's opening paragraph
+ * reads. There is nothing for a stray toggle to contradict.
+ *
+ * The Stay application counts too, so that a petition where it has already been
+ * switched on keeps it — visible, and switchable off — even before the order
+ * itself has been annexed.
+ */
+export function wpIsIoWrit(project: DraftoProject): boolean {
+  const marked = annexureRowsOf(project).some(row => (row.annexures || []).some(a => a.isImpugnedOrder));
+  return marked || !!project?.wp?.cms?.stay?.active;
+}
+
 export function wpAnnexureOrder(project: DraftoProject): { annex: Annexure; pNumber: number }[] {
   // Which table carries the annexures depends on the Facts mode — the List of
   // Dates normally, the Facts table when the two are kept separate.

@@ -8,6 +8,7 @@ import type { DraftoProject } from "@/lib/schema";
 import { customIaSchema } from "@/lib/schema";
 import { transposeLodToFacts, transposableLodIds, lodFingerprint, appendNewLodRowsToFacts } from "@/lib/wp/wp-facts";
 import { separateFactsMode, factsRowsFromLod } from "@/lib/wp/facts-mode";
+import { wpIsIoWrit } from "@/lib/wp/wp-annexures";
 import { WP_STD_CM_TITLES } from "@/lib/wp/wp-actions";
 import { CustomIaCard } from "@/components/custom/custom-ia-card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -69,7 +70,19 @@ type EditorSection = "synopsis" | "listOfDates" | "reliefs" | "facts" | "grounds
 
 export function WpWorkspace() {
   const form = useFormContext<DraftoProject>();
-  const isIoWrit = useWatch({ control: form.control, name: "wp.isIoWrit" });
+  // Whether this writ challenges an impugned order follows from the record —
+  // an annexure marked as that order — rather than from a separate declaration
+  // in Preliminary. Both sources of the mark are watched (the List of Dates, or
+  // the Facts table when the two are kept apart) so the Stay application
+  // appears the moment an order is marked.
+  const lodRowsWatch = useWatch({ control: form.control, name: "listOfDates" });
+  const factsRowsWatch = useWatch({ control: form.control, name: "wp.factsRows" as any });
+  const stayActiveWatch = useWatch({ control: form.control, name: "wp.cms.stay.active" });
+  const isIoWrit = useMemo(
+    () => wpIsIoWrit(form.getValues()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lodRowsWatch, factsRowsWatch, stayActiveWatch],
+  );
   const customCms = useFieldArray({ control: form.control, name: "wp.customCms" });
 
   // Editor-tab view mode (shares the SLP default + new-project event).
@@ -378,12 +391,6 @@ export function WpWorkspace() {
         )} />
         .
       </div>
-      <FormField control={form.control} name="wp.isIoWrit" render={({ field }) => (
-        <div className="flex items-center gap-2">
-          <Checkbox id="wp-io" checked={field.value} onCheckedChange={field.onChange} />
-          <label htmlFor="wp-io" className="text-xs">This writ petition has Impugned Order(s)</label>
-        </div>
-      )} />
     </div>
   );
   // Deponent — sentence template mirrored from the SLP tool. Everything except
@@ -510,6 +517,8 @@ export function WpWorkspace() {
     </div>
   );
   const cmNav: { id: typeof cmSection; label: string; active: boolean; content: React.ReactNode }[] = [
+    // Available once an annexure is marked as the impugned order (or the
+    // application is already switched on) — see wpIsIoWrit.
     ...(isIoWrit ? [{ id: "stay" as const, label: "Stay of Impugned Order", active: !!form.watch("wp.cms.stay.active"), content: stayContent }] : []),
     { id: "lengthySynopsis", label: "Lengthy Synopsis", active: !!form.watch("wp.cms.lengthySynopsis.active"), content: lengthyContent },
     { id: "exemptionCopies", label: "Exemption of Copies", active: !!form.watch("wp.cms.exemptionCopies.active"), content: exemptionContent },
