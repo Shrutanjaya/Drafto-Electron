@@ -22,8 +22,13 @@ let exportQuoteItalics = true;
 // is (base + L*step); a quote sits 0.25" further in. Defaults to the SLP/HC list
 // geometry and is reset on every parseHtml call, so it never leaks between
 // documents. The CAT OA passes its own (wider) geometry.
-export interface ListGeom { base: number; step: number }
-const DEFAULT_LIST_GEOM: ListGeom = { base: 360, step: 360 };
+// `base`/`step` place a QUOTE inside a list. `itemLeft`/`itemStep`/`itemHanging`
+// place the LIST ITEMS themselves, and exist because the CAT tool indents its
+// sub-paragraphs differently from the other two: its Facts are authored as a
+// list, and without this they sat at a different indent from its Grounds, which
+// are numbered by the generator.
+export interface ListGeom { base: number; step: number; itemLeft?: number; itemStep?: number; itemHanging?: number }
+const DEFAULT_LIST_GEOM: ListGeom = { base: 360, step: 360, itemLeft: 720, itemStep: 360, itemHanging: 360 };
 let quoteListGeom: ListGeom = DEFAULT_LIST_GEOM;
 // Output formatting (mirrors Settings → Customize → Output Text Formatting), read
 // at export time so the blockquote trailing space tracks the user's choices.
@@ -149,7 +154,7 @@ function htmlToTree(html: string): (SimpleNode | string)[] {
 }
 
 // Process the tree to create docx paragraphs and numbering configs
-function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: number }, listLevel = 0, inBlockquote = false, olRef?: string, spacing?: ParagraphSpacing, defaultNumbering?: { reference: string; level: number }, exportHighlight = false): ParseResult {
+function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: number }, listLevel = 0, inBlockquote = false, olRef?: string, spacing?: ParagraphSpacing, defaultNumbering?: { reference: string; level: number }, exportHighlight = false, blockIndent?: { left: number }): ParseResult {
     const result: ParseResult = { paragraphs: [], numbering: [] };
 
     // Buffer consecutive inline/string nodes so that loose inline content — e.g.
@@ -397,6 +402,11 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 };
                 if (currentInBlockquote) {
                     paragraphProps.indent = { left: 720, right: 720 };
+                } else if (blockIndent) {
+                    // A paragraph carried inside a list item — the second and
+                    // later paragraphs of one fact, say — lines up with the
+                    // item's own text rather than sliding back to the margin.
+                    paragraphProps.indent = { left: blockIndent.left };
                 }
                 if (spacing) {
                     paragraphProps.spacing = spacing;
@@ -573,12 +583,33 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 result.numbering.push(...olResult.numbering);
                 break;
             case 'li': {
-                // Block-level children (nested lists, quotes) are emitted as their
-                // own paragraphs; everything else is the item's own (numbered) text.
-                const isBlockChild = (c: SimpleNode | string): c is SimpleNode =>
-                    typeof c !== 'string' && ['ul', 'ol', 'blockquote'].includes(c.tagName);
-                const leadChildren = node.children.filter(c => !isBlockChild(c));
-                const blockChildren = node.children.filter(isBlockChild);
+                // The item's first paragraph is its own (numbered) text; nested
+                // lists, quotes, TABLES and any FURTHER paragraphs are emitted
+                // after it as their own blocks, unnumbered, at the item's level.
+                //
+                // Tables and second paragraphs used to be flattened into the
+                // item's text, which is how a List-of-Dates entry with more than
+                // one paragraph — or a table — arrived in the Facts as one
+                // run-on sentence.
+                const BLOCK_TAGS = ['ul', 'ol', 'blockquote', 'table'];
+                const leadChildren: (SimpleNode | string)[] = [];
+                const blockChildren: SimpleNode[] = [];
+                let leadParagraphTaken = false;
+                for (const child of node.children) {
+                    if (typeof child === 'string') { leadChildren.push(child); continue; }
+                    if (BLOCK_TAGS.includes(child.tagName)) { blockChildren.push(child); continue; }
+                    if (child.tagName === 'p') {
+                        // The first paragraph is the numbered line; the rest follow it.
+                        if (!leadParagraphTaken && blockChildren.length === 0) {
+                            leadParagraphTaken = true;
+                            leadChildren.push(child);
+                        } else {
+                            blockChildren.push(child);
+                        }
+                        continue;
+                    }
+                    (leadParagraphTaken || blockChildren.length ? blockChildren : leadChildren).push(child as any);
+                }
 
                 // Extract plain text, convert quotes, then process with formatting
                 const liPlainText = extractPlainText(leadChildren);
@@ -597,8 +628,11 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                      };
 
                      if (listLevel > 0) {
-                         const indentValue = 360 + (listLevel) * 360;
-                         const hangingValue = 360 + (listLevel > 1 ? (listLevel-1)*180 : 0);
+                         const itemLeft = quoteListGeom.itemLeft ?? 720;
+                         const itemStep = quoteListGeom.itemStep ?? 360;
+                         const itemHanging = quoteListGeom.itemHanging ?? 360;
+                         const indentValue = itemLeft + (listLevel - 1) * itemStep;
+                         const hangingValue = itemHanging + (listLevel > 1 ? (listLevel - 1) * 180 : 0);
                          // `hanging` must live inside `indent` (a positive twip value); a
                          // top-level `hanging` prop is ignored by the docx library, which
                          // is why wrapped list lines previously slid back under the number.
@@ -625,8 +659,17 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 // Emit block children (quotes, nested lists) in document order, at the
                 // item's level. Quotes are never numbered; an unnumbered quote doesn't
                 // reference the list numbering, so the count of real items never skips.
+                // Continuation paragraphs take the item's own text indent; nested
+                // lists and quotes work out their own from the level, so they are
+                // left alone.
+                const itemTextIndent = listLevel > 0
+                    ? { left: (quoteListGeom.itemLeft ?? 720) + (listLevel - 1) * (quoteListGeom.itemStep ?? 360) }
+                    : undefined;
                 blockChildren.forEach(bc => {
-                    const childResult = treeToDocx([bc], olCounterRef, listLevel, currentInBlockquote, currentOlRef, spacing, undefined, exportHighlight);
+                    const childResult = treeToDocx(
+                        [bc], olCounterRef, listLevel, currentInBlockquote, currentOlRef, spacing, undefined, exportHighlight,
+                        bc.tagName === 'p' ? itemTextIndent : undefined,
+                    );
                     result.paragraphs.push(...childResult.paragraphs);
                     result.numbering.push(...childResult.numbering);
                 });

@@ -96,6 +96,54 @@ export function transposeEvent(date: string, eventText: string): string {
   return (phrase + body).trim();
 }
 
+// Structure-preserving transposition. The flattening one below reduces a whole
+// List-of-Dates entry to a single line: paragraph breaks, line breaks, lists,
+// quotes and tables all become spaces. This keeps them, putting the date phrase
+// inside the first paragraph (so the fact still opens "On 01.01.2026, …") and
+// leaving everything after it as the user wrote it.
+//
+// A block the date cannot sensibly lead — an entry that opens with a table or a
+// list — gets the phrase as its own short paragraph instead.
+const LEADING_BLOCK = /^\s*<(p|div|h[1-6])\b[^>]*>/i;
+
+export function transposeEventHtmlKeepingStructure(date: string, eventHtml: string): string {
+  const phrase = datePhrase(date);
+  const html = (eventHtml || "").trim();
+  if (!html) return "";
+  if (!phrase) return html;
+
+  const lead = html.match(LEADING_BLOCK);
+  if (!lead) {
+    // Either bare inline text, or an entry opening with a table/list.
+    if (/^\s*<(ol|ul|table|blockquote)\b/i.test(html)) {
+      return `<p>${escapeHtml(phrase.replace(/,\s*$/, ":"))}</p>${html}`;
+    }
+    return lowercaseLeadWord(escapeHtml(phrase) + html, phrase.length);
+  }
+  const at = lead[0].length;
+  return lowercaseLeadWord(html.slice(0, at) + escapeHtml(phrase) + html.slice(at), at + phrase.length);
+}
+
+// The first word after the date phrase reads better lowercased ("On 1.1.2026,
+// the Petitioner…"), but only for the words that are not proper nouns.
+function lowercaseLeadWord(html: string, from: number): string {
+  const m = html.slice(from).match(/^((?:<[^>]+>|\s)*)([A-Za-z]+)/);
+  if (!m || !LEAD_LOWERCASE.has(m[2])) return html;
+  const at = from + m[1].length;
+  return html.slice(0, at) + m[2].charAt(0).toLowerCase() + m[2].slice(1) + html.slice(at + m[2].length);
+}
+
+// Appends a sentence INSIDE the last paragraph so it reads as part of the fact;
+// after a table or a list, where there is no sentence to join, it becomes a
+// short paragraph of its own.
+export function appendSentenceToLastBlock(html: string, sentence: string): string {
+  if (!sentence) return html;
+  const m = html.match(/^([\s\S]*)(<\/(?:p|div|h[1-6])>\s*)$/i);
+  if (m) return `${m[1]} ${sentence}${m[2]}`;
+  if (/<\/(?:table|ol|ul|blockquote)>\s*$/i.test(html)) return `${html}<p>${sentence}</p>`;
+  return `${html} ${sentence}`.trim();
+}
+
 // HTML-preserving transposition: prepends the date phrase and lowercases the
 // first visible word (which may sit inside inline tags like <b>The</b>).
 export function transposeEventHtml(date: string, eventHtml: string): string {
@@ -148,16 +196,25 @@ export function factsAnnexureSentenceHtml(pNumber: number, annex: Annexure, pref
 
 // One transposed <li> (inner HTML) for a LoD row, or null when the row is empty.
 function factsItem(project: DraftoProject, lod: DraftoProject["listOfDates"][number], pMap: Map<string, { annex: Annexure; pNumber: number }>, prefix: string = "P"): string | null {
+  // Both tools now render the Facts as a real list and emit an item's further
+  // paragraphs, lists, quotes and tables as blocks of their own, so an entry
+  // can be carried across whole rather than flattened to a single line.
+  const keepStructure = true;
   // The impugned order's annexure sentence prints in Para 1 of the petition,
   // NOT in Facts — only the other annexures get their sentence here. (The IO
   // still holds P-1, so the remaining sentences cite P-2 onwards.)
   const annexes = (lod.annexures || []).filter(a => !a.isImpugnedOrder);
-  let sentence = transposeEventHtml(lod.date || "", lod.event || "");
+  let sentence = keepStructure
+    ? transposeEventHtmlKeepingStructure(lod.date || "", lod.event || "")
+    : transposeEventHtml(lod.date || "", lod.event || "");
   if (!sentence && annexes.length === 0) return null;
   for (const annex of annexes) {
     const entry = pMap.get(annex.id);
     if (!entry) continue;
-    sentence = `${sentence} ${factsAnnexureSentenceHtml(entry.pNumber, annex, prefix)}`.trim();
+    const annexSentence = factsAnnexureSentenceHtml(entry.pNumber, annex, prefix);
+    sentence = keepStructure
+      ? appendSentenceToLastBlock(sentence, annexSentence)
+      : `${sentence} ${annexSentence}`.trim();
   }
   return sentence || null;
 }

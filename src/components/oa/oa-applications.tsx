@@ -225,20 +225,24 @@ export function OaApplications() {
                 <ListRow key={m.id} label={KIND_LABEL[m.kind]} active={hasContent(m)} selected={m.id === mas[idx]?.id} onClick={() => setSelectedId(m.id)} />
               ))}
 
-              <NavSection label="Not included" hint="Click one to add it. The automatic ones come in on their own when their trigger fires." />
-              {ADDABLE_KINDS.filter((k) => k === "custom" || !mas.some((m: any) => m.kind === k)).map((k) => (
-                <ListRow
-                  key={`add-${k}`}
-                  label={k === "custom" ? "Custom Application" : KIND_LABEL[k]}
-                  active={false}
-                  dulled
-                  selected={false}
-                  onClick={() => addKind(k)}
-                />
-              ))}
-              {AUTO_KINDS.filter((k) => !mas.some((m: any) => m.kind === k)).map((k) => (
-                <TriggerRow key={`trigger-${k}`} label={KIND_LABEL[k]} hint={AUTO_TRIGGER_HINT[k]} />
-              ))}
+              {/* Held at the foot of the panel, under a rule, so what is being
+                  filed reads as one list and what is not sits apart from it. */}
+              <div className="mt-auto flex flex-col gap-0.5 border-t pt-2">
+                <NavSection label="Not included" hint="Click one to add it. The automatic ones come in on their own when their trigger fires." />
+                {ADDABLE_KINDS.filter((k) => k === "custom" || !mas.some((m: any) => m.kind === k)).map((k) => (
+                  <ListRow
+                    key={`add-${k}`}
+                    label={k === "custom" ? "Custom Application" : KIND_LABEL[k]}
+                    active={false}
+                    dulled
+                    selected={false}
+                    onClick={() => addKind(k)}
+                  />
+                ))}
+                {AUTO_KINDS.filter((k) => !mas.some((m: any) => m.kind === k)).map((k) => (
+                  <TriggerRow key={`trigger-${k}`} label={KIND_LABEL[k]} hint={AUTO_TRIGGER_HINT[k]} />
+                ))}
+              </div>
             </div>
           </ResizablePanel>
 

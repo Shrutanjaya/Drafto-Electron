@@ -12,6 +12,7 @@ import { OcrOption } from "./ocr-option";
 import type { DraftoProject } from "@/lib/schema";
 import { wpAnnexureOrder } from "@/lib/wp/wp-annexures";
 import { useExportPermission } from "@/providers/entitlement-provider";
+import { hasUsableFile, isRememberedButMissing, fileNameOf } from "@/lib/file-availability";
 
 /**
  * Pre-flight + upload slots for the CAT Original Application paper-book. The
@@ -44,7 +45,10 @@ export function OaPdfGenerationDialog({
   // Upload row for an arbitrary form path holding { file, filePath }.
   const uploadRow = (path: string, label: string, hint: string, indent = false) => {
     const val: any = form.watch(path as any);
-    const has = val?.file instanceof File || !!val?.filePath;
+    // A path the project remembers from another computer is not an attachment
+    // here — see lib/file-availability.
+    const has = hasUsableFile(val);
+    const elsewhere = isRememberedButMissing(val);
     const fileName = val?.file?.name || (val?.filePath ? String(val.filePath).split(/[\\/]/).pop() : "");
     const pick = async () => {
       const f = await pickFile();
@@ -61,7 +65,13 @@ export function OaPdfGenerationDialog({
       <div key={path} className={"flex items-center justify-between gap-2 rounded-md border p-2 " + (indent ? "ml-4" : "")}>
         <div className="min-w-0">
           <p className="text-xs font-medium">{label}</p>
-          <p className={"truncate text-[11px] " + (has ? "text-muted-foreground" : "text-amber-600 dark:text-amber-500")}>{has ? fileName : hint}</p>
+          <p className={"text-[11px] leading-snug " + (has ? "truncate text-muted-foreground" : elsewhere ? "text-destructive" : "text-amber-600 dark:text-amber-500")}>
+            {has
+              ? fileName
+              : elsewhere
+                ? `Attached on another computer (${fileNameOf(val?.filePath)}) — not on this machine.`
+                : hint}
+          </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Button type="button" size="sm" variant="outline" onClick={pick}>
@@ -139,8 +149,8 @@ export function OaPdfGenerationDialog({
   const missingAnnexures = project
     ? wpAnnexureOrder(project).filter((e: any) => {
         const a = e.annex;
-        if (a.isColly) return !(a.collyDocuments || []).some((c: any) => c.file || c.filePath);
-        return !a.file && !a.filePath;
+        if (a.isColly) return !(a.collyDocuments || []).some((c: any) => hasUsableFile(c));
+        return !hasUsableFile(a);
       })
     : [];
 

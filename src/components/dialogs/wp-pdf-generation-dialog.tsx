@@ -17,7 +17,9 @@ import { Button } from "@/components/ui/button";
 import { OcrOption } from "./ocr-option";
 import type { DraftoProject } from "@/lib/schema";
 import { wpPreflight } from "@/lib/wp/wp-preflight";
-import { wpFrontMatterOrder } from "@/lib/wp/wp-actions";
+import { wpFrontMatterOrder, wpActiveCms, wpCmTitle } from "@/lib/wp/wp-actions";
+import { wpAnnexureOrder, annexLabel } from "@/lib/wp/wp-annexures";
+import { hasUsableFile, isRememberedButMissing, fileNameOf, refreshFileAvailability } from "@/lib/file-availability";
 import { useEntitlement, useExportPermission } from "@/providers/entitlement-provider";
 
 const FRONT_LABELS: Record<"notice" | "urgency" | "memo", string> = {
@@ -50,6 +52,27 @@ export function WpPdfGenerationDialog({
   const permission = useExportPermission("WritPetitionDHC");
   const canExport = permission.allowed;
 
+  // A file missing at load may have turned up since — a synced drive catching
+  // up, a volume mounted — so the remembered paths are re-checked each time the
+  // dialog opens, and the rows re-render if anything changed.
+  const [, setAvailabilityTick] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    const values: any = form.getValues();
+    const paths: (string | undefined)[] = [];
+    const collect = (entry: any) => { if (entry?.filePath) paths.push(entry.filePath); };
+    for (const row of [...(values.listOfDates || []), ...((values.wp?.factsRows) || [])]) {
+      for (const a of row.annexures || []) { collect(a); (a.collyDocuments || []).forEach(collect); }
+    }
+    Object.values(values.wp?.uploads || {}).forEach(collect);
+    (values.wp?.customCms || []).forEach((cm: any) => {
+      collect(cm.signedAffidavit);
+      (cm.grounds || []).forEach((g: any) => (g.annexures || []).forEach(collect));
+    });
+    ["stay", "lengthySynopsis", "exemptionCopies"].forEach(k => collect(values.wp?.cms?.[k]?.signedAffidavit));
+    refreshFileAvailability(paths).then(changed => { if (changed) setAvailabilityTick(t => t + 1); });
+  }, [open, form]);
+
   // Mayur's "Compile" button opens the paperbook dialog for the active mode;
   // this dialog only renders in WP mode, so listening here is safe.
   useEffect(() => {
@@ -58,34 +81,51 @@ export function WpPdfGenerationDialog({
     return () => window.removeEventListener("drafto-open-paperbook", openFromAssistant);
   }, []);
 
-  const slot = (key: string, label: string, hint: string) => {
-    const val: any = form.watch(`wp.uploads.${key}` as any);
-    const has = val?.file instanceof File || !!val?.filePath;
+  // An upload row addressed by any form path — the filing documents, a signed
+  // affidavit, an annexure, a CM's own affidavit.
+  const uploadRow = (path: string, label: string, hint: string, extra?: React.ReactNode, missingLabel?: string) => {
+    const val: any = form.watch(path as any);
+    const has = hasUsableFile(val);
+    const elsewhere = isRememberedButMissing(val);
+    const missing = !has && (!!missingLabel || elsewhere);
     const fileName = val?.file?.name || (val?.filePath ? String(val.filePath).split(/[\\/]/).pop() : "");
     const pick = async () => {
       const f = await pickFile();
       if (f) {
-        form.setValue(`wp.uploads.${key}.file` as any, f, { shouldDirty: true });
-        form.setValue(`wp.uploads.${key}.filePath` as any, (f as any).path);
+        form.setValue(`${path}.file` as any, f, { shouldDirty: true });
+        form.setValue(`${path}.filePath` as any, (f as any).path);
       }
     };
     const clear = () => {
-      form.setValue(`wp.uploads.${key}.file` as any, undefined, { shouldDirty: true });
-      form.setValue(`wp.uploads.${key}.filePath` as any, undefined);
+      form.setValue(`${path}.file` as any, undefined, { shouldDirty: true });
+      form.setValue(`${path}.filePath` as any, undefined);
     };
     return (
-      <div className="flex items-center justify-between gap-2 rounded-md border p-2">
+      <div className={`flex items-center justify-between gap-2 rounded-md border p-2 ${missing ? "border-destructive/40 bg-destructive/5" : ""}`}>
         <div className="min-w-0">
           <p className="text-xs font-medium">{label}</p>
-          <p className="truncate text-[11px] text-muted-foreground">{has ? fileName : hint}</p>
+          <p className={`text-[11px] leading-snug ${missing ? "text-destructive" : "truncate text-muted-foreground"}`}>
+            {has
+              ? fileName
+              : elsewhere
+                // The project remembers this file from another computer. The
+                // path is kept — it will resolve again there — but it is not
+                // an attachment here.
+                ? `Attached on another computer (${fileNameOf(val?.filePath)}) — not on this machine.`
+                : (missing ? missingLabel : hint)}
+          </p>
+          {extra}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <Button type="button" size="sm" variant="outline" onClick={pick}><Upload className="mr-1 h-3.5 w-3.5" />{has ? "Replace" : "Upload"}</Button>
+          <Button type="button" size="sm" variant={missing ? "destructive" : has ? "outline" : "secondary"} onClick={pick}>
+            <Upload className="mr-1 h-3.5 w-3.5" />{has ? "Replace" : "Upload"}
+          </Button>
           {has && <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={clear}><Trash2 className="h-3.5 w-3.5" /></Button>}
         </div>
       </div>
     );
   };
+
 
   // Front-matter ordering (Notice / Urgency / Memo — everything else is fixed).
   const watchedOrder = form.watch("wp.frontMatterOrder");
@@ -103,6 +143,86 @@ export function WpPdfGenerationDialog({
   // watches above; the dialog opens fresh for everything else).
   const issues = open ? wpPreflight(form.getValues()) : [];
   const errors = issues.filter(i => i.severity === "error");
+
+  // Every issue is shown against the item it is about; anything without a home
+  // (or whose item is not on this list) still shows, at the end, so nothing is
+  // silently swallowed. The set of covered targets is worked out here, before
+  // rendering — filling it DURING the render meant the closing list ran first,
+  // while it was still empty, and repeated every message that had just been
+  // shown against its item.
+  const issuesFor = (target: string) => issues.filter(i => i.target === target);
+  const IssueList = ({ target, skipFirstIfMissing }: { target: string; skipFirstIfMissing?: boolean }) => {
+    let list = issuesFor(target);
+    // The row itself says "No file uploaded" in red; the matching issue would
+    // only say it twice.
+    if (skipFirstIfMissing) list = list.filter(i => !/has no file uploaded/.test(i.message));
+    if (!list.length) return null;
+    return (
+      <ul className="mt-1 space-y-0.5">
+        {list.map((issue, i) => (
+          <li key={i} className={`flex items-start gap-1.5 text-[11px] leading-snug ${issue.severity === "error" ? "text-destructive" : "text-amber-600 dark:text-amber-500"}`}>
+            {issue.severity === "error"
+              ? <OctagonAlert className="mt-0.5 h-3 w-3 shrink-0" />
+              : <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />}
+            <span>{issue.message}</span>
+          </li>
+        ))}
+      </ul>
+    );
+  };
+
+  // A row for something Drafto writes itself — no upload, just its state.
+  const generatedRow = (target: string, label: string, hint: string, action?: React.ReactNode) => (
+    <div className="rounded-md border p-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs font-medium">{label}</p>
+          <p className="truncate text-[11px] text-muted-foreground">{hint}</p>
+        </div>
+        {action}
+      </div>
+      <IssueList target={target} />
+    </div>
+  );
+
+  const SectionLabel = ({ children }: { children: React.ReactNode }) => (
+    <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{children}</p>
+  );
+
+  const project = form.getValues();
+  const annexures = open ? wpAnnexureOrder(project) : [];
+  const cms = open ? wpActiveCms(project) : [];
+
+  // Where an annexure lives in the form — the List of Dates normally, the Facts
+  // table when the two are kept apart (the annexure order knows which).
+  const annexureRows: any[] = (project as any).wp?.factsRows?.some((r: any) => (r.annexures || []).length)
+    ? (project as any).wp.factsRows
+    : (project.listOfDates || []);
+  const annexureBase = annexureRows === (project.listOfDates || []) ? "listOfDates" : "wp.factsRows";
+  const annexurePath = (id: string) => {
+    const rowIdx = annexureRows.findIndex((r: any) => (r.annexures || []).some((a: any) => a.id === id));
+    if (rowIdx < 0) return "";
+    const colIdx = (annexureRows[rowIdx].annexures || []).findIndex((a: any) => a.id === id);
+    return `${annexureBase}.${rowIdx}.annexures.${colIdx}`;
+  };
+
+  const coveredTargets = new Set<string>([
+    "parties", "synopsis", "petition", "affidavit", "courtFee", "proofOfService", "vakalatnama",
+    ...annexures.map(({ annex }) => `annex:${annex.id}`),
+    ...cms.flatMap((cm, i) => [
+      `cm:${i}`,
+      `customcm:${cm.key.replace(/^custom:/, "")}`,
+      ...cm.annexures.map(({ annex }) => `cmannex:${annex.id}`),
+    ]),
+  ]);
+  // Where a CM's own signed affidavit is kept: the three standard ones live
+  // under their own key, a custom one under its index in wp.customCms.
+  const cmAffidavitPath = (key: string) => {
+    if (!key.startsWith("custom:")) return `wp.cms.${key}.signedAffidavit`;
+    const id = key.slice("custom:".length);
+    const idx = (project.wp.customCms || []).findIndex((c: any) => c.id === id);
+    return idx >= 0 ? `wp.customCms.${idx}.signedAffidavit` : "";
+  };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -129,29 +249,86 @@ export function WpPdfGenerationDialog({
             ))}
           </div>
 
-          <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Filing documents</p>
-          {slot("courtFee", "Court Fee", "e-Court Fee receipt (PDF or image).")}
-          {slot("proofOfService", "Proof of Service", "Advance-service email / acknowledgement.")}
-          <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Signed / executed copies</p>
-          <p className="text-[11px] text-muted-foreground">Optional — when uploaded, these replace the generated clean version in the paper-book.</p>
-          {slot("signedAffidavit", "Affidavit (to the Petition)", "Notarised affidavit PDF.")}
-          {slot("signedVakalatnama", "Vakalatnama", "Signed / stamped vakalatnama PDF.")}
+          {/* From here down the list follows the paper-book itself, so what you
+              read here is what the Index will read. */}
+          <IssueList target="parties" />
 
-          <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pre-flight check</p>
-          {issues.length === 0 ? (
-            <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><CheckCircle2 className="h-3.5 w-3.5 text-green-600" />No issues found.</p>
-          ) : (
-            <ul className="space-y-1">
-              {issues.map((issue, i) => (
-                <li key={i} className={`flex items-start gap-1.5 text-[11px] leading-snug ${issue.severity === "error" ? "text-destructive" : "text-amber-600 dark:text-amber-500"}`}>
-                  {issue.severity === "error"
-                    ? <OctagonAlert className="mt-0.5 h-3 w-3 shrink-0" />
-                    : <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />}
-                  <span>{issue.message}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <SectionLabel>The paper-book, in order</SectionLabel>
+          {generatedRow("synopsis", "Synopsis and List of Dates", "Written by Drafto from the Synopsis and the List of Dates.")}
+          {generatedRow("petition", "Writ Petition", "Written by Drafto — reliefs, facts, grounds and prayers.")}
+          {uploadRow("wp.uploads.signedAffidavit", "Affidavit (to the Petition)", "Optional — a notarised affidavit replaces the generated clean copy.")}
+          <IssueList target="affidavit" />
+
+          <SectionLabel>Annexures</SectionLabel>
+          {annexures.length === 0 && <p className="px-1 text-[11px] italic text-muted-foreground">None on the List of Dates yet.</p>}
+          {annexures.map(({ annex, pNumber }) => (
+            <div key={annex.id}>
+              {annex.isColly ? (
+                <div className="rounded-md border p-2">
+                  <p className="text-xs font-medium">{annexLabel(pNumber, annex)}{annex.title ? `: ${annex.title}` : ""}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {(annex.collyDocuments || []).length} constituent document{(annex.collyDocuments || []).length === 1 ? "" : "s"} — upload them in the annexure dialog on the List of Dates.
+                  </p>
+                  <IssueList target={`annex:${annex.id}`} />
+                </div>
+              ) : (
+                uploadRow(
+                  annexurePath(annex.id),
+                  `${annexLabel(pNumber, annex)}${annex.title ? `: ${annex.title}` : ""}`,
+                  "Uploaded.",
+                  <IssueList target={`annex:${annex.id}`} skipFirstIfMissing />,
+                  "No file uploaded — a blank page would be inserted here.",
+                )
+              )}
+            </div>
+          ))}
+
+          <SectionLabel>Applications (CMs)</SectionLabel>
+          {cms.length === 0 && <p className="px-1 text-[11px] italic text-muted-foreground">None included.</p>}
+          {cms.map((cm, i) => (
+            <div key={cm.key} className="space-y-1">
+              {generatedRow(`cm:${i}`, wpCmTitle(cm), "Written by Drafto, with its own affidavit.")}
+              <IssueList target={`customcm:${cm.key.replace(/^custom:/, "")}`} />
+              {cm.annexures.map(({ annex }) => <IssueList key={annex.id} target={`cmannex:${annex.id}`} />)}
+              {cmAffidavitPath(cm.key) && uploadRow(
+                cmAffidavitPath(cm.key),
+                "Affidavit to this application",
+                "Optional — a signed affidavit replaces the generated clean copy.",
+              )}
+            </div>
+          ))}
+
+          <SectionLabel>Filing documents</SectionLabel>
+          {uploadRow("wp.uploads.courtFee", "Court Fee", "e-Court Fee receipt (PDF or image).", <IssueList target="courtFee" />)}
+          {uploadRow("wp.uploads.proofOfService", "Proof of Service", "Advance-service email / acknowledgement.", <IssueList target="proofOfService" />)}
+          {uploadRow("wp.uploads.signedVakalatnama", "Vakalatnama", "Optional — a signed vakalatnama replaces the generated clean copy.", <IssueList target="vakalatnama" />)}
+
+          {(() => {
+            const rest = issues.filter(i => !i.target || !coveredTargets.has(i.target));
+            if (issues.length === 0) {
+              return (
+                <p className="flex items-center gap-1.5 pt-2 text-xs text-muted-foreground">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />Nothing outstanding.
+                </p>
+              );
+            }
+            if (!rest.length) return null;
+            return (
+              <>
+                <SectionLabel>Also worth knowing</SectionLabel>
+                <ul className="space-y-1">
+                  {rest.map((issue, i) => (
+                    <li key={i} className={`flex items-start gap-1.5 text-[11px] leading-snug ${issue.severity === "error" ? "text-destructive" : "text-amber-600 dark:text-amber-500"}`}>
+                      {issue.severity === "error"
+                        ? <OctagonAlert className="mt-0.5 h-3 w-3 shrink-0" />
+                        : <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />}
+                      <span>{issue.message}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            );
+          })()}
         </div>
         <div className="border-t pt-2">
           <OcrOption checked={ocr} onChange={setOcr} disabled={isPending} />

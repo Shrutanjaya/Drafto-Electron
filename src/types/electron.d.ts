@@ -29,6 +29,10 @@ interface ElectronAPI {
   // already showing its folder. Prefer this over openFolderPath after writing a
   // file — see the handler in electron/main.js.
   revealFilePath: (filePath: string) => Promise<void>;
+  // Asks once for a folder to put a batch of generated documents in.
+  pickSaveFolder: () => Promise<string | null>;
+  // Whether a stored attachment path still exists on this machine.
+  pathExists: (filePath: string) => Promise<boolean>;
   listDraftoFilesFromPath: (folderPath: string) => Promise<DraftoFileInfo[]>;
 
   // Dialogs

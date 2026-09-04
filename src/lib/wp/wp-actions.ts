@@ -37,6 +37,7 @@ import { wpAnnexureOrder, annexLabel, cmAnnexureOrder, cmAnnexLabel, cmAnnexBody
 import { resolveFactsHtml } from "./facts-mode";
 import { factsAnnexureSentenceParts, withAnnexureCustomText, inlineHtml } from "./wp-facts";
 import { getWpNumbering, getWpOutputFormatting, getWpVakFormatting, getWpFiledBy } from "./wp-settings";
+import { vakalatnamaOpening, vakalatnamaAuthorities, vakalatnamaPartyLabel, VAKALATNAMA_FEES_LINE } from "@/lib/vakalatnama";
 
 const cellMargins = { top: 0, bottom: 0, left: 115, right: 115 };
 const tableSpacing = { before: 120, after: 120 };
@@ -574,14 +575,6 @@ export async function generateWpVakalatnama(project: DraftoProject) {
     ? advRaw
     : { ...advRaw, ...getWpFiledBy() };
   const advName = [adv.name, adv.firm].filter(Boolean).join(", ") || "[Advocate]";
-  const advDetails = [
-    adv.name && { text: adv.name, bold: true },
-    adv.enrolmentNo && { text: `Enrl. No.: ${adv.enrolmentNo}` },
-    adv.firm && { text: adv.firm },
-    adv.address && { text: adv.address },
-    adv.email && { text: adv.email },
-    adv.phone && { text: adv.phone },
-  ].filter(Boolean) as { text: string; bold?: boolean }[];
 
   // All petitioners execute the vakalatnama (each gets a signature slot below);
   // "X and Ors." from the cause title is never used as an executant.
@@ -591,13 +584,7 @@ export async function generateWpVakalatnama(project: DraftoProject) {
   const we = multi ? "We" : "I";
   const my = multi ? "our" : "my";
 
-  const authority = [
-    "To act, appear and plead in the above-noted case in this Court or in any other Court in which the same may be tried or heard and also in the appellate Court including the High Court.",
-    "To sign, file, verify and present pleadings, appeals, cross-objections or petitions for execution, review, revision, withdrawal, compromise or other petitions, replies, objections or affidavits or other documents as may be deemed necessary or proper for the prosecution of the said case in all its stages.",
-    "To withdraw or compromise the said case or submit to arbitration any differences or disputes that may arise touching or in any manner relating to the said case.",
-    "To deposit, draw and receive moneys and grant receipts therefor and to do all other acts and things which may be necessary to be done for the progress and in the course of the prosecution of the said case.",
-    "To appoint and instruct any other legal Practitioner authorising him to exercise the powers and authority hereby conferred upon the Advocate whenever they may think fit to do so.",
-  ];
+  const authority = vakalatnamaAuthorities("Court");
 
   const nb = numberer();
   const authRef = nb.styled("lower-alpha");
@@ -618,9 +605,14 @@ export async function generateWpVakalatnama(project: DraftoProject) {
     ...createWpHeader(project.caseType, { size: vSize }),
     ...createWpPartiesHeader(petHeader, resHeader, { size: vSize }),
     vPara({ alignment: AlignmentType.CENTER, children: [vRun({ text: "VAKALATNAMA", bold: true })], before: 120 }),
-    vPara({ children: [vRun(`${we}, ${executants}, the Petitioner${multi ? "s" : ""} in the captioned matter, do hereby appoint ${advName} to be ${my} Advocate in the above-noted case and authorise him:`)] }),
+    vPara({ children: [vRun(vakalatnamaOpening({
+      executants,
+      partyLabel: multi ? "Petitioners" : vakalatnamaPartyLabel("Petitioner"),
+      advocate: adv,
+      multi,
+    }))] }),
     ...authority.map(t => new Paragraph({ numbering: { reference: authRef, level: 0 }, spacing: vSpacing(), children: [vRun(t)] })),
-    vPara({ children: [vRun(`AND ${we.toLowerCase() === "we" ? "we" : "I"} undertake that ${multi ? "we or our" : "I or my"} duly authorised agent will appear in Court on all hearings and will inform the Advocate for appearance when the case is on the date of hearing.`)], before: 80 }),
+    vPara({ children: [vRun(VAKALATNAMA_FEES_LINE)], before: 80 }),
     vPara({ children: [vRun("Dated: ____________")], before: 160 }),
     vPara({ children: [vRun("Signed, Accepted and Identified by:")] }),
     new Table({
@@ -630,7 +622,8 @@ export async function generateWpVakalatnama(project: DraftoProject) {
       rows: [new TableRow({ children: [
         new TableCell({ children: [
           vPara({ alignment: AlignmentType.LEFT, children: [vRun({ text: "ADVOCATE", bold: true })], before: 240 }),
-          ...advDetails.map((d) => vPara({ alignment: AlignmentType.LEFT, children: [vRun(d.bold ? { text: d.text, bold: true } : d.text)] })),
+          // The advocate's particulars are in the opening paragraph; the
+          // signature block needs nothing but the word.
         ], borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP }),
         new TableCell({
           children: multi
@@ -638,9 +631,9 @@ export async function generateWpVakalatnama(project: DraftoProject) {
             ? names.map((n, i) => vPara({
                 alignment: AlignmentType.RIGHT,
                 before: i === 0 ? 240 : 400,
-                children: [vRun({ text: `CLIENT (PETITIONER NO. ${i + 1} — ${n})`, bold: true })],
+                children: [vRun({ text: vakalatnamaPartyLabel("Petitioner", i, names.length).toUpperCase(), bold: true })],
               }))
-            : [vPara({ alignment: AlignmentType.RIGHT, before: 240, children: [vRun({ text: "CLIENT", bold: true })] })],
+            : [vPara({ alignment: AlignmentType.RIGHT, before: 240, children: [vRun({ text: "PETITIONER", bold: true })] })],
           borders: NO_BORDERS,
           verticalAlign: VerticalAlign.TOP,
         }),
@@ -666,6 +659,10 @@ export const WP_STD_CM_TITLES = {
 } as const;
 
 interface CmSpec {
+  // Which application this is, so the paper-book and the generation dialog can
+  // address its own signed affidavit: one of the three standard keys, or
+  // `custom:<id>`.
+  key: string;
   title: string;
   para2: string;        // "This application is being filed praying that…" (frozen std / editable custom)
   middle: string[];     // editable middle paras the user may insert
@@ -684,6 +681,7 @@ function activeCms(project: DraftoProject): CmSpec[] {
   // reachable in the interface.
   if (c.stay.active) {
     cms.push({
+      key: "stay",
       title: c.stay.title?.trim() || WP_STD_CM_TITLES.stay,
       para2: "This application is being filed praying that this Hon’ble Court be pleased to stay the operation of the Impugned Order during the pendency of the writ petition.",
       middle: mid(c.stay.body),
@@ -693,6 +691,7 @@ function activeCms(project: DraftoProject): CmSpec[] {
   }
   if (c.lengthySynopsis.active) {
     cms.push({
+      key: "lengthySynopsis",
       title: c.lengthySynopsis.title?.trim() || WP_STD_CM_TITLES.lengthySynopsis,
       para2: "This application is being filed praying that this Hon’ble Court be pleased to permit the Petitioner to file a lengthy Synopsis and List of Dates.",
       middle: mid(c.lengthySynopsis.body),
@@ -702,6 +701,7 @@ function activeCms(project: DraftoProject): CmSpec[] {
   }
   if (c.exemptionCopies.active) {
     cms.push({
+      key: "exemptionCopies",
       title: c.exemptionCopies.title?.trim() || WP_STD_CM_TITLES.exemptionCopies,
       para2: "This application is being filed praying that this Hon’ble Court be pleased to exempt the Petitioner from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition.",
       middle: mid(c.exemptionCopies.body),
@@ -722,6 +722,7 @@ function activeCms(project: DraftoProject): CmSpec[] {
       middle.push(appendSentencesToHtml(g.particulars || "", sentences));
     }
     cms.push({
+      key: `custom:${cm.id}`,
       title: cm.title || "Application",
       para2: cm.para2 || "",
       middle,
@@ -735,8 +736,16 @@ function activeCms(project: DraftoProject): CmSpec[] {
 // The active CM specifications (standard + custom). Exported so the PDF
 // assembler can bookmark each CM separately with its full title and interleave
 // its A-series annexure files immediately after it.
-export function wpActiveCms(project: DraftoProject): { title: string; annexures: CmAnnexEntry[] }[] {
-  return activeCms(project).map(c => ({ title: c.title, annexures: c.annexures }));
+export function wpActiveCms(project: DraftoProject): { title: string; annexures: CmAnnexEntry[]; key: string }[] {
+  return activeCms(project).map(c => ({ title: c.title, annexures: c.annexures, key: c.key }));
+}
+
+// The signed affidavit uploaded for a CM, if any. The three standard ones keep
+// it under their own key; a custom one keeps it on its own record.
+export function wpCmSignedAffidavit(project: DraftoProject, key: string): { file?: unknown; filePath?: string } | undefined {
+  if (!key.startsWith("custom:")) return (project.wp.cms as any)?.[key]?.signedAffidavit;
+  const id = key.slice("custom:".length);
+  return (project.wp.customCms || []).find((c: any) => c.id === id)?.signedAffidavit;
 }
 
 // Bookmark/index title for a CM: "CM Appl. No. ____ of <yr>: <full title>".
@@ -747,7 +756,7 @@ export function wpCmTitle(cm: { title: string }): string {
 // Render one CM in the SLP-IA pattern: frozen opening para → "This application…"
 // → editable middle paras → frozen good-faith closing → PRAYERS lead-in →
 // editable lettered prayers → filed-by → affidavit. Shared by both generators.
-function renderCmChildren(project: DraftoProject, cm: CmSpec, petHeader: string, resHeader: string, nb: ReturnType<typeof numberer>, numbering: any[], includeSignature = false): (Paragraph | Table)[] {
+function renderCmChildren(project: DraftoProject, cm: CmSpec, petHeader: string, resHeader: string, nb: ReturnType<typeof numberer>, numbering: any[], includeSignature = false, omitAffidavit = false): (Paragraph | Table)[] {
   const num = getWpNumbering();
   const mainRef = nb.decimal();
   return [
@@ -767,9 +776,12 @@ function renderCmChildren(project: DraftoProject, cm: CmSpec, petHeader: string,
     listItemRuns(mainRef, [smartTextRun({ text: "PRAYERS:", bold: true }), " In view of the foregoing averments, it is most respectfully prayed that this Hon’ble Court may be pleased to:"]),
     ...htmlListItems(nb.styled(num.prayers), cm.prayers, numbering),
     ...createWpFiledBy(project, { includeSignature }),
-    // CM affidavit
-    new Paragraph({ children: [new PageBreak()] }),
-    ...buildAffidavitChildren(project, "cm", petHeader, resHeader, numbering),
+    // CM affidavit — left out when the user has uploaded a signed one, which
+    // the paper-book puts here in its place.
+    ...(omitAffidavit ? [] : [
+      new Paragraph({ children: [new PageBreak()] }),
+      ...buildAffidavitChildren(project, "cm", petHeader, resHeader, numbering),
+    ]),
   ];
 }
 
@@ -789,12 +801,12 @@ export async function generateWpCms(project: DraftoProject) {
 }
 
 // A single CM as its own docx (used by the PDF assembler for per-CM bookmarks).
-export async function generateWpSingleCm(project: DraftoProject, cmIndex: number, includeSignature = false) {
+export async function generateWpSingleCm(project: DraftoProject, cmIndex: number, includeSignature = false, omitAffidavit = false) {
   const { petHeader, resHeader } = partyHeaders(project);
   const cm = activeCms(project)[cmIndex];
   if (!cm) return pack(wpDoc([new Paragraph("")]), `WP-CM-${cmIndex + 1}.docx`);
   const nb = numberer();
-  const children = renderCmChildren(project, cm, petHeader, resHeader, nb, nb.defs, includeSignature);
+  const children = renderCmChildren(project, cm, petHeader, resHeader, nb, nb.defs, includeSignature, omitAffidavit);
   return pack(wpDoc(children, nb.defs), `WP-CM-${cmIndex + 1}.docx`);
 }
 

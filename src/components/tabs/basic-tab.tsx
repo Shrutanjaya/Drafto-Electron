@@ -23,6 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Textarea } from "../ui/textarea";
 import { Checkbox } from "../ui/checkbox";
 import { DateInput } from "../custom/date-input";
+import { UseFirstPartyButton } from "@/components/custom/use-first-party-button";
 
 const highCourts = [
     "Allahabad High Court at Allahabad",
@@ -564,7 +565,10 @@ export function BasicTab() {
 
             {selectedSection === 'deponent' && (
               <>
-                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Deponent</h4>
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Deponent</h4>
+                  <UseFirstPartyButton />
+                </div>
                 <Card>
                   <CardContent className="p-2">
                     <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs">

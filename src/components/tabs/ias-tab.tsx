@@ -448,12 +448,15 @@ export function IasTab() {
                     </Button>
 
                     {excluded.length > 0 && (
-                      <>
+                      // Held at the foot of the panel, under a rule: what is
+                      // being filed reads as one list, and what is not sits
+                      // apart from it rather than trailing off the end of it.
+                      <div className="mt-auto flex flex-col gap-0.5 border-t pt-2">
                         <NavSection label="Not included" hint="Open one and tick Include — or, for the automatic ones, they appear here until their trigger fires." />
                         {excluded.map((r) => (
                           <IaListRow key={r.id} label={r.label} active={false} selected={selectedId === r.id} onClick={() => setSelectedId(r.id)} />
                         ))}
-                      </>
+                      </div>
                     )}
                   </>
                 );

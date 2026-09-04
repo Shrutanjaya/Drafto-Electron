@@ -210,6 +210,28 @@ const QuoteCue = Extension.create({
               if (classes.length) {
                 decorations.push(Decoration.node(pos, pos + node.nodeSize, { class: classes.join(' ') }));
               }
+
+              // The emphasis label the quote carries ("emphasis supplied" and
+              // the like), shown where the document prints it: after the quoted
+              // text, on its own line, ranged right.
+              //
+              // It is a widget rather than a CSS pseudo-element because the
+              // closing quotation-mark cue above already owns the quote's
+              // ::after, and an element only has one — the label showed up only
+              // when the user had typed their own closing quote and that cue had
+              // stepped aside.
+              const label = (node.attrs?.emphasis || '').trim();
+              if (label) {
+                decorations.push(
+                  Decoration.widget(pos + node.nodeSize - 1, () => {
+                    const el = document.createElement('div');
+                    el.className = 'quote-emphasis-label';
+                    el.textContent = `(${label.replace(/^\(+\s*/, '').replace(/\s*\)+$/, '')})`;
+                    el.contentEditable = 'false';
+                    return el;
+                  }, { side: 1, ignoreSelection: true }),
+                );
+              }
             });
             return DecorationSet.create(state.doc, decorations);
           },

@@ -230,13 +230,17 @@ textarea::placeholder {
      so it cannot be typed into or deleted by accident — the Quote button's menu
      sets it. Shown where the document prints it: after the quoted text, ranged
      right, in roman inside parentheses. */
-  .prose blockquote[data-emphasis]::after {
-    content: "(" attr(data-emphasis) ")";
+  /* Drawn by the quoteCue plugin as a widget (see badhiya-box.tsx), not as a
+     pseudo-element: the closing quotation-mark cue already owns
+     blockquote::after and an element only has one. */
+  .prose blockquote .quote-emphasis-label {
     display: block;
     text-align: right;
     font-style: normal;
     opacity: 0.85;
     margin-top: 0.25rem;
+    padding-right: 1.1rem;
+    user-select: none;
   }
   /* A list item that leads with a quote is not a numbered point: dropping it from
      `display: list-item` removes its marker AND excludes it from the browser's list

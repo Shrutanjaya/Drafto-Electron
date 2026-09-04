@@ -86,7 +86,7 @@ export function buildSearchableFields(values: DraftoProject): FieldDescriptor[] 
   // ── Appendix (one row per attached document) ──
   (values.appendixItems ?? []).forEach((_, i) => {
     push(`appendixItems.${i}.description`, 'Appendix');
-    push(`appendixItems.${i}.manualEntry`, 'Appendix');
+    push(`appendixItems.${i}.manualEntry`, 'Appendix', true);
     push(`appendixItems.${i}.indexTextOverride`, 'Appendix');
   });
 

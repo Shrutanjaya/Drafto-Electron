@@ -161,6 +161,10 @@ export const legalProvisionSchema = z.object({
 
 export const customIaSchema = z.object({
     id: z.string().default(() => `custom_ia_${Math.random()}`),
+    // Writ-petition CMs only: every CM in the High Court needs its own
+    // affidavit, and a signed one replaces the generated clean copy. The SLP's
+    // custom IAs never set this.
+    signedAffidavit: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
     title: z.string().default("Application for"),
     // Para 2 free text, appended after "The present application is being filed
     // by the Petitioner(s)" in both the preview and the generated docx.
@@ -536,6 +540,9 @@ export const draftoProjectSchema = z.object({
       // middle. The last prayer is the residuary placeholder.
       stay: z.object({
         active: z.boolean().default(false), // IO writs: stay of the impugned order
+        // Signed/executed affidavit for THIS application; when uploaded it
+        // replaces the generated clean affidavit in the paper-book.
+        signedAffidavit: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
         // Optional title override; empty = the standard title in wp-actions.ts.
         title: z.string().default(""),
         body: z.array(aamTableItemSchema).default([
@@ -548,6 +555,9 @@ export const draftoProjectSchema = z.object({
       }).default({}),
       lengthySynopsis: z.object({
         active: z.boolean().default(false),
+        // Signed/executed affidavit for THIS application; when uploaded it
+        // replaces the generated clean affidavit in the paper-book.
+        signedAffidavit: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
         // Optional title override; empty = the standard title in wp-actions.ts.
         title: z.string().default(""),
         body: z.array(aamTableItemSchema).default([
@@ -560,6 +570,9 @@ export const draftoProjectSchema = z.object({
       }).default({}),
       exemptionCopies: z.object({
         active: z.boolean().default(false),
+        // Signed/executed affidavit for THIS application; when uploaded it
+        // replaces the generated clean affidavit in the paper-book.
+        signedAffidavit: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
         // Optional title override; empty = the standard title in wp-actions.ts.
         title: z.string().default(""),
         body: z.array(aamTableItemSchema).default([

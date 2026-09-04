@@ -24,6 +24,7 @@ import {
   generateWpPetition,
   generateWpAffidavit,
   generateWpSingleCm,
+  wpCmSignedAffidavit,
   generateWpVakalatnama,
   wpActiveCms,
   wpCmTitle,
@@ -276,8 +277,17 @@ export async function generateWpPdf(
     const cms = wpActiveCms(project);
     for (let i = 0; i < cms.length; i++) {
       onProgress?.(`CM Application ${i + 1}…`);
-      const res = await generateWpSingleCm(project, i, true);
+      // A signed affidavit uploaded for this application replaces the clean one
+      // the generator would otherwise print at the end of it.
+      const signed = wpCmSignedAffidavit(project, cms[i].key);
+      const signedBytes = signed ? await fileBytes(signed.file, signed.filePath) : null;
+      const signedPdf = signedBytes ? await pdfFromBytes(signedBytes) : null;
+
+      const res = await generateWpSingleCm(project, i, true, !!signedPdf);
       if (res.docx) items.push({ key: `cm:${i}`, title: wpCmTitle(cms[i]), pdf: await docxToPdf(res.docx), paginated: true });
+      if (signedPdf) {
+        items.push({ key: `cmaff:${i}`, title: `${wpCmTitle(cms[i])} — Affidavit (signed)`, pdf: signedPdf, paginated: true });
+      }
       for (const { annex, aNumber } of cms[i].annexures) {
         onProgress?.(`CM ${i + 1} — Annexure A-${aNumber}…`);
         const bytes = await fileBytes(annex.file, annex.filePath);

@@ -56,6 +56,7 @@ import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
 import { newBlankProject } from "@/lib/project-defaults";
 import { getIaList } from "@/lib/ia-list-utils";
 import { getActiveAppendixItems } from "@/lib/appendix";
+import { markFileAvailable, markFileUnavailable } from "@/lib/file-availability";
 import { restoreFileFromPath } from "@/lib/utils/pick-file";
 import { cn } from "@/lib/utils";
 import { useAuthContext } from "@/providers/auth-provider";
@@ -561,6 +562,12 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       if (!file) {
         console.warn(`[RESTORE] FAILED: "${filePath}" (${label})`);
         missing.push(filePath.split('\\').pop() || filePath.split('/').pop() || filePath);
+        // The path stays in the project — it will resolve again on the machine
+        // the file lives on — but this session knows the document is not here,
+        // so nothing downstream reports it as attached. See lib/file-availability.
+        markFileUnavailable(filePath);
+      } else {
+        markFileAvailable(filePath);
       }
       return file;
     };
@@ -742,7 +749,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     return true;
   };
 
-  const downloadDocx = async (docx: string, fileName: string) => {
+  const downloadDocx = async (docx: string, fileName: string, intoFolder?: string) => {
     // Same gate as the paper-book: an active subscription AND this court on the
     // plan. A document is a document, whichever button produced it.
     if (blockedByEntitlement()) return;
@@ -759,8 +766,10 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         const savedPath = await window.electron.saveDocx({
           fileName,
           content: docx,
-          defaultPath: settings.defaultDocxPath || undefined,
-          projectFolder: petitionerName,
+          // A folder chosen for this batch is used as-is; the default folder
+          // from Settings still gets a subfolder per case.
+          defaultPath: intoFolder || settings.defaultDocxPath || undefined,
+          projectFolder: intoFolder ? undefined : petitionerName,
         });
         if (savedPath) {
           incrementGenerationCount('docx');
@@ -921,8 +930,13 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     });
   };
 
-  const handleExport = (type: DocType, iaDetails?: { identifier: string; customText?: string; }) => {
-    startTransition(async () => {
+  // Generating several documents at once has to save them ONE AT A TIME.
+  // Without a default save folder each file opens a native Save dialog, and a
+  // second dialog requested while the first is still open is dropped by the
+  // system — which is how "Affidavits & Vakalatnama" saved the affidavit and
+  // silently lost the vakalatnama. runExport resolves once its file is written,
+  // so the callers below can await each in turn.
+  const runExport = async (type: DocType, iaDetails?: { identifier: string; customText?: string; }, intoFolder?: string) => {
       const data = form.getValues();
       
       if (type === 'pdf') {
@@ -981,27 +995,47 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       }
 
       if (result && result.success && result.docx) {
-        downloadDocx(result.docx, result.fileName);
+        await downloadDocx(result.docx, result.fileName, intoFolder);
       } else if (result && !result.success) {
         toast({ variant: "destructive", title: "Export Failed", description: result.message || "Could not generate DOCX file." });
       }
-    });
+  };
+
+  const startExport = (run: () => Promise<void>) => { startTransition(() => { void run(); }); };
+
+  // Where a batch of documents goes. With a default folder set in Settings,
+  // straight there; otherwise the user is asked ONCE and every file in the
+  // batch lands in the folder they choose, rather than a Save dialog per file.
+  // Returns undefined if they cancel, which abandons the batch.
+  const askBatchFolder = async (): Promise<{ folder?: string } | null> => {
+    if (getSettings().defaultDocxPath) return {};
+    const picked = await window.electron?.pickSaveFolder?.();
+    if (!picked) return null;
+    return { folder: picked };
+  };
+
+  const handleExport = (type: DocType, iaDetails?: { identifier: string; customText?: string; }) => {
+    startExport(() => runExport(type, iaDetails));
   };
   
-  const handleExportAllIas = () => {
+  const runExportAllIas = async (intoFolder?: string) => {
     const data = form.getValues();
     const allIas = getIaList(data);
 
-    allIas.forEach(ia => {
-        handleExport("ia", { identifier: ia.id, customText: ia.title });
-    });
+    for (const ia of allIas) {
+        await runExport("ia", { identifier: ia.id, customText: ia.title }, intoFolder);
+    }
     
-    if (allIas.length > 0) {
-        toast({ title: "Exporting IAs", description: "All valid Interlocutory Applications are being generated." });
-    } else {
+    if (allIas.length === 0) {
         toast({ variant: "destructive", title: "No IAs to Export", description: "There are no active IAs to export." });
     }
   };
+
+  const handleExportAllIas = () => startExport(async () => {
+    const batch = await askBatchFolder();
+    if (!batch) return;
+    await runExportAllIas(batch.folder);
+  });
   
   const handleDraftSelectionChange = (id: keyof DraftSelection, checked: boolean) => {
     setDraftSelection(prev => ({ ...prev, [id]: checked }));
@@ -1020,16 +1054,19 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   };
 
   const handleGenerateDrafts = () => {
-    startTransition(() => {
-        if (draftSelection.ci) handleExport('ci');
-        if (draftSelection.or) handleExport('or');
-        if (draftSelection.advocateChecklist) handleExport('advocateChecklist');
-        if (draftSelection.lp) handleExport('lp');
-        if (draftSelection.slod) handleExport('slod');
-        if (draftSelection.slp) handleExport('slp');
-        if (draftSelection.appendix) handleExport('appendix');
-        if (draftSelection.filingMemo) handleExport('filingMemo');
-        if (draftSelection.ias) handleExportAllIas();
+    startExport(async () => {
+        const batch = await askBatchFolder();
+        if (!batch) return;
+        const into = batch.folder;
+        if (draftSelection.ci) await runExport('ci', undefined, into);
+        if (draftSelection.or) await runExport('or', undefined, into);
+        if (draftSelection.advocateChecklist) await runExport('advocateChecklist', undefined, into);
+        if (draftSelection.lp) await runExport('lp', undefined, into);
+        if (draftSelection.slod) await runExport('slod', undefined, into);
+        if (draftSelection.slp) await runExport('slp', undefined, into);
+        if (draftSelection.appendix) await runExport('appendix', undefined, into);
+        if (draftSelection.filingMemo) await runExport('filingMemo', undefined, into);
+        if (draftSelection.ias) await runExportAllIas(into);
     });
   }
 
@@ -1037,20 +1074,24 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     startTransition(async () => {
         const data = form.getValues();
 
+        const batch = await askBatchFolder();
+        if (!batch) return;
+        const into = batch.folder;
+
         const affidavitResult = await generateAffidavitsDocx(data);
         if (affidavitResult.success && affidavitResult.documents) {
-            affidavitResult.documents.forEach(doc => {
+            for (const doc of affidavitResult.documents) {
                 if (doc.success && doc.docx) {
-                    downloadDocx(doc.docx, doc.fileName);
+                    await downloadDocx(doc.docx, doc.fileName, into);
                 }
-            });
+            }
         } else if (!affidavitResult.success) {
             toast({ variant: "destructive", title: "Affidavit Generation Failed", description: affidavitResult.message || "Could not generate affidavit files." });
         }
 
         const vakalatnamaResult = await generateVakalatnamaDocx(data);
         if (vakalatnamaResult.success && vakalatnamaResult.docx) {
-            downloadDocx(vakalatnamaResult.docx, vakalatnamaResult.fileName);
+            await downloadDocx(vakalatnamaResult.docx, vakalatnamaResult.fileName, into);
         } else if (!vakalatnamaResult.success) {
             toast({ variant: "destructive", title: "Vakalatnama Generation Failed", description: vakalatnamaResult.message || "Could not generate Vakalatnama." });
         }

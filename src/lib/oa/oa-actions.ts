@@ -18,6 +18,7 @@ import { cascadeFor, enumLabel, type EnumStyle } from "@/lib/wp/wp-numbering";
 import { wpAnnexureOrder } from "@/lib/wp/wp-annexures";
 import { resolveFactsHtml } from "@/lib/wp/facts-mode";
 import { factsAnnexureSentenceHtml, withAnnexureCustomText, inlineHtml } from "@/lib/wp/wp-facts";
+import { vakalatnamaOpening, vakalatnamaAuthorities, vakalatnamaPartyLabel, VAKALATNAMA_FEES_LINE } from "@/lib/vakalatnama";
 import { oaBench } from "@/lib/oa/oa-benches";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 import { getOaFiledBy, getOaFiledByLayout, getOaFiledByLeftPct, getOaSignature, getOaMarginsIn, getOaOutputFormatting, getOaVakFormatting, getOaForceLastPageBreak } from "@/lib/oa/oa-settings";
@@ -114,7 +115,10 @@ const SUB_LEFT = 1200;
 const SUB_HANG = 600;
 // Quote indents inside OA lists follow the same geometry: level L text sits at
 // (720 + L*480), i.e. SUB_LEFT at the first level.
-const OA_LIST_GEOM = { base: 720, step: 480 };
+// base/step place quotes; itemLeft/itemStep/itemHanging place the list items
+// themselves at the same indent as the generator's own sub-paragraphs (5.1,
+// 5.2 …), so the Facts and the Grounds line up.
+const OA_LIST_GEOM = { base: 720, step: 480, itemLeft: SUB_LEFT, itemStep: 480, itemHanging: SUB_HANG };
 function listDef(reference: string, style: OaStyle, parentNum?: number, start = 1) {
   if (style === "decimal-sub") {
     const deeper = cascadeFor("lower-alpha");
@@ -126,6 +130,25 @@ function listDef(reference: string, style: OaStyle, parentNum?: number, start = 
   const cascade = cascadeFor(style);
   return { reference, levels: cascade.map((fmt, i) => ({ level: i, format: fmt, text: `%${i + 1})`, alignment: AlignmentType.START, ...(i === 0 ? { start } : {}), style: { paragraph: { indent: { left: SUB_LEFT + i * 480, hanging: SUB_HANG } } } })) };
 }
+// Rewrites the numbering parseHtml creates for an <ol> so it matches what
+// listDef would have produced — same glyphs, same indents. Used for the Facts,
+// which are authored as a list in the editor and must print as CAT sub-paras.
+function applyOaListCascade(numbering: any[], style: OaStyle, parentNum?: number) {
+  const model = listDef("model", style, parentNum) as any;
+  for (const cfg of numbering) {
+    if (typeof cfg?.reference !== "string" || !/^olx?-/.test(cfg.reference) || !Array.isArray(cfg.levels)) continue;
+    cfg.levels.forEach((lvl: any, i: number) => {
+      const from = model.levels[i] || model.levels[model.levels.length - 1];
+      if (!from) return;
+      lvl.format = from.format;
+      // A list resumed part-way keeps its own start value.
+      lvl.text = from.text;
+      lvl.alignment = from.alignment;
+      lvl.style = from.style;
+    });
+  }
+}
+
 function decimalDef(reference: string, start = 1) {
   return { reference, levels: [{ level: 0, format: "decimal", text: "%1.", start, alignment: AlignmentType.START, style: { paragraph: { indent: { left: 480, hanging: 480 } } } }] };
 }
@@ -362,8 +385,14 @@ function buildOaBody(project: DraftoProject, numbering: any[], mainRef: string):
 
   // Facts use the SAME mechanism as Grounds — each item parsed on its own and
   // bound to one numbering reference — so both lists indent identically.
-  const factStrings = splitListItems(resolveFactsHtml(project) || "");
-  const factsRef = newRef(); numbering.push(listDef(factsRef, num.facts as OaStyle, 4));
+  // Facts are parsed whole (not split into items) so that a List-of-Dates entry
+  // carrying more than one paragraph, a nested list, a quote or a table arrives
+  // intact — splitting them apart renumbered every block as a fact of its own,
+  // which is why they used to be flattened to a single line. The <ol> numbering
+  // parseHtml invents is then rewritten to the CAT Facts style and indents.
+  const factsParsed = parseHtml(resolveFactsHtml(project) || "", { before: 60 }, undefined, OA_LIST_GEOM);
+  applyOaListCascade(factsParsed.numbering, num.facts as OaStyle, 4);
+  numbering.push(...factsParsed.numbering);
 
   const groundsParagraphs = groundsBlocks(project, num.grounds as OaStyle, numbering);
   const prayerRef = newRef(); numbering.push(listDef(prayerRef, num.prayer as OaStyle));
@@ -403,7 +432,7 @@ function buildOaBody(project: DraftoProject, numbering: any[], mainRef: string):
     ...oaPara(mainRef, "Jurisdiction", jurHtml, numbering),
     ...oaPara(mainRef, "Limitation", esc(limitation), numbering),
     ...oaPara(mainRef, "Facts", "The facts of the case which are necessary for the adjudication of the present Original Application are as under:", numbering),
-    ...(factStrings.length ? htmlListItems(factsRef, factStrings, numbering) : [new Paragraph({ children: [smartTextRun("[Facts — generate from the List of Dates.]")] })]),
+    ...(factsParsed.paragraphs.length ? factsParsed.paragraphs : [new Paragraph({ children: [smartTextRun("[Facts — generate from the List of Dates.]")] })]),
     ...oaPara(mainRef, "Grounds", "This Original Application is being filed on the following grounds which are taken without prejudice to each other:", numbering),
     ...groundsParagraphs,
     ...oaPara(mainRef, "Details of remedies exhausted", esc(`The ${p.Appl} ${p.declares} that ${p.they} ${p.have} availed of all the remedies available to ${p.them} under the relevant provisions before approaching this Tribunal, and that no remedies are available to ${p.them} now other than filing this Original Application before this Hon’ble Tribunal.`), numbering),
@@ -617,44 +646,36 @@ function buildOaVakalatnama(project: DraftoProject, numbering: any[], applicantI
   // them, so the vakalatnama is never left with a blank advocate.
   const adv = oaAdvocate(project);
   const advName = [adv.name, adv.firm].filter(Boolean).join(", ") || "[Advocate]";
-  // Full details are listed under the ADVOCATE signature block.
-  const advDetails = [
-    adv.name && { text: adv.name, bold: true },
-    adv.enrolmentNo && { text: `Enrl. No.: ${adv.enrolmentNo}` },
-    adv.firm && { text: adv.firm },
-    adv.address && { text: adv.address },
-    adv.email && { text: adv.email },
-    adv.phone && { text: adv.phone },
-  ].filter(Boolean) as { text: string; bold?: boolean }[];
   const soloName = solo ? (project.petitioners?.[applicantIdx!]?.name?.trim() || `[Applicant No. ${applicantIdx! + 1}]`) : "";
   const executants = solo ? soloName : (p.names.join("; ") || getPartyHeader(project.petitioners));
   const multiHere = solo ? false : p.multi;
   const we = multiHere ? "We" : "I", my = multiHere ? "our" : "my";
   const authRef = newRef(); numbering.push(listDef(authRef, "lower-alpha"));
-  const authority = [
-    "To act, appear and plead in the above-noted case before this Hon’ble Tribunal or in any other Court or Tribunal in which the same may be tried or heard and also in appeal or revision.",
-    "To sign, file, verify and present pleadings, applications, replies, objections, affidavits or other documents as may be deemed necessary or proper for the prosecution of the said case in all its stages.",
-    "To withdraw or compromise the said case or submit to arbitration any differences or disputes arising in the said case.",
-    "To deposit, draw and receive moneys and grant receipts therefor and to do all other acts and things necessary for the prosecution of the said case.",
-    "To appoint and instruct any other legal Practitioner to exercise the powers and authority hereby conferred whenever the Advocate may think fit.",
-  ];
+  const authority = vakalatnamaAuthorities("Tribunal");
   return [
     ...createOaHeader({ size: vSize }), ...createOaPartiesHeader(project, { size: vSize }),
     vPara({ alignment: AlignmentType.CENTER, children: [vRun({ text: "VAKALATNAMA", bold: true })], before: 120 }),
-    vPara({ children: [vRun(`${we}, ${executants}, the ${solo ? `Applicant No. ${applicantIdx! + 1}` : p.Appl} in the captioned matter, do hereby appoint ${advName} to be ${my} Advocate in the above-noted case and authorise ${multiHere ? "them" : "him"}:`)] }),
+    vPara({ children: [vRun(vakalatnamaOpening({
+      executants,
+      partyLabel: solo ? vakalatnamaPartyLabel("Applicant", applicantIdx!, 2) : p.Appl,
+      advocate: adv,
+      multi: multiHere,
+    }))] }),
     ...authority.map((t) => new Paragraph({ numbering: { reference: authRef, level: 0 }, spacing: vSpacing(), children: [vRun(t)] })),
+    vPara({ children: [vRun(VAKALATNAMA_FEES_LINE)], before: 80 }),
     vPara({ children: [vRun("Dated: ____________")], before: 160 }),
     vPara({ children: [vRun("Signed, Accepted and Identified by:")] }),
     new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: [5000, 5000], borders: NO_BORDERS, rows: [new TableRow({ children: [
       new TableCell({ children: [
         vPara({ children: [vRun({ text: "ADVOCATE", bold: true })], before: 240 }),
-        ...advDetails.map((d) => vPara({ children: [vRun(d.bold ? { text: d.text, bold: true } : d.text)] })),
+        // The advocate's particulars are in the opening paragraph; the
+        // signature block needs nothing but the word.
       ], borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP }),
       new TableCell({
         children: solo
-          ? [vPara({ alignment: AlignmentType.RIGHT, before: 240, children: [vRun({ text: `APPLICANT NO. ${applicantIdx! + 1} — ${soloName}`, bold: true })] })]
+          ? [vPara({ alignment: AlignmentType.RIGHT, before: 240, children: [vRun({ text: `APPLICANT NO. ${applicantIdx! + 1}`, bold: true })] })]
           : p.multi
-            ? p.names.map((n, i) => vPara({ alignment: AlignmentType.RIGHT, before: i === 0 ? 240 : 400, children: [vRun({ text: `APPLICANT NO. ${i + 1} — ${n}`, bold: true })] }))
+            ? p.names.map((n, i) => vPara({ alignment: AlignmentType.RIGHT, before: i === 0 ? 240 : 400, children: [vRun({ text: `APPLICANT NO. ${i + 1}`, bold: true })] }))
             : [vPara({ alignment: AlignmentType.RIGHT, before: 240, children: [vRun({ text: "APPLICANT", bold: true })] })],
         borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP,
       }),

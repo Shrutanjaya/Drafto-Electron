@@ -17,7 +17,7 @@ import {
 import { FormControl, FormField, FormItem, FormLabel } from "../ui/form"
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group"
 import { Input } from "../ui/input"
-import { Textarea } from "../ui/textarea"
+import { BadhiyaBox } from "@/components/custom/badhiya-box"
 import { Checkbox } from "../ui/checkbox"
 import { Paperclip, Plus, Trash2, Pencil, RotateCcw } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -191,7 +191,10 @@ function AppendixRow({
           render={({ field }) => (
             <FormItem className="space-y-1">
               <FormControl>
-                <Textarea className="min-h-[130px] text-xs" placeholder="Paste or type the text of this Appendix here…" {...field} />
+                {/* The same rich-text box as the rest of the petition, so a
+                    typed-out Appendix keeps its emphasis, lists, quotes and
+                    tables all the way into the .docx. */}
+                <BadhiyaBox value={field.value} onChange={field.onChange} path={field.name} />
               </FormControl>
             </FormItem>
           )}

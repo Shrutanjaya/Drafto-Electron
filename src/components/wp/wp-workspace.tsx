@@ -28,6 +28,7 @@ import { EditorToolbar } from "@/components/custom/editor-toolbar";
 import { SectionDialog } from "@/components/custom/section-dialog";
 import { DateInput } from "@/components/custom/date-input";
 import { getSettings } from "@/components/dialogs/settings-dialog";
+import { UseFirstPartyButton } from "@/components/custom/use-first-party-button";
 
 // ── Shared little components (mirrors the SLP tab) ───────────────────────────
 function ViewToggle({ mode, onChange }: { mode: "splitter" | "navigation"; onChange: (m: "splitter" | "navigation") => void }) {
@@ -404,6 +405,7 @@ export function WpWorkspace() {
   );
   const deponentContent = (
     <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs">
+      <div className="mb-1 flex w-full justify-end"><UseFirstPartyButton /></div>
       The Deponent is
       {depField("deponent.name", "Name", "w-[150px]")},
       <FormField control={form.control} name="deponent.relationship" render={({ field }) => (
@@ -527,7 +529,7 @@ export function WpWorkspace() {
   const cmActive = cmNav.find(c => c.id === cmSection) ?? cmNav[0];
 
   // Generic nav layout (left nav rows + right content), used by Preliminary & CMs.
-  const navLayout = (rows: { id: string; label: string; active: boolean; heading?: string }[], selected: string, onSelect: (id: any) => void, content: React.ReactNode, autoSaveId: string) => (
+  const navLayout = (rows: { id: string; label: string; active: boolean; heading?: string; pushDown?: boolean }[], selected: string, onSelect: (id: any) => void, content: React.ReactNode, autoSaveId: string) => (
     <div className={cn("flex flex-col", PANEL_H)}>
       <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId={autoSaveId}>
         <ResizablePanel defaultSize={22} minSize={16} maxSize={40}>
@@ -535,7 +537,13 @@ export function WpWorkspace() {
             {rows.map(r => (
               <React.Fragment key={r.id}>
                 {r.heading && (
-                  <p className="px-2 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">{r.heading}</p>
+                  // pushDown holds the group at the foot of the panel, under a
+                  // rule, so what is being filed reads as one list and what is
+                  // not sits apart from it.
+                  <p className={cn(
+                    "px-2 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70",
+                    r.pushDown && "mt-auto border-t pt-2",
+                  )}>{r.heading}</p>
                 )}
                 <NavRow label={r.label} active={r.active} selected={selected === r.id} onClick={() => onSelect(r.id)} />
               </React.Fragment>
@@ -586,7 +594,7 @@ export function WpWorkspace() {
               const exc = cmNav.filter(c => !c.active);
               return [
                 ...inc.map((c, i) => ({ id: c.id, label: c.label, active: true, heading: i === 0 ? "Included" : undefined })),
-                ...exc.map((c, i) => ({ id: c.id, label: c.label, active: false, heading: i === 0 ? "Not included" : undefined })),
+                ...exc.map((c, i) => ({ id: c.id, label: c.label, active: false, heading: i === 0 ? "Not included" : undefined, pushDown: i === 0 })),
               ];
             })(),
             cmSection, setCmSection, cmActive.content, "wp-cm-nav",

@@ -1217,6 +1217,18 @@ ipcMain.handle("load-drafto-file", (_event, fileName) => {
   return fs.readFileSync(fp, "utf-8");
 });
 
+// Does this path still exist on this machine? Used to tell an attachment that
+// is genuinely here from one the project merely remembers from another
+// computer — without reading the file itself.
+ipcMain.handle("path-exists", (_event, filePath) => {
+  if (!filePath || typeof filePath !== "string") return false;
+  try {
+    return fs.existsSync(filePath);
+  } catch {
+    return false;
+  }
+});
+
 ipcMain.handle("open-projects-folder", () => {
   shell.openPath(projectsDir());
 });
@@ -1367,6 +1379,31 @@ ipcMain.handle("select-directory", async () => {
 });
 
 // ── IPC: save DOCX / PDF ──────────────────────────────────────────────────────
+// Only one native Save dialog can be on screen at a time: asking for a second
+// while the first is open gets it dropped by the system, and the file it was
+// for is silently never written. Generating several documents at once now saves
+// them one at a time (see runExport in header.tsx), and this queue is the
+// backstop — any overlapping request waits its turn instead of vanishing.
+let saveDialogQueue = Promise.resolve();
+const queueSaveDialog = (run) => {
+  const next = saveDialogQueue.then(run, run);
+  // Keep the chain alive even if one save throws.
+  saveDialogQueue = next.then(() => undefined, () => undefined);
+  return next;
+};
+
+// Asks once where a batch of documents should go. Generating several at a time
+// with no default folder set otherwise means a Save dialog per file.
+ipcMain.handle("pick-save-folder", async () => {
+  const result = await queueSaveDialog(() => dialog.showOpenDialog(mainWindow, {
+    title: "Choose a folder for the generated documents",
+    buttonLabel: "Save here",
+    properties: ["openDirectory", "createDirectory"],
+  }));
+  if (result.canceled || !result.filePaths || !result.filePaths.length) return null;
+  return result.filePaths[0];
+});
+
 ipcMain.handle("save-docx", async (_event, { fileName, content, defaultPath, projectFolder }) => {
   let filePath;
   if (defaultPath) {
@@ -1374,10 +1411,10 @@ ipcMain.handle("save-docx", async (_event, { fileName, content, defaultPath, pro
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
     filePath = getUniqueFilePath(targetDir, fileName, "docx");
   } else {
-    const result = await dialog.showSaveDialog(mainWindow, {
+    const result = await queueSaveDialog(() => dialog.showSaveDialog(mainWindow, {
       defaultPath: fileName,
       filters: [{ name: "Word Document", extensions: ["docx"] }],
-    });
+    }));
     filePath = result.filePath;
   }
   if (filePath) {
@@ -1392,10 +1429,10 @@ ipcMain.handle("save-pdf", async (_event, { fileName, content, defaultPath }) =>
   if (defaultPath) {
     filePath = getUniqueFilePath(defaultPath, fileName, "pdf");
   } else {
-    const result = await dialog.showSaveDialog(mainWindow, {
+    const result = await queueSaveDialog(() => dialog.showSaveDialog(mainWindow, {
       defaultPath: fileName,
       filters: [{ name: "PDF Document", extensions: ["pdf"] }],
-    });
+    }));
     filePath = result.filePath;
   }
   if (filePath) {
