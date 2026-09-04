@@ -50,6 +50,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { FormControl, FormField, FormItem } from "@/components/ui/form";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { pickFile } from "@/lib/utils/pick-file";
+import { annexureDetails } from "@/lib/annexure-details";
 import {
     getAppendixItems,
     getActiveAppendixItems,
@@ -343,11 +344,15 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         const processAnnexures = (annexures: (Annexure & {lodId: string})[]) => {
             annexures.forEach(a => {
                 const pNum = annexureNumberingMap.get(a.id);
-                const trueCopy = { id: `annexure_${a.id}`, label: `Annexure P-${pNum}: ${capitalize(a.title)}${annexDate(a.date)}` };
+                // Described as the Index describes it — copy type, what it is,
+                // its date and the user's own words — so the row being checked
+                // says as much as the Index being checked against.
+                const details = annexureDetails(a);
+                const trueCopy = { id: `annexure_${a.id}`, label: `Annexure P-${pNum}: ${details}` };
 
                 if (a.copyType === "true and typed copy" || a.copyType === "true and translated copy") {
                     const typeLabel = a.copyType.includes('typed') ? 'Typed' : 'Translated';
-                    const otherCopy = { id: `annexure_${a.id}_typed`, label: `Annexure P-${pNum}: ${capitalize(a.title)}${annexDate(a.date)} (${typeLabel} Copy)` };
+                    const otherCopy = { id: `annexure_${a.id}_typed`, label: `Annexure P-${pNum}: ${details} (${typeLabel} Copy)` };
                     list.push(...(translatedFirst ? [otherCopy, trueCopy] : [trueCopy, otherCopy]));
                 } else {
                     list.push(trueCopy);
@@ -372,7 +377,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
              const iaSpecificAnnexures = allIaAnnexures.filter(a => a.iaId === ia.id);
              iaSpecificAnnexures.forEach(a => {
                  const aNum = iaAnnexureNumberingMap.get(a.id);
-                 list.push({ id: `ia_annexure_${a.id}`, label: `Annexure A-${aNum}: ${capitalize(a.title)}${annexDate(a.date)}` });
+                 list.push({ id: `ia_annexure_${a.id}`, label: `Annexure A-${aNum}: ${annexureDetails(a)}` });
              });
              
              if (ia.id === 'additionalDocuments') {

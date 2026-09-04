@@ -20,6 +20,7 @@ import { wpPreflight } from "@/lib/wp/wp-preflight";
 import { wpFrontMatterOrder, wpActiveCms, wpCmTitle } from "@/lib/wp/wp-actions";
 import { wpAnnexureOrder, annexLabel } from "@/lib/wp/wp-annexures";
 import { hasUsableFile, isRememberedButMissing, fileNameOf, refreshFileAvailability } from "@/lib/file-availability";
+import { annexureDetails } from "@/lib/annexure-details";
 import { useEntitlement, useExportPermission } from "@/providers/entitlement-provider";
 
 const FRONT_LABELS: Record<"notice" | "urgency" | "memo", string> = {
@@ -265,7 +266,7 @@ export function WpPdfGenerationDialog({
             <div key={annex.id}>
               {annex.isColly ? (
                 <div className="rounded-md border p-2">
-                  <p className="text-xs font-medium">{annexLabel(pNumber, annex)}{annex.title ? `: ${annex.title}` : ""}</p>
+                  <p className="text-xs font-medium">{annexLabel(pNumber, annex)}: {annexureDetails(annex)}</p>
                   <p className="text-[11px] text-muted-foreground">
                     {(annex.collyDocuments || []).length} constituent document{(annex.collyDocuments || []).length === 1 ? "" : "s"} — upload them in the annexure dialog on the List of Dates.
                   </p>
@@ -274,7 +275,7 @@ export function WpPdfGenerationDialog({
               ) : (
                 uploadRow(
                   annexurePath(annex.id),
-                  `${annexLabel(pNumber, annex)}${annex.title ? `: ${annex.title}` : ""}`,
+                  `${annexLabel(pNumber, annex)}: ${annexureDetails(annex)}`,
                   "Uploaded.",
                   <IssueList target={`annex:${annex.id}`} skipFirstIfMissing />,
                   "No file uploaded — a blank page would be inserted here.",

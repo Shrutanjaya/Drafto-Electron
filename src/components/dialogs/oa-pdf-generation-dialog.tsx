@@ -13,6 +13,7 @@ import type { DraftoProject } from "@/lib/schema";
 import { wpAnnexureOrder } from "@/lib/wp/wp-annexures";
 import { useExportPermission } from "@/providers/entitlement-provider";
 import { hasUsableFile, isRememberedButMissing, fileNameOf } from "@/lib/file-availability";
+import { annexureDetails } from "@/lib/annexure-details";
 
 /**
  * Pre-flight + upload slots for the CAT Original Application paper-book. The
@@ -130,7 +131,9 @@ export function OaPdfGenerationDialog({
       return {
         path,
         label: `Annexure A-${e.pNumber}${isColly ? " (Colly)" : ""}`,
-        title: e.annex.title || "[description]",
+        // As the Index describes it: copy type, what it is, its date, and the
+        // user's own words.
+        title: annexureDetails(e.annex) || "[description]",
         colly: isColly,
         constituents: isColly
           ? (e.annex.collyDocuments || []).map((cd: any, k: number) => ({
