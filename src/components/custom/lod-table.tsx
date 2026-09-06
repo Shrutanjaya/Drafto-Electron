@@ -2,7 +2,7 @@
 "use client"
 
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form"
-import type { DraftoProject, Annexure } from "@/lib/schema"
+import type { DraftoProject } from "@/lib/schema"
 import {
   Table,
   TableBody,
@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button"
 import { PlusCircle, Trash2, FileText, GripVertical, Info } from "lucide-react"
 import { AnnexureDialog } from "../dialogs/annexure-dialog"
 import { BadhiyaBox } from "./badhiya-box"
-import { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures"
+import { annexureNumbering } from "@/lib/annexure-numbering"
 import { annexPrefixFor } from "@/lib/annex-prefix"
 import {
   DndContext,
@@ -193,37 +193,14 @@ function LoDTableInner({
   }, [allLods]);
   
   const courtType = useWatch({ control: form.control, name: "courtType" });
-  const annexureNumberingMap = useMemo(() => {
-    // The HC writ and the CAT OA both use the generator's own ordering
-    // (impugned-order annexures sort to P-1 / A-1…), so the on-screen numbers
-    // always match the generated documents and re-sort live when the IO
-    // checkbox is toggled.
-    if (courtType === "WritPetitionDHC" || courtType === "OriginalApplicationCAT") {
-      return new Map<string, number>(wpAnnexureOrderFromLods(allLods).map(e => [e.annex.id, e.pNumber]));
-    }
-
-    const map = new Map<string, number>();
-    const allAnnexures: Annexure[] = [];
-
-    allLods.forEach(lod => {
-      if (lod.annexures) {
-        allAnnexures.push(...lod.annexures);
-      }
-    });
-
-    const nonAdAnnexures = allAnnexures.filter(annex => !annex.isAdditionalDocument);
-    const adAnnexures = allAnnexures.filter(annex => annex.isAdditionalDocument);
-
-    let counter = 1;
-    nonAdAnnexures.forEach(annex => {
-      map.set(annex.id, counter++);
-    });
-    adAnnexures.forEach(annex => {
-      map.set(annex.id, counter++);
-    });
-
-    return map;
-  }, [allLods, courtType]);
+  // One shared rule (see lib/annexure-numbering.ts): position decides the
+  // number, the tool's group rule decides the grouping. So the numbers re-sort
+  // live when an annexure is dragged, or when the Impugned Order / Additional
+  // Document mark is toggled, and always match the generated documents.
+  const annexureNumberingMap = useMemo(
+    () => annexureNumbering(allLods, courtType),
+    [allLods, courtType]
+  );
 
   const getAnnexureLabel = (lodId: string) => {
     const annexuresInRow = allLods.find(lod => lod.id === lodId)?.annexures || [];

@@ -77,6 +77,7 @@ contextBridge.exposeInMainWorld("electron", {
 
   // Shared-folder project management
   saveProjectToPath:      (data)     => ipcRenderer.invoke("save-project-to-path", data),
+  renameProjectFile:      (data)     => ipcRenderer.invoke("rename-project-file", data),
   loadProjectFromPath:    (filePath) => ipcRenderer.invoke("load-project-from-path", filePath),
   openDraftoFileDialog:   ()         => ipcRenderer.invoke("open-drafto-file-dialog"),
   getFileMtime:           (filePath) => ipcRenderer.invoke("get-file-mtime", filePath),

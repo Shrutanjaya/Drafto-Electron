@@ -1,7 +1,7 @@
 
 "use client"
 
-import React, { useMemo, useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
 import { annexureSchema, collyDocumentSchema, type DraftoProject } from "@/lib/schema";
 import { pickFile } from "@/lib/utils/pick-file";
@@ -19,7 +19,26 @@ import {
 } from "../ui/form";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
-import { PlusCircle, Trash2, Paperclip, Copy, Upload, GripHorizontal } from "lucide-react";
+import { PlusCircle, Trash2, Paperclip, Copy, Upload, GripHorizontal, GripVertical } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragOverEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { annexureNumbering } from "@/lib/annexure-numbering";
 import { Checkbox } from "../ui/checkbox";
 import { Card, CardContent } from "../ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
@@ -116,15 +135,46 @@ function CollyConstituents({ lodIndex, annexIndex, rowsName = "listOfDates" }: {
   );
 }
 
+// One annexure row, draggable by its own grip.
+//
+// The grip's props are handed down to the row so that the grip — and only the
+// grip — starts a drag; every field in the row stays clickable and selectable.
+function SortableAnnexureRow({
+  id,
+  children,
+}: {
+  id: string;
+  children: (gripProps: Record<string, any>) => React.ReactElement;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(isDragging && "relative z-10 opacity-80")}
+    >
+      {children({ ...attributes, ...listeners })}
+    </div>
+  );
+}
+
+// Drag-and-drop needs the browser; render the plain list until it is there.
+function ClientSideDnd({ children }: { children: React.ReactNode }) {
+  const [isClient, setIsClient] = useState(false);
+  useEffect(() => { setIsClient(true); }, []);
+  return isClient ? <>{children}</> : null;
+}
+
 export function AnnexureDialog({ lodIndex, children, annexureNumberingMap, rowsName = "listOfDates" }: AnnexureDialogProps) {
   const form = useFormContext<DraftoProject>();
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, remove, move } = useFieldArray({
     control: form.control,
     name: `${rowsName}.${lodIndex}.annexures` as `listOfDates.${number}.annexures`,
   });
   const isDark = useIsDark();
-  const isWp = form.watch("courtType") === "WritPetitionDHC";
-  const isOa = form.watch("courtType") === "OriginalApplicationCAT";
+  const courtType = useWatch({ control: form.control, name: "courtType" }) as string | undefined;
+  const isWp = courtType === "WritPetitionDHC";
+  const isOa = courtType === "OriginalApplicationCAT";
   // HC (writ) and CAT (OA) both use the Impugned-Order + Colly controls and the
   // "A-/P-" prefix, NOT the SC "Additional Document" checkbox.
   const isIoDoctype = isWp || isOa;
@@ -176,6 +226,53 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap, rowsN
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
+  };
+
+  // ── Reordering the annexures of this date ────────────────────────────────
+  //
+  // Order is the only thing on offer: a number is never entered. Dragging a row
+  // changes where the annexure sits, and the number follows from that position
+  // together with the tool's own grouping (an Impugned Order still sorts to the
+  // front, an Additional Document still sorts to the end). Order across dates
+  // comes from the List of Dates itself, which is why this list holds one date.
+  //
+  // While a row is in flight every number is recomputed from the order the drop
+  // would produce, so each row shows the number it is about to carry rather
+  // than the one it had. That is done on each drag movement rather than by
+  // watching the form: one of these dialogs is mounted for every date, and a
+  // standing subscription to the whole List of Dates would re-render all of
+  // them on every keystroke.
+  const [previewNumbering, setPreviewNumbering] = useState<Map<string, number> | null>(null);
+  const liveNumbering = previewNumbering ?? annexureNumberingMap;
+
+  const projectNumbering = (from: number, to: number) => {
+    const rows = (form.getValues(rowsName as "listOfDates") as any[]) || [];
+    const projected = rows.map((row: any, i: number) =>
+      i === lodIndex ? { ...row, annexures: arrayMove(row?.annexures || [], from, to) } : row
+    );
+    setPreviewNumbering(annexureNumbering(projected, courtType));
+  };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const rowIndexOf = (id?: string | number | null) => fields.findIndex(f => f.id === id);
+
+  const handleDragOver = (event: DragOverEvent) => {
+    const from = rowIndexOf(event.active.id);
+    const to = rowIndexOf(event.over?.id);
+    if (from < 0 || to < 0 || from === to) setPreviewNumbering(null);
+    else projectNumbering(from, to);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setPreviewNumbering(null);
+    const from = rowIndexOf(event.active.id);
+    const to = rowIndexOf(event.over?.id);
+    if (from < 0 || to < 0 || from === to) return;
+    move(from, to);
   };
 
   const fileInputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -247,9 +344,19 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap, rowsN
           </div>
           <div className="flex flex-col h-full p-2.5 pt-2">
               <div className="flex-grow overflow-y-auto pr-1 space-y-1 py-2 max-h-[60vh]">
+              <ClientSideDnd>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragOver={handleDragOver}
+                onDragEnd={handleDragEnd}
+                onDragCancel={() => setPreviewNumbering(null)}
+              >
+              <SortableContext items={fields.map(f => f.id)} strategy={verticalListSortingStrategy}>
+              <div className="space-y-1">
               {fields.map((item, index) => {
                   const currentAnnexure = form.watch(`${rowsName}.${lodIndex}.annexures.${index}`);
-                  const pNumber = currentAnnexure ? annexureNumberingMap.get(currentAnnexure.id) : undefined;
+                  const pNumber = currentAnnexure ? liveNumbering.get(currentAnnexure.id) : undefined;
                   const fileValue = form.watch(`${rowsName}.${lodIndex}.annexures.${index}.file`);
                   const typedFileValue = form.watch(`${rowsName}.${lodIndex}.annexures.${index}.typedOrTranslatedFile`);
                   const showTypedUpload = currentAnnexure.copyType === 'true and typed copy' || currentAnnexure.copyType === 'true and translated copy';
@@ -258,9 +365,24 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap, rowsN
                   const hasTypedFile = typedFileValue instanceof File;
 
                   return (
-                  <Card key={item.id} className="relative">
+                  <SortableAnnexureRow key={item.id} id={item.id}>
+                  {(gripProps) => (
+                  <Card className="relative">
                       <CardContent className="p-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                {...gripProps}
+                                className="cursor-grab touch-none rounded p-0.5 text-muted-foreground hover:bg-muted active:cursor-grabbing"
+                              >
+                                <GripVertical className="h-4 w-4" />
+                                <span className="sr-only">Drag to reorder this annexure</span>
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Drag to reorder. The {annexPrefix}-numbers follow the order.</p></TooltipContent>
+                          </Tooltip>
                           <FormField
                               control={form.control}
                               name={`${rowsName}.${lodIndex}.annexures.${index}.file`}
@@ -505,8 +627,14 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap, rowsN
                         )}
                       </CardContent>
                   </Card>
+                  )}
+                  </SortableAnnexureRow>
                   )
               })}
+              </div>
+              </SortableContext>
+              </DndContext>
+              </ClientSideDnd>
               </div>
               <div className="flex-shrink-0 pt-1 border-t flex items-center gap-2">
               <Button

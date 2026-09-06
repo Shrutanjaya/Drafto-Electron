@@ -1190,7 +1190,14 @@ ipcMain.handle("delete-drafto-file", (_event, filePath) => {
 ipcMain.handle("save-project", (_event, { petitionerName, content, extension }) => {
   const dir = projectsDir();
   const ext = extension === "dhcwp" ? "dhcwp" : "drafto";
-  const filePath = path.join(dir, `${petitionerName}.${ext}`);
+  // This only ever creates a project — once one exists the app saves to its
+  // path instead. So a name already in use belongs to a different matter, and
+  // writing over it would lose that matter. Take the next free name instead.
+  const base = String(petitionerName).replace(/ \((\d+)\)$/, "");
+  let filePath = path.join(dir, `${petitionerName}.${ext}`);
+  for (let n = 2; n < 1000 && fs.existsSync(filePath); n++) {
+    filePath = path.join(dir, `${base} (${n}).${ext}`);
+  }
   fs.writeFileSync(filePath, content, "utf-8");
   addRecentFile(filePath);
   return filePath;
@@ -1339,6 +1346,82 @@ ipcMain.handle("delete-lock-file", (_event, filePath) => {
   const lockPath = filePath + ".lock";
   try { if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath); } catch {}
   if (activeLockFilePath === lockPath) activeLockFilePath = null;
+});
+
+// ── Renaming a project ───────────────────────────────────────────────────────
+// The file's own name IS the project's name, so renaming has to carry with it
+// everything that points at the file: the advisory lock a colleague reads, and
+// the recent-files list. The renderer normalises the name it asks for; this
+// side is the gatekeeper, and refuses rather than guesses.
+//
+// Windows cannot hold a file called CON, PRN, AUX, NUL, COM1-9 or LPT1-9, nor
+// one ending in a space or a full stop, whatever the user types.
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+function badProjectName(stem) {
+  if (typeof stem !== "string") return "empty";
+  const s = stem.trim();
+  if (!s) return "empty";
+  if (s.length > 120) return "too long";
+  if (/[\\/:*?"<>|]/.test(s)) return "illegal characters";
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f]/.test(s)) return "illegal characters";
+  if (/[. ]$/.test(s)) return "a trailing space or full stop";
+  if (WINDOWS_RESERVED.test(s)) return "a name Windows reserves";
+  return null;
+}
+
+ipcMain.handle("rename-project-file", (_event, { filePath, newStem }) => {
+  if (!filePath || typeof filePath !== "string") return { ok: false, reason: "invalid" };
+  const bad = badProjectName(newStem);
+  if (bad) return { ok: false, reason: "invalid", detail: bad };
+
+  const dir = path.dirname(filePath);
+  const ext = path.extname(filePath);
+  const target = path.join(dir, newStem.trim() + ext);
+
+  // The file has been moved or deleted behind our back — let the caller save
+  // under the new name instead of failing.
+  if (!fs.existsSync(filePath)) return { ok: false, reason: "missing", path: target };
+  if (path.resolve(target) === path.resolve(filePath)) return { ok: true, path: filePath };
+
+  // Changing only the capitalisation is a real rename, but on Windows and macOS
+  // the old and new names are the same file — so the "already taken" check
+  // below must not fire on it.
+  const caseOnly = target.toLowerCase() === filePath.toLowerCase();
+  if (!caseOnly && fs.existsSync(target)) return { ok: false, reason: "exists", path: target };
+
+  // Someone else has this project open on a shared drive. Renaming it out from
+  // under them would break their save.
+  const lockPath = filePath + ".lock";
+  if (fs.existsSync(lockPath) && lockPath !== activeLockFilePath) {
+    try {
+      const existing = JSON.parse(fs.readFileSync(lockPath, "utf-8"));
+      if (Date.now() - existing.since < LOCK_STALE_MS) {
+        return { ok: false, reason: "locked", user: existing.user, since: existing.since };
+      }
+    } catch {}
+  }
+
+  try {
+    fs.renameSync(filePath, target);
+  } catch (e) {
+    // Held open by a sync client, an antivirus scan or Explorer itself.
+    return { ok: false, reason: "busy", detail: e.message };
+  }
+
+  // Everything past this point is best-effort tidying: the rename has happened.
+  const heldOurLock = activeLockFilePath === lockPath;
+  try { if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath); } catch {}
+  if (heldOurLock) {
+    activeLockFilePath = null;
+    try {
+      fs.writeFileSync(target + ".lock", JSON.stringify({ user: os.userInfo().username, since: Date.now() }), "utf-8");
+      activeLockFilePath = target + ".lock";
+    } catch {}
+  }
+  removeRecentFile(filePath);
+  addRecentFile(target);
+  return { ok: true, path: target };
 });
 
 // Notify renderer to open a .drafto file by path (used on launch and second-instance)

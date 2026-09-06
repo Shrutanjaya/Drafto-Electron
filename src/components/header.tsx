@@ -20,6 +20,7 @@ import { saveAs } from "file-saver";
 
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
 import type { DraftoProject } from "@/lib/schema";
 import {
   DropdownMenu,
@@ -54,6 +55,7 @@ import { generateOaPdf } from "@/lib/oa/oa-pdf";
 import { OaPdfGenerationDialog } from "./dialogs/oa-pdf-generation-dialog";
 import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
 import { newBlankProject } from "@/lib/project-defaults";
+import { stemOf, cleanProjectName } from "@/lib/project-name";
 import { getIaList } from "@/lib/ia-list-utils";
 import { getActiveAppendixItems } from "@/lib/appendix";
 import { markFileAvailable, markFileUnavailable } from "@/lib/file-availability";
@@ -117,6 +119,88 @@ export function projectExtensionFor(data: { courtType?: string }): string {
   return data.courtType === "WritPetitionDHC" ? "dhcwp" : "drafto";
 }
 
+// ── The project name, in the header ─────────────────────────────────────────
+// Click it to rename. What is typed shows immediately; the file on disk is
+// renamed when the name is finished — on Enter, or on clicking away — because
+// renaming per keystroke would leave a trail of half-named files behind and
+// race the autosave. Escape abandons the edit.
+function ProjectNameField({
+  name,
+  chosen,
+  filePath,
+  onCommit,
+}: {
+  name: string;
+  chosen: boolean;
+  filePath: string | null;
+  onCommit: (typed: string) => Promise<boolean>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const busyRef = useRef(false);
+
+  useEffect(() => { if (!editing) setDraft(name); }, [name, editing]);
+  useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+
+  // `stayOpen` is true when the user pressed Enter: a name that is refused
+  // stays in the field so they can correct it. When they simply clicked away,
+  // the edit is abandoned instead — holding focus hostage over a bad name
+  // would be worse than losing it, and the message says what went wrong.
+  const commit = async (stayOpen: boolean) => {
+    if (busyRef.current) return;            // Enter, then blur, must not fire twice
+    busyRef.current = true;
+    try {
+      const ok = await onCommit(draft);
+      if (ok || !stayOpen) {
+        setDraft(ok ? draft : name);
+        setEditing(false);
+      } else {
+        inputRef.current?.focus();
+        busyRef.current = false;
+      }
+    } catch {
+      busyRef.current = false;
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="flex min-w-0 flex-1 justify-center px-2">
+        <Input
+          ref={inputRef}
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => commit(false)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); commit(true); }
+            if (e.key === "Escape") { e.preventDefault(); setDraft(name); setEditing(false); }
+          }}
+          className="project-name-field w-full max-w-[420px]"
+          aria-label="Project name"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-w-0 flex-1 justify-center px-2">
+      <button
+        type="button"
+        onClick={() => { busyRef.current = false; setEditing(true); }}
+        title={filePath || "Not saved yet — this name will be used when you save"}
+        className={cn(
+          "project-name-field max-w-[420px] truncate rounded px-2 py-0.5 hover:bg-muted",
+          chosen ? "text-foreground" : "italic text-muted-foreground"
+        )}
+      >
+        {name}
+      </button>
+    </div>
+  );
+}
+
 interface HeaderProps {
     undo: () => void;
     redo: () => void;
@@ -155,6 +239,16 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   const [showLoadDialog, setShowLoadDialog] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
+  // ── The project's name ────────────────────────────────────────────────────
+  // Once saved, the file on disk holds the name and nothing else does, so the
+  // header reads it straight off the path. Before the first save there is no
+  // file, so a name typed now waits here until there is one. Either way, the
+  // party-derived name is only a suggestion: the moment the user types their
+  // own, `nameOverride` is set and nothing regenerates it.
+  const [nameOverride, setNameOverride] = useState<string | null>(null);
+  // A rename in flight must not be undone by an autosave firing a second later
+  // and re-creating the file under its old name.
+  const renamingRef = useRef(false);
   // Import-tracked-changes dialog, now opened from the DOCX menu.
   const [importOpen, setImportOpen] = useState(false);
   // Recent projects (Quick Load). Kept in sync with the MRU store.
@@ -184,7 +278,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
-        handleSave();
+        handleSaveRef.current();
       }
     };
 
@@ -351,9 +445,105 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     return cloned;
   };
   
+  // ── The name shown in the header ─────────────────────────────────────────
+  // A saved project is named by its file; an unsaved one by whatever the user
+  // has typed; and failing both, by the parties — as a suggestion only, which
+  // is why it keeps up with the party names until the moment it is overridden.
+  const firstPetitioner = useWatch({ control: form.control, name: "petitioners.0.name" });
+  const firstRespondent = useWatch({ control: form.control, name: "respondents.0.name" });
+  const suggestedName = getProjectFileName({
+    petitioners: [{ name: firstPetitioner }],
+    respondents: [{ name: firstRespondent }],
+  });
+  const projectName = currentFilePath ? stemOf(currentFilePath) : (nameOverride ?? suggestedName);
+  const nameIsChosen = !!currentFilePath || nameOverride !== null;
+
+  /**
+   * A path in `dir` that no other project already occupies. Drafto never writes
+   * over a project it does not already own — that is the whole of the "two SLPs
+   * for the same parties" problem — so a clash becomes "Name (2)" instead.
+   */
+  const freeFilePath = async (dir: string, stem: string, ext: string, ownPath?: string | null) => {
+    const sep = dir.includes("/") ? "/" : "\\";
+    const base = stem.replace(/ \(\d+\)$/, "");
+    let name = stem;
+    for (let n = 2; n < 1000; n++) {
+      const candidate = `${dir}${sep}${name}.${ext}`;
+      // A file that is this very project is not in the way of itself — saving
+      // back to where it already lives must not spawn a "(2)".
+      if (ownPath && candidate.toLowerCase() === ownPath.toLowerCase()) return { path: candidate, name };
+      if (!window.electron?.pathExists || !(await window.electron.pathExists(candidate))) {
+        return { path: candidate, name };
+      }
+      name = `${base} (${n})`;
+    }
+    return { path: `${dir}${sep}${base} (${Date.now()}).${ext}`, name: `${base} (${Date.now()})` };
+  };
+
+  /**
+   * Rename the project. Before the first save this only remembers the name;
+   * afterwards it renames the file on disk and carries the advisory lock and
+   * both recent-project lists along with it. Returns false if nothing changed,
+   * having already explained why.
+   */
+  const commitProjectName = async (typed: string): Promise<boolean> => {
+    const cleaned = cleanProjectName(typed);
+    if (!cleaned) {
+      toast({
+        variant: "destructive",
+        title: "That name can't be used",
+        description: "A project name can't be blank, and can't contain \\ / : * ? \" < > |.",
+      });
+      return false;
+    }
+    if (cleaned === projectName) return true;
+
+    // Not saved anywhere yet — the name simply waits for the first save.
+    if (!currentFilePath || !window.electron?.renameProjectFile) {
+      setNameOverride(cleaned);
+      return true;
+    }
+
+    renamingRef.current = true;
+    try {
+      const res = await window.electron.renameProjectFile({ filePath: currentFilePath, newStem: cleaned });
+      if (res?.ok && res.path) {
+        removeRecentProject(currentFilePath);
+        pushRecentProject(res.path);
+        setNameOverride(cleaned);
+        setCurrentFilePath(res.path);
+        return true;
+      }
+      if (res?.reason === "missing") {
+        // The file has been moved or deleted behind our back. Keep the name and
+        // let the next save write it afresh rather than failing.
+        setNameOverride(cleaned);
+        setCurrentFilePath(null);
+        toast({ title: "Renamed", description: "The old file is no longer there, so this name will be used the next time you save." });
+        return true;
+      }
+      const why =
+        res?.reason === "exists" ? `A project called “${cleaned}” is already saved in this folder.`
+        : res?.reason === "locked" ? `${res.user || "Someone else"} has this project open. Ask them to close it first.`
+        : res?.reason === "busy" ? "The file is in use — close it in Explorer or your sync app and try again."
+        : res?.detail ? `The name has ${res.detail}.`
+        : "The file could not be renamed.";
+      toast({ variant: "destructive", title: "Not renamed", description: why });
+      return false;
+    } catch (err) {
+      toast({ variant: "destructive", title: "Not renamed", description: String(err) });
+      return false;
+    } finally {
+      renamingRef.current = false;
+    }
+  };
+
   const handleSave = async () => {
+    // An autosave landing in the middle of a rename would write the file back
+    // under its old name and quietly undo it.
+    if (renamingRef.current) return;
     const data = form.getValues();
-    const petitionerName = getProjectFileName(data);
+    const petitionerName = projectName;
 
     // Extract file paths and serialize (File objects are stripped; paths are preserved)
     const dataWithPaths = extractFilePaths(data);
@@ -376,10 +566,15 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     const defaultDraftoPath = getSettings().defaultDraftoPath;
     if (defaultDraftoPath && window.electron?.saveProjectToPath) {
       try {
-        const sep = defaultDraftoPath.includes('/') ? '/' : '\\';
-        const destPath = `${defaultDraftoPath}${sep}${petitionerName}.${projectExtensionFor(data)}`;
+        const { path: destPath, name: usedName } = await freeFilePath(defaultDraftoPath, petitionerName, projectExtensionFor(data));
         await window.electron.saveProjectToPath({ filePath: destPath, content: jsonString });
         setCurrentFilePath(destPath);
+        if (usedName !== petitionerName) {
+          toast({
+            title: "Saved under a different name",
+            description: `“${petitionerName}” was already taken in that folder, so this project is “${usedName}”. Rename it at the top if you'd rather.`,
+          });
+        }
         if (window.electron.writeLockFile) await window.electron.writeLockFile(destPath);
         toast({ variant: "success", title: "Saved" });
         return;
@@ -432,6 +627,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
           bumpStaleAdvocateDates(validatedData);
           form.reset(validatedData);
           setCurrentFilePath(null);
+          setNameOverride(stemOf(file.name) || null);
           noticeIfUncovered(validatedData);
           toast({ title: "Project Loaded", description: "Your project has been loaded successfully." });
         } catch (error) {
@@ -463,6 +659,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         await window.electron.deleteLockFile(currentFilePath);
       }
       setCurrentFilePath(null); // loaded from local userData — clear any shared path
+      setNameOverride(null);
       noticeIfUncovered(validatedData);
     } catch (error) {
       console.error("Load error:", error);
@@ -502,6 +699,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       bumpStaleAdvocateDates(validatedData);
       form.reset(validatedData);
       setCurrentFilePath(filePath);
+      setNameOverride(null);
       noticeIfUncovered(validatedData);
       toast({ title: "Project Loaded", description: filePath.split(/[\\/]/).pop() });
     } catch (err) {
@@ -526,9 +724,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     const dir = await window.electron.selectDirectory();
     if (!dir) return;
     const data = form.getValues();
-    const petitionerName = getProjectFileName(data);
-    const sep = dir.includes('/') ? '/' : '\\';
-    const destPath = `${dir}${sep}${petitionerName}.${projectExtensionFor(data)}`;
+    const { path: destPath, name: usedName } = await freeFilePath(dir, projectName, projectExtensionFor(data), currentFilePath);
     try {
       const dataWithPaths = extractFilePaths(data);
       const jsonString = JSON.stringify(dataWithPaths, null, 2);
@@ -543,7 +739,11 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       await window.electron.saveProjectToPath({ filePath: destPath, content: jsonString });
       setCurrentFilePath(destPath);
       if (window.electron.writeLockFile) await window.electron.writeLockFile(destPath);
-      toast({ variant: "success", title: "Save Location Changed", description: destPath });
+      toast({
+        variant: "success",
+        title: "Save Location Changed",
+        description: usedName !== projectName ? `Saved as “${usedName}” — that folder already had a “${projectName}”.` : destPath,
+      });
     } catch (err) {
       toast({ variant: "destructive", title: "Failed to Change Location", description: String(err) });
     }
@@ -674,6 +874,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     // Production (WP hidden): New Project creates a blank SLP directly.
     form.reset(newBlankProject("SLP"));
     setCurrentFilePath(null);
+    setNameOverride(null);
     const defaultView = getSettings().slpTabView ?? 'splitter';
     window.dispatchEvent(new CustomEvent('drafto-new-project', { detail: { mode: defaultView } }));
     toast({ title: "New Project", description: "A new blank project has been created." });
@@ -688,6 +889,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     if (reason === "startup" && courtType === form.getValues("courtType")) return;
     form.reset(newBlankProject(courtType));
     setCurrentFilePath(null);
+    setNameOverride(null);
     const defaultView = getSettings().slpTabView ?? 'splitter';
     window.dispatchEvent(new CustomEvent('drafto-new-project', { detail: { mode: defaultView } }));
     if (reason === "new") {
@@ -760,8 +962,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         const settings = getSettings();
         
         // Get case name for subfolder
-        const data = form.getValues();
-        const petitionerName = getProjectFileName(data);
+        const petitionerName = projectName;
         
         const savedPath = await window.electron.saveDocx({
           fileName,
@@ -849,7 +1050,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
             fileName: result.fileName,
             content: result.pdfBase64,
             defaultPath: (settings as any).defaultPdfPath || undefined,
-            projectFolder: getProjectFileName(form.getValues()),
+            projectFolder: projectName,
           });
           if (savedPath) {
             toast({ title: "PDF Saved", description: savedPath });
@@ -1104,6 +1305,12 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         <img src="./drafto-logo.png" alt="Drafto Logo" className="h-7 w-auto translate-x-0.5" />
         <h1 className="text-base font-bold" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Drafto</h1>
       </div>
+      <ProjectNameField
+        name={projectName}
+        chosen={nameIsChosen}
+        filePath={currentFilePath}
+        onCommit={commitProjectName}
+      />
       <div className="flex items-center gap-1">
         <Button variant="ghost" size="icon" title="Undo" onClick={undo} disabled={!canUndo}><Undo /></Button>
         <Button variant="ghost" size="icon" title="Redo" onClick={redo} disabled={!canRedo}><Redo /></Button>

@@ -53,6 +53,14 @@ interface ElectronAPI {
 
   // Shared-folder collaboration
   saveProjectToPath: (data: { filePath: string; content: string }) => Promise<string>;
+  renameProjectFile: (data: { filePath: string; newStem: string }) => Promise<{
+    ok: boolean;
+    path?: string;
+    reason?: "invalid" | "missing" | "exists" | "locked" | "busy";
+    detail?: string;
+    user?: string;
+    since?: number;
+  }>;
   loadProjectFromPath: (filePath: string) => Promise<string>;
   openDraftoFileDialog: () => Promise<string | null>;
   getFileMtime: (filePath: string) => Promise<number | null>;

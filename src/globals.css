@@ -30,6 +30,20 @@ textarea,
   line-height: 1.5 !important;
 }
 
+/* The project name in the header is a fixed size in pixels, deliberately. It is
+   a label on a 48px-tall bar, not text being read at length: if it grew with
+   the Interface or Editing font settings it would push the toolbar out of the
+   header. `!important` is needed to beat the global input rule above, which
+   would otherwise give the rename box the Editing size. */
+.project-name-field {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 12px !important;
+  line-height: 16px !important;
+}
+input.project-name-field {
+  height: 24px !important;
+}
+
 /* Mayur (the AI assistant panel) is interface, not document editing — it follows
    the Interface font everywhere, including its input box, which would otherwise
    inherit the Editing font from the global input rule above. */
@@ -283,12 +297,13 @@ textarea::placeholder {
   .prose blockquote.quote-close-single::after {
     content: '\2019';
   }
-  /* Tiptap table styles */
+  /* Tiptap table styles: 100% fluid, fixed layout, no overflow */
   .prose table {
     border-collapse: collapse;
-    width: 100%;
+    width: 100% !important;
+    max-width: 100% !important;
     margin: 0.5rem 0;
-    table-layout: fixed;
+    table-layout: fixed !important;
   }
   .prose table td,
   .prose table th {
@@ -297,6 +312,9 @@ textarea::placeholder {
     vertical-align: top;
     min-width: 2rem;
     position: relative;
+    box-sizing: border-box;
+    word-break: break-word;
+    overflow-wrap: break-word;
   }
   .prose table th {
     font-weight: 600;
@@ -333,9 +351,22 @@ textarea::placeholder {
   .prose.resize-cursor {
     cursor: col-resize;
   }
-  /* Let a widened table scroll horizontally instead of overflowing the editor. */
+  /* Dragging visual guideline across table height */
+  .prose .table-resize-guide {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background-color: hsl(var(--primary));
+    box-shadow: 0 0 6px hsl(var(--primary));
+    pointer-events: none;
+    z-index: 20;
+  }
+  /* Keep table within the editor without horizontal scrollbar */
   .prose .tableWrapper {
-    overflow-x: auto;
+    overflow-x: hidden;
+    width: 100%;
+    position: relative;
   }
 }
 

@@ -22,7 +22,7 @@ import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { joinTextblockBackward } from '@tiptap/pm/commands'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
-import Table from '@tiptap/extension-table'
+import { ProportionalTable as Table, hydrateTableColWidths } from './table-proportional'
 import TableRow from '@tiptap/extension-table-row'
 import TableHeader from '@tiptap/extension-table-header'
 import TableCell from '@tiptap/extension-table-cell'
@@ -76,14 +76,19 @@ function annotateTableColRatios(html: string, editorRoot: HTMLElement): string {
   return html.replace(/<table\b[\s\S]*?<\/table>/g, (tableHtml) => {
     const dom = domTables[t++] as HTMLTableElement | undefined
     const ratios = dom ? measureColRatios(dom) : null
-    if (!ratios) return tableHtml
-    const colTags = tableHtml.match(/<col\b[^>]*>/g) || []
-    if (colTags.length !== ratios.length) return tableHtml // shape mismatch — don't guess
+    let out = tableHtml.replace(/<table\b([^>]*)>/, (_m, attrs) => {
+      const cleanAttrs = attrs.replace(/\s*style="[^"]*"/g, '')
+      return `<table${cleanAttrs} style="width: 100%;">`
+    })
+    if (!ratios) return out
+    const colTags = out.match(/<col\b[^>]*>/g) || []
+    if (colTags.length !== ratios.length) return out // shape mismatch — don't guess
     let j = 0
-    return tableHtml.replace(/<col\b[^>]*>/g, (colTag) => {
+    return out.replace(/<col\b[^>]*>/g, (colTag) => {
       const r = ratios[j++]
-      const clean = colTag.replace(/\s*data-ratio="[^"]*"/g, '')
-      return clean.replace(/^<col/, `<col data-ratio="${r.toFixed(4)}"`)
+      const pct = (r * 100).toFixed(4)
+      const clean = colTag.replace(/\s*data-ratio="[^"]*"/g, '').replace(/\s*style="[^"]*"/g, '')
+      return clean.replace(/^<col/, `<col style="width: ${pct}%;" data-ratio="${r.toFixed(4)}"`)
     })
   })
 }
@@ -403,7 +408,7 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
       QuoteCue,
       ListEditingKeys,
     ],
-    content: value,
+    content: hydrateTableColWidths(value),
     onUpdate: ({ editor }) => {
       // Stamp measured column ratios onto any tables before handing the HTML to
       // the form (see annotateTableColRatios above).
@@ -450,7 +455,7 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
     // A genuine empty value is "", which still syncs normally.
     if (typeof value !== "string") return;
     if (value !== editor.getHTML() && value !== lastEmitted.current) {
-      editor.commands.setContent(value, false);
+      editor.commands.setContent(hydrateTableColWidths(value), false);
     }
   }, [value, editor]);
 

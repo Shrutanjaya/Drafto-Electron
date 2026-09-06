@@ -1,4 +1,4 @@
-﻿
+
 import { AlignmentType, Indent, Paragraph, TextRun, UnderlineType, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, LineRuleType, TableLayoutType } from "docx";
 import { convertToSmartQuotes } from "./docx-helpers";
 import { listRegime } from "./list-regimes";
@@ -258,7 +258,13 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                             if (typeof n === 'string') return;
                             if (n.tagName === 'col') {
                                 const r = parseFloat(n.attributes['data-ratio'] || '');
-                                out.push(isFinite(r) && r > 0 ? r : null);
+                                if (isFinite(r) && r > 0) {
+                                    out.push(r);
+                                } else {
+                                    const style = n.attributes.style || '';
+                                    const pct = style.match(/(?<!-)\bwidth:\s*([\d.]+)%/);
+                                    out.push(pct ? parseFloat(pct[1]) / 100 : null);
+                                }
                             } else if (n.tagName === 'colgroup') {
                                 visit(n.children);
                             }
@@ -341,10 +347,18 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                     });
                 }
 
+                // Determine left indentation for the table:
+                // When a table sits inside a list item (e.g., Grounds or nested list),
+                // it should follow the left indent of that list rather than resetting to 0.
+                const tableLeftIndentTwips = blockIndent?.left
+                    ?? (listLevel > 0
+                        ? (quoteListGeom.itemLeft ?? 720) + (listLevel - 1) * (quoteListGeom.itemStep ?? 360)
+                        : (defaultNumbering ? (quoteListGeom.itemLeft ?? 720) : (currentInBlockquote ? 720 : 0)));
+
                 // Normalise to dxa widths summing to a conservative usable width that
-                // fits inside the page margins on both A4 and Letter. A fixed layout
-                // makes Word honour these exact proportions instead of auto-fitting.
-                const TABLE_TOTAL_TWIPS = 8200;
+                // fits inside the page margins on both A4 and Letter. When indented,
+                // subtract the left indent so internal column widths match the narrower table.
+                const TABLE_TOTAL_TWIPS = Math.max(1000, 8200 - tableLeftIndentTwips);
                 const sumW = weights.reduce((s, w) => s + w, 0);
                 const colWidths: number[] = (columnCount === 0 || sumW === 0)
                     ? new Array(Math.max(1, columnCount)).fill(
@@ -376,9 +390,18 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 });
 
                 if (tableRows.length > 0) {
+                    // In Word docx, table percentage width is relative to the page margin width
+                    // (approx 8640 twips). If a table has an indent, 100% width extends past
+                    // the right margin. To keep the right border aligned with the page margin:
+                    // pct = ((8640 - tableLeftIndentTwips) / 8640) * 100%.
+                    const tablePctWidth = tableLeftIndentTwips > 0
+                        ? Math.max(10, Math.round(((8640 - tableLeftIndentTwips) / 8640) * 10000) / 100)
+                        : 100;
+
                     result.paragraphs.push(new Table({
                         rows: tableRows,
-                        width: { size: TABLE_TOTAL_TWIPS, type: WidthType.DXA },
+                        width: { size: tablePctWidth, type: WidthType.PERCENTAGE },
+                        ...(tableLeftIndentTwips > 0 ? { indent: { size: tableLeftIndentTwips, type: WidthType.DXA } } : {}),
                         layout: TableLayoutType.FIXED,
                         columnWidths: colWidths,
                     }));
@@ -668,7 +691,7 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 blockChildren.forEach(bc => {
                     const childResult = treeToDocx(
                         [bc], olCounterRef, listLevel, currentInBlockquote, currentOlRef, spacing, undefined, exportHighlight,
-                        bc.tagName === 'p' ? itemTextIndent : undefined,
+                        (bc.tagName === 'p' || bc.tagName === 'table') ? itemTextIndent : undefined,
                     );
                     result.paragraphs.push(...childResult.paragraphs);
                     result.numbering.push(...childResult.numbering);
