@@ -36,8 +36,29 @@ import {
   wpAnnexureOrderFromLods,
   getScWpOutputFormatting,
   getScWpMargins,
+  SC_WP_FACTS_LIST_GEOM,
+  applyScWpFactsCascade,
 } from "@/lib/sc-wp/sc-wp-actions";
+import { isScWpFamily, isAppeal, annexurePrefix } from "@/lib/court-family";
+import { appealProvisionText, appealTitle, appealOrderRule } from "@/lib/appeal/appeal-provisions";
+import { resolveFactsHtml } from "@/lib/wp/facts-mode";
+import { transposeLodToFacts, injectAnnexurePageRangesIntoFacts } from "@/lib/wp/wp-facts";
 
+
+// The fourth argument to createSlpHeader, set only for the statutory appeal.
+// Undefined for an SLP, which keeps every existing header byte-for-byte the
+// same; for an Appeal it carries the provision chosen in Preliminary, which
+// the header prints in place of the Article 136 line.
+// How the main document names itself in the Index, the paper-book particulars
+// and the Filing Memo. The Appeal states the provision it is brought under; the
+// SLP keeps the wording it has always had.
+const mainDocumentParticular = (projectData: DraftoProject) =>
+  isAppeal(projectData.courtType)
+    ? `Appeal under ${appealProvisionText(projectData)}, with accompanying Affidavit`
+    : "Special Leave Petition with Certificate and Affidavit";
+
+const appealHeaderArg = (projectData: DraftoProject) =>
+  isAppeal(projectData.courtType) ? { provision: appealProvisionText(projectData) } : undefined;
 
 const calculateIoText = (projectData: DraftoProject) => {
     if (!projectData.impugnedOrders || projectData.impugnedOrders.length === 0) {
@@ -105,7 +126,7 @@ const getIaList = (projectData: DraftoProject) => {
     }
     if (projectData.standardIas.condonationOfDelay.active) {
         const delayDays = projectData.standardIas.condonationOfDelay.delayDays > 0 ? projectData.standardIas.condonationOfDelay.delayDays : "__";
-        const title = `Application for condonation of delay of ${delayDays} days in filing the SLP`;
+        const title = `Application for condonation of delay of ${delayDays} days in filing the ${isAppeal(projectData.courtType) ? 'Appeal' : 'SLP'}`;
         ias.push({ prefix: iaPrefix, title, id: 'condonationOfDelay' });
     }
     if (projectData.standardIas.exemptionCertifiedCopy.active) {
@@ -122,7 +143,7 @@ const getIaList = (projectData: DraftoProject) => {
           .filter(annex => annex.copyType === 'translated copy' || annex.copyType === 'true and translated copy')
           .map(annex => annexureNumberingMap.get(annex.id))
           .filter(Boolean)
-          .map(pNumber => `P-${pNumber}`);
+          .map(pNumber => `${annexurePrefix(projectData.courtType)}-${pNumber}`);
         
         let annexureList = '';
         if (translatedAnnexures.length > 0) {
@@ -138,6 +159,11 @@ const getIaList = (projectData: DraftoProject) => {
     if (projectData.standardIas.exemptionFromSurrendering.active) {
         const title = standardIaList.find(i => i.id === 'exemptionFromSurrendering')?.title || "";
         ias.push({ prefix: iaPrefix, title, id: 'exemptionFromSurrendering' });
+    }
+    // Criminal appeals only.
+    if (isAppeal(projectData.courtType) && projectData.caseType === 'Criminal' && projectData.standardIas.suspensionOfSentence?.active) {
+        const title = standardIaList.find(i => i.id === 'suspensionOfSentence')?.title || "";
+        ias.push({ prefix: iaPrefix, title, id: 'suspensionOfSentence' });
     }
     projectData.customIas.forEach(ia => {
         ias.push({ prefix: iaPrefix, title: ia.title, id: ia.id });
@@ -342,8 +368,8 @@ const getConstrainedStyles = () => {
 // read "P-1 to P-0"; it now leaves the number blank for the deponent to fill
 // in. Settings → SLP can also force the blank form even when annexures exist,
 // for drafters who prefer the affidavit not to commit to a number.
-export const annexureRangeText = (lastNumber: number, alwaysBlank = false): string =>
-    (alwaysBlank || lastNumber < 1) ? "Annexures P-1 to P-__" : `Annexures P-1 to P-${lastNumber}`;
+export const annexureRangeText = (lastNumber: number, alwaysBlank = false, prefix: string = "P"): string =>
+    (alwaysBlank || lastNumber < 1) ? `Annexures ${prefix}-1 to ${prefix}-__` : `Annexures ${prefix}-1 to ${prefix}-${lastNumber}`;
 
 // Whether the affidavit states the actual last annexure number or always leaves
 // it blank (Settings → SLP → Affidavit).
@@ -801,7 +827,7 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
       particularsList.push(`Impugned [Order Type]: True copy of [Impugned Order Details]`);
   }
 
-  particularsList.push("Special Leave Petition with Certificate and Affidavit");
+  particularsList.push(mainDocumentParticular(projectData));
 
   // One row per attached Appendix document, in the order they are merged into
   // the paper-book — getActiveAppendixItems() is the single source both read,
@@ -827,7 +853,7 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
   nonAdAnnexures.forEach(annex => {
     const pNumber = annexureNumberingMap.get(annex.id);
     if (pNumber) {
-        particularsList.push(createAnnexureText(pNumber, annex, true));
+        particularsList.push(createAnnexureText(pNumber, annex, true, annexurePrefix(projectData.courtType)));
     }
   });
   
@@ -839,7 +865,7 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
         adAnnexures.forEach(annex => {
             const pNumber = annexureNumberingMap.get(annex.id);
             if (pNumber) {
-                particularsList.push(createAnnexureText(pNumber, annex, true));
+                particularsList.push(createAnnexureText(pNumber, annex, true, annexurePrefix(projectData.courtType)));
             }
         });
     }
@@ -852,6 +878,15 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
           if (ground.annexures) {
               ground.annexures.forEach(annex => {
                   allIaAnnexures.push({ ...annex, iaId: 'condonationOfDelay' });
+              });
+          }
+      });
+  }
+  if (projectData.standardIas?.suspensionOfSentence?.active) {
+      projectData.standardIas.suspensionOfSentence.grounds?.forEach(ground => {
+          if (ground.annexures) {
+              ground.annexures.forEach(annex => {
+                  allIaAnnexures.push({ ...annex, iaId: 'suspensionOfSentence' });
               });
           }
       });
@@ -1081,7 +1116,7 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
       { // Cover Page
         ...sectionBase,
         children: [
-          ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle),
+          ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData)),
           ...createPartiesHeader(petHeader, resHeader),
           // IA table only for Volume I (or single-volume mode)
           ...(!vo || vo.volumeNum === 1 ? createWithTable(iaList, projectData.wantsInterimRelief) : []),
@@ -1149,7 +1184,7 @@ export async function generateOrDocx(projectData: DraftoProject, includeSignatur
           default: new Footer({ children: [] }),
         },
         children: [
-          ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle),
+          ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData)),
           ...createPartiesHeader(petHeader, resHeader),
           new Paragraph({ alignment: AlignmentType.CENTER, children: [ smartTextRun({ text: "OFFICE REPORT ON LIMITATION", bold: true }) ] }),
           new Paragraph({ children: [smartTextRun("1. The Special Leave Petition is within limitation.")] }),
@@ -1176,7 +1211,7 @@ export async function generateLpDocx(projectData: DraftoProject, includeSignatur
     // The font family follows Output Text Formatting; size, spacing and margins
     // are the Listing Proforma's own (Settings → SLP/SC WP → Listing Proforma), which
     // default to the rigid 13pt single-spaced form.
-    const isScWp = projectData.courtType === "WritPetitionSC";
+    const isScWp = isScWpFamily(projectData.courtType);
     const lpf = isScWp ? getScWpLpFormatting() : getLpFormatting();
     const baseMargins = isScWp ? getScWpMargins() : getSlpMargins();
     const outputFont = isScWp ? getScWpOutputFormatting().font : getOutputFormatting().font;
@@ -1253,7 +1288,7 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
     );
 
     const createLodAnnexureText = (pNumber: number, annex: Annexure): (TextRun | string)[] => {
-        const annexureLabel = `Annexure P-${pNumber}`;
+        const annexureLabel = `Annexure ${annexurePrefix(projectData.courtType)}-${pNumber}`;
         
         // Get page range if available
         const pageRange = annexurePageRanges?.get(annex.id);
@@ -1293,7 +1328,12 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
 
 
     const lodTableRows = projectData.listOfDates.flatMap((lod, lodIndex) => {
-        const relatedAnnexures = nonAdAnnexures.filter(annex => annex.lodId === lod.id);
+        // The Appeal states its annexures in the Facts section instead, so its
+        // List of Dates carries the events alone — the same split the SC WP
+        // tool uses. Everything else about the table is unchanged.
+        const relatedAnnexures = isAppeal(projectData.courtType)
+            ? []
+            : nonAdAnnexures.filter(annex => annex.lodId === lod.id);
 
         // One paragraph per annexure so justified alignment works correctly —
         // a single paragraph with TextRun breaks would cause every non-final
@@ -1377,7 +1417,22 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
     return { success: true, docx: b64string, fileName: `SLoD.docx` };
 }
 
-export async function generateSlpDocx(projectData: DraftoProject, includeSignature = false) {
+export async function generateSlpDocx(
+    projectData: DraftoProject,
+    includeSignature = false,
+    // Supplied only when the paper-book PDF is assembled. The Appeal's Facts
+    // carry annexure page ranges, which stay blank in the DOCX and are filled
+    // in here — the same contract the SC WP petition already follows.
+    annexurePageRanges?: Map<string, { start: number; end: number }>,
+) {
+    // The certificate names the document four times over; an Appeal calls
+    // itself an Appeal throughout.
+    const certDocNoun = isAppeal(projectData.courtType) ? 'Appeal' : 'SLP';
+    const isAppealDoc = isAppeal(projectData.courtType);
+    // The Memo of Parties — the BETWEEN: table on the first page — calls the
+    // petitioners Appellants in an appeal. Only this table changes: per the
+    // spec the affidavits and vakalatnama keep saying Petitioner.
+    const partyLabel = isAppealDoc ? 'Appellant' : 'Petitioner';
     const ioText = ` ${calculateIoText(projectData)}`;
     const slpLayout = getSlpLayout();
 
@@ -1438,7 +1493,7 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
                     new Paragraph(p.address),
                 ] }),
                 new TableCell({ children: [new Paragraph({ text: p.positionInEarlierCourt, alignment: AlignmentType.CENTER })] }),
-                new TableCell({ children: [new Paragraph({ text: petitioners.length === 1 ? "Petitioner" : `Petitioner No. ${i + 1}`, alignment: AlignmentType.CENTER })] }),
+                new TableCell({ children: [new Paragraph({ text: petitioners.length === 1 ? partyLabel : `${partyLabel} No. ${i + 1}`, alignment: AlignmentType.CENTER })] }),
             ]
         }));
         const resRows = respondents.map((r, i) => new TableRow({
@@ -1515,12 +1570,14 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
             ...(slpLayout.headerStyle === 'sci'
                 ? [
                     centeredTitle("IN THE SUPREME COURT OF INDIA"),
-                    centeredTitle(projectData.caseType === 'Criminal'
-                        ? "[S.C.R., Order XXII Rule 2(1)]"
-                        : "[S.C.R., Order XXI Rule 3(1)(a)]"),
+                    centeredTitle(isAppealDoc
+                        ? `[S.C.R., ${appealOrderRule(projectData.caseType)}]`
+                        : projectData.caseType === 'Criminal'
+                            ? "[S.C.R., Order XXII Rule 2(1)]"
+                            : "[S.C.R., Order XXI Rule 3(1)(a)]"),
                     centeredTitle(`${projectData.caseType.toUpperCase()} APPELLATE JURISDICTION`),
-                    centeredTitle("SPECIAL LEAVE PETITION"),
-                    centeredTitle("(Under Article 136 of the Constitution of India)"),
+                    centeredTitle(isAppealDoc ? appealTitle(projectData.caseType).toUpperCase() : "SPECIAL LEAVE PETITION"),
+                    ...(isAppealDoc ? [] : [centeredTitle("(Under Article 136 of the Constitution of India)")]),
                   ]
                 : [
                     centeredTitle("IN THE SUPREME COURT OF INDIA"),
@@ -1539,13 +1596,13 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
                 new Paragraph({
                     alignment: AlignmentType.CENTER,
                     spacing: { line: 240, after: 240 },
-                    children: [smartTextRun({ text: `Special Leave Petition (${projectData.caseType}) No. _______ of ${currentYear}`, bold: true, size: 28 })],
+                    children: [smartTextRun({ text: isAppealDoc ? `${appealTitle(projectData.caseType)} No. _______ of ${currentYear}` : `Special Leave Petition (${projectData.caseType}) No. _______ of ${currentYear}`, bold: true, size: 28 })],
                 }),
                 new Paragraph({
                     alignment: AlignmentType.JUSTIFIED,
                     indent: { left: 720, right: 720 },
                     spacing: { line: 240, after: 360 },
-                    children: [smartTextRun({ text: `Against${groupIoText}` })],
+                    children: [smartTextRun({ text: isAppealDoc ? `[Under ${appealProvisionText(projectData)} against${groupIoText}]` : `Against${groupIoText}` })],
                 }),
                 new Paragraph({ text: "BETWEEN:", spacing: { after: 0, before: 0, line: 240 } }),
                 buildPartiesTable(group.petitioners ?? [], group.respondents ?? []),
@@ -1554,7 +1611,7 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
         }
     } else {
         betweenBlocks.push(
-            ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle),
+            ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData)),
             new Paragraph({ text: "BETWEEN:", spacing: { after: 0, before: 0, line: 240 } }),
             buildPartiesTable(effectivePetitioners, effectiveRespondents),
             new Paragraph(""),
@@ -1782,7 +1839,7 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
                         width: { size: 8, type: WidthType.PERCENTAGE },
                     }),
                     new TableCell({
-                        children: [new Paragraph({ text: `Grant special leave to appeal against${ioText}; and`, style: "Normal" })],
+                        children: [new Paragraph({ text: isAppealDoc ? `Allow the present Appeal and set aside${ioText}; and` : `Grant special leave to appeal against${ioText}; and`, style: "Normal" })],
                         borders: noBorders,
                         width: { size: 92, type: WidthType.PERCENTAGE },
                     }),
@@ -1829,6 +1886,26 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
         ];
     }
 
+    // ── Appeal: FACTS (Para 3) ──────────────────────────────────────────────
+    // Reuses the writ tools' facts engine unchanged, so the Appeal's Facts read
+    // exactly like the SC WP's: transposed from the List of Dates, with annexure
+    // sentences whose page ranges are blank in the DOCX and filled when the
+    // paper-book is assembled. The Appeal's annexures are the A-series, so the
+    // prefix is "A" where the writ tools pass "P".
+    let appealFactsParagraphs: (Paragraph | Table)[] = [];
+    if (isAppealDoc) {
+        const rawAppealFacts = (resolveFactsHtml(projectData, "A") || "").trim()
+            || transposeLodToFacts(projectData, "A");
+        const appealFactsHtml = injectAnnexurePageRangesIntoFacts(rawAppealFacts, projectData, annexurePageRanges);
+        const appealFactsResult = parseHtml(appealFactsHtml, undefined, undefined, SC_WP_FACTS_LIST_GEOM);
+        applyScWpFactsCascade(appealFactsResult.numbering);
+        allNumberingConfigs.push(...appealFactsResult.numbering);
+        const hasAppealFacts = rawAppealFacts.replace(/<[^>]+>/g, "").trim().length > 0;
+        appealFactsParagraphs = hasAppealFacts && appealFactsResult.paragraphs.length > 0
+            ? appealFactsResult.paragraphs
+            : [new Paragraph({ indent: { left: 720 }, children: [smartTextRun("[Facts \u2014 generated from the List of Dates.]")] })];
+    }
+
     const makeSlpListConfig = (reference: string, start = 1) => ({
         reference,
         levels: [{ level: 0, format: "decimal" as const, text: "%1.", alignment: AlignmentType.START, start, style: { paragraph: { indent: { left: 720, hanging: 360 } } } }],
@@ -1841,7 +1918,70 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
         makeSlpListConfig("slp-intro-list-6", 6),
         makeSlpListConfig("slp-intro-list-7", 7),
         makeSlpListConfig("slp-intro-list-8", 8),
+        // The Appeal's own resume-points: 3 Facts, 4 Grounds, 5 Declaration,
+        // 6 Prayers. Word restarts a numbered list after a table, so every
+        // heading that follows one has to say where to pick up again.
+        makeSlpListConfig("appeal-list-3", 3),
+        makeSlpListConfig("appeal-list-4", 4),
+        makeSlpListConfig("appeal-list-5", 5),
+        makeSlpListConfig("appeal-list-6", 6),
     ];
+
+    // ── The petition body ───────────────────────────────────────────────────
+    // SLP:    1 intro | 2 questions of law | 3 & 4 the Rule declarations |
+    //         5 grounds | 6 interim grounds | 7 prayers | 8 interim prayers.
+    // Appeal: 1 intro | 2 questions of law | 3 facts | 4 grounds |
+    //         5 the single "no other appeal" declaration | 6 prayers,
+    //         with no interim relief at all.
+    const petitionBodyBlocks: (Paragraph | Table)[] = isAppealDoc
+        ? [
+            new Paragraph({
+                text: convertToSmartQuotes(`The present appeal is being filed under ${appealProvisionText(projectData)} against ${ioActionText}${ioActionText && ioActionText.match(/[.!?]$/) ? '' : '.'}`),
+                numbering: { reference: "slp-intro-list", level: 0 },
+            }),
+            ...(para1A ? [para1A] : []),
+            ...(para1B ? [para1B] : []),
+            ...headingWithText("QUESTIONS OF LAW:", "The following questions of law arise for this Hon'ble Court's consideration in the present Appeal:", "slp-intro-list"),
+            ...(questionsOfLawTable ? [questionsOfLawTable] : []),
+            ...headingWithText("FACTS:", "The facts giving rise to the present Appeal are as under:", "appeal-list-3"),
+            ...appealFactsParagraphs,
+            ...headingWithText("GROUNDS:", "This Appeal is preferred on the following grounds taken without prejudice against each other:", "appeal-list-4"),
+            groundsTable,
+            new Paragraph({
+                text: convertToSmartQuotes(`The Appellant has not filed any other appeal or petition against${ioText}.`),
+                numbering: { reference: "appeal-list-5", level: 0 },
+            }),
+            ...headingWithText("MAIN PRAYERS:", "In view of the foregoing submissions, the Appellant most respectfully prays that this Hon'ble Court may be pleased to:", "appeal-list-6"),
+            mainPrayersTable,
+        ]
+        : [
+            new Paragraph({
+                text: convertToSmartQuotes(`By this Special Leave Petition, leave is sought under Article 136 of the Constitution of India to appeal against ${ioActionText}${ioActionText && ioActionText.match(/[.!?]$/) ? '' : '.'}`),
+                numbering: { reference: "slp-intro-list", level: 0 },
+            }),
+            ...(para1A ? [para1A] : []),
+            ...(para1B ? [para1B] : []),
+            ...headingWithText("QUESTIONS OF LAW:", "The following questions of law arise for this Hon'ble Court's consideration in the present SLP:", "slp-intro-list"),
+            ...(questionsOfLawTable ? [questionsOfLawTable] : []),
+             // Criminal SLPs are governed by Order XXII (Rules 2(2) & 4);
+            // Civil by Order XXI (Rules 3(2) & 5).
+            ...headingWithText(
+                `DECLARATION IN TERMS OF RULE ${projectData.caseType === 'Criminal' ? '2(2)' : '3(2)'}:`,
+                `No other petition seeking Special Leave to Appeal against${ioText} has been filed by the Petitioner(s).`,
+                "slp-intro-list-3",
+            ),
+            ...headingWithText(
+                `DECLARATION IN TERMS OF RULE ${projectData.caseType === 'Criminal' ? '4' : '5'}:`,
+                `${annexureRangeText(lastNonAdPNumber)} produced along with the Special Leave Petition are true copies of the pleadings/documents which formed part of the Courts below.`,
+                "slp-intro-list-3",
+            ),
+            ...headingWithText("GROUNDS:", "This Special Leave Petition is preferred on the following grounds taken without prejudice against each other:", "slp-intro-list-3"),
+            groundsTable,
+            ...interimGroundsSection,
+            ...headingWithText("MAIN PRAYERS:", "In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon'ble Court may be pleased to:", "slp-intro-list-7"),
+            mainPrayersTable,
+            ...interimPrayersSection,
+        ];
 
     const { advocate } = projectData;
     let advocateDetailsTable: Table | null = null;
@@ -1894,41 +2034,16 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
                 alignment: AlignmentType.LEFT,
                 children: [ smartTextRun({ text: "It is most respectfully submitted that:", bold: true }) ]
             }),
-            new Paragraph({
-                text: convertToSmartQuotes(`By this Special Leave Petition, leave is sought under Article 136 of the Constitution of India to appeal against ${ioActionText}${ioActionText && ioActionText.match(/[.!?]$/) ? '' : '.'}`),
-                numbering: { reference: "slp-intro-list", level: 0 },
-            }),
-            ...(para1A ? [para1A] : []),
-            ...(para1B ? [para1B] : []),
-            ...headingWithText("QUESTIONS OF LAW:", "The following questions of law arise for this Hon'ble Court's consideration in the present SLP:", "slp-intro-list"),
-            ...(questionsOfLawTable ? [questionsOfLawTable] : []),
-             // Criminal SLPs are governed by Order XXII (Rules 2(2) & 4);
-            // Civil by Order XXI (Rules 3(2) & 5).
-            ...headingWithText(
-                `DECLARATION IN TERMS OF RULE ${projectData.caseType === 'Criminal' ? '2(2)' : '3(2)'}:`,
-                `No other petition seeking Special Leave to Appeal against${ioText} has been filed by the Petitioner(s).`,
-                "slp-intro-list-3",
-            ),
-            ...headingWithText(
-                `DECLARATION IN TERMS OF RULE ${projectData.caseType === 'Criminal' ? '4' : '5'}:`,
-                `${annexureRangeText(lastNonAdPNumber)} produced along with the Special Leave Petition are true copies of the pleadings/documents which formed part of the Courts below.`,
-                "slp-intro-list-3",
-            ),
-            ...headingWithText("GROUNDS:", "This Special Leave Petition is preferred on the following grounds taken without prejudice against each other:", "slp-intro-list-3"),
-            groundsTable,
-            ...interimGroundsSection,
-            ...headingWithText("MAIN PRAYERS:", "In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon'ble Court may be pleased to:", "slp-intro-list-7"),
-            mainPrayersTable,
-            ...interimPrayersSection,
+            ...petitionBodyBlocks,
             new Paragraph({
                 alignment: AlignmentType.RIGHT,
-                children: [smartTextRun({ text: "And for this act of kindness, the humble Petitioner(s) shall ever pray.", italics: true })]
+                children: [smartTextRun({ text: `And for this act of kindness, the humble ${partyLabel}(s) shall ever pray.`, italics: true })]
             }),
             new Paragraph(""),
             ...(advocateDetailsTable ? [advocateDetailsTable, new Paragraph("")] : []),
             ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature }),
             new Paragraph({ children: [new PageBreak()] }),
-            ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle),
+            ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData)),
             ...createPartiesHeader(petHeader, resHeader),
             new Paragraph({
                 alignment: AlignmentType.CENTER,
@@ -1936,7 +2051,7 @@ export async function generateSlpDocx(projectData: DraftoProject, includeSignatu
                 children: [smartTextRun({ text: "CERTIFICATE", bold: true })],
             }),
             new Paragraph({
-                children: [smartTextRun("Certified that the SLP is confined only to the pleadings before the Court whose judgment is challenged and the other documents relied upon in those proceedings. No additional facts, documents or grounds have been taken or relied upon in the SLP except those facts/documents for which an application for permission to file the same has been filed. The documents/annexures attached to the SLP are necessary to answer the questions of law raised and/or to make out the grounds urged in the SLP for consideration of this Hon'ble Court. This certificate is given on the basis of instructions given by the Petitioner whose affidavit is filed in support of the SLP.")],
+                children: [smartTextRun(`Certified that the ${certDocNoun} is confined only to the pleadings before the Court whose judgment is challenged and the other documents relied upon in those proceedings. No additional facts, documents or grounds have been taken or relied upon in the ${certDocNoun} except those facts/documents for which an application for permission to file the same has been filed. The documents/annexures attached to the ${certDocNoun} are necessary to answer the questions of law raised and/or to make out the grounds urged in the ${certDocNoun} for consideration of this Hon'ble Court. This certificate is given on the basis of instructions given by the ${partyLabel} whose affidavit is filed in support of the ${certDocNoun}.`)],
                 spacing: { line: 240 },
                 alignment: AlignmentType.JUSTIFIED,
             }),
@@ -1979,7 +2094,7 @@ export async function generateRefilingDocx(projectData: DraftoProject, includeSi
         sections: [{
             properties: { page: { margin: getSlpMargins() } },
             children: [
-                ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle),
+                ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData)),
                 ...createPartiesHeader(petHeader, resHeader),
                 new Paragraph({ children: [smartTextRun({ text: "DECLARATION", bold: true })], alignment: AlignmentType.CENTER, style: "Normal" }),
                 new Paragraph({
@@ -2051,6 +2166,7 @@ const getShortIaTitle = (iaIdentifier: string, iaTitle: string): string => {
         case 'exemptionCertifiedCopy': return 'IA-CC';
         case 'exemptionOfficialTranslation': return 'IA-OT';
         case 'exemptionFromSurrendering': return 'IA-surr';
+        case 'suspensionOfSentence': return 'IA-susp';
         case 'additionalDocuments': return 'IA-AD';
         default:
             // Sanitize and shorten custom title
@@ -2170,10 +2286,15 @@ export async function generateIaDocx(
         return parts;
     };
 
+    // Every application names the document it accompanies. An Appeal calls
+    // itself an Appeal throughout; an SLP keeps the wording it has always had.
+    const iaDocShort = isAppeal(projectData.courtType) ? 'Appeal' : 'SLP';
+    const iaDocLong = isAppeal(projectData.courtType) ? 'Appeal' : 'Special Leave Petition';
+
     // Paragraph 1 of every IA. Built here, ahead of the IA-specific paragraphs
     // below, because the numbering has to be handed out in document order.
     const openingParagraph = new Paragraph({
-        text: convertToSmartQuotes(`The accompanying Special Leave Petition has been filed against${ioText}. The contents of the Special Leave Petition may kindly be treated as part and parcel of this application and are not being repeated herein for the sake of brevity.`),
+        text: convertToSmartQuotes(`The accompanying ${iaDocLong} has been filed against${ioText}. The contents of the ${iaDocLong} may kindly be treated as part and parcel of this application and are not being repeated herein for the sake of brevity.`),
         numbering: nextNumbering(),
     });
 
@@ -2184,8 +2305,8 @@ export async function generateIaDocx(
         switch(iaIdentifier) {
             case "condonationOfDelay":
                 const delayDays = projectData.standardIas.condonationOfDelay.delayDays > 0 ? projectData.standardIas.condonationOfDelay.delayDays : "__";
-                iaTitle = `Application for condonation of delay of ${delayDays} days in filing the SLP`;
-                customPrayer = `Condone the delay of ${delayDays} days in filing the accompanying SLP against${ioText}; and`;
+                iaTitle = `Application for condonation of delay of ${delayDays} days in filing the ${iaDocShort}`;
+                customPrayer = `Condone the delay of ${delayDays} days in filing the accompanying ${iaDocShort} against${ioText}; and`;
                 prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
 
                 const grounds = projectData.standardIas.condonationOfDelay.grounds;
@@ -2241,7 +2362,7 @@ export async function generateIaDocx(
 
                 customTextParagraphs = [
                     new Paragraph({
-                        text: `This application, seeking condonation of delay of ${delayDays} days in filing the accompanying SLP, is preferred on the following grounds:`,
+                        text: `This application, seeking condonation of delay of ${delayDays} days in filing the accompanying ${iaDocShort}, is preferred on the following grounds:`,
                         numbering: nextNumbering(),
                     }),
                     groundsTable
@@ -2279,18 +2400,18 @@ export async function generateIaDocx(
                  let adRange = "";
                  if (adNumbers.length > 0) {
                      if (adNumbers.length === 1) {
-                         adRange = `Annexure P-${adNumbers[0]}`;
+                         adRange = `Annexure ${annexurePrefix(projectData.courtType)}-${adNumbers[0]}`;
                      } else {
                          const first = adNumbers[0];
                          const last = adNumbers[adNumbers.length - 1];
-                         adRange = `Annexures P-${first} to P-${last}`;
+                         adRange = `Annexures ${annexurePrefix(projectData.courtType)}-${first} to ${annexurePrefix(projectData.courtType)}-${last}`;
                      }
                  }
                  customPrayer = `Permit the Petitioner(s) to place on record the additional document(s) marked as ${adRange}; and`;
                 prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
                 
                 const createAdAnnexureText = (pNumber: number, annex: Annexure): (TextRun | string)[] => {
-                    const annexureLabel = `Annexure P-${pNumber}`;
+                    const annexureLabel = `Annexure ${annexurePrefix(projectData.courtType)}-${pNumber}`;
                     const parts: (TextRun | string)[] = [
                         smartTextRun({ text: `${annexureLabel} (pp.___ to ___)`, bold: true }),
                         convertToSmartQuotes(` is a ${annex.copyType || '[description]'} of`)
@@ -2341,7 +2462,7 @@ export async function generateIaDocx(
 
                 customTextParagraphs = [
                     new Paragraph({
-                        text: "This application seeks permission to place on record the following additional facts and documents, which are necessary and proper for the adjudication of the accompanying SLP:",
+                        text: `This application seeks permission to place on record the following additional facts and documents, which are necessary and proper for the adjudication of the accompanying ${iaDocShort}:`,
                         numbering: nextNumbering(),
                     }),
                     adAnnexuresTable,
@@ -2373,7 +2494,7 @@ export async function generateIaDocx(
                     .filter(annex => annex.copyType === 'translated copy' || annex.copyType === 'true and translated copy')
                     .map(annex => annexureNumberingMapForTranslation.get(annex.id))
                     .filter(Boolean)
-                    .map(pNumber => `P-${pNumber}`);
+                    .map(pNumber => `${annexurePrefix(projectData.courtType)}-${pNumber}`);
                 
                 let annexureList = projectData.standardIas.exemptionOfficialTranslation.reason || 'the annexures';
                  if (translatedAnnexures.length > 0) {
@@ -2389,6 +2510,66 @@ export async function generateIaDocx(
                 const otUserReason = (projectData.standardIas.exemptionOfficialTranslation.userReason || '').trim();
                 const otBody = `This application seeks exemption from filing Official Translation(s) of ${annexureList}. ${otUserReason ? otUserReason + ' ' : ''}It is prayed that in view of the urgency and the facts and circumstances of this case, exemption from filing Official Translation(s) may be granted.`;
                 customTextParagraphs = [new Paragraph({ children: [smartTextRun(otBody)], numbering: nextNumbering() })];
+                break;
+            case "suspensionOfSentence":
+                iaTitle = standardIaList.find(ia => ia.id === iaIdentifier)?.title || iaTitle;
+                customPrayer = `Suspend the sentence imposed upon the Petitioner by${ioText} and direct the Petitioner to be released on bail during the pendency of the present Appeal; and`;
+                prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
+                const suspensionGrounds = projectData.standardIas.suspensionOfSentence?.grounds || [];
+
+                const suspensionAnnexureMap = new Map<string, number>();
+                let suspCounter = 1;
+                suspensionGrounds.forEach(g => {
+                    if (g.annexures) {
+                        g.annexures.forEach(annex => {
+                            suspensionAnnexureMap.set(annex.id, suspCounter++);
+                        });
+                    }
+                });
+
+                const suspensionGroundsRows = suspensionGrounds
+                    .filter(g => g.particulars.trim() !== '')
+                    .map((g, index) => {
+                        const { paragraphs, numbering } = parseHtml(g.particulars);
+                        if (numbering.length > 0) allNumberingConfigs.push(...numbering);
+                        if (g.annexures && g.annexures.length > 0) {
+                            g.annexures.forEach(annex => {
+                                const aNumber = suspensionAnnexureMap.get(annex.id);
+                                if (aNumber) {
+                                    const annexureTextParts = createIaAnnexureText(aNumber, annex);
+                                    const textRuns = annexureTextParts.map(part =>
+                                        typeof part === 'string' ? smartTextRun(part) : part
+                                    );
+                                    paragraphs.push(new Paragraph({ children: textRuns, style: "Normal" }));
+                                }
+                            });
+                        }
+                        return new TableRow({
+                            children: [
+                                new TableCell({
+                                    children: [new Paragraph({ text: `${getAlphabeticalLabel(index)}.`, style: "Normal" })],
+                                    borders: noBorders, width: { size: 10, type: WidthType.PERCENTAGE },
+                                }),
+                                new TableCell({ children: paragraphs, borders: noBorders, width: { size: 90, type: WidthType.PERCENTAGE } }),
+                            ],
+                        });
+                    });
+
+                const suspensionGroundsTable = new Table({
+                    width: { size: 91.66, type: WidthType.PERCENTAGE },
+                    columnWidths: [800, 9200],
+                    rows: suspensionGroundsRows, borders: noBorders,
+                    indent: { size: 720, type: WidthType.DXA },
+                });
+
+                customTextParagraphs = [
+                    new Paragraph({
+                        text: `The present application is filed by the Petitioner(s) under S.389 of the Code of Criminal Procedure, 1973 seeking suspension of sentence imposed on them by${ioText}.`,
+                        numbering: nextNumbering(),
+                    }),
+                    suspensionGroundsTable
+                ];
+                newListSegment(); // the grounds table interrupts the numbering
                 break;
             case "exemptionFromSurrendering":
                 iaTitle = standardIaList.find(ia => ia.id === iaIdentifier)?.title || iaTitle;
@@ -2657,7 +2838,7 @@ export async function generateFilingMemoDocx(projectData: DraftoProject, include
         new TableRow({
             children: [
                 new TableCell({ children: [new Paragraph({ text: "1.", alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
-                new TableCell({ children: [new Paragraph({ text: "Special Leave Petition with Certificate and Affidavit", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+                new TableCell({ children: [new Paragraph({ text: mainDocumentParticular(projectData), spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
                 new TableCell({ children: [new Paragraph({ text: "", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
                 new TableCell({ children: [new Paragraph({ text: "", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
             ]
@@ -2665,7 +2846,7 @@ export async function generateFilingMemoDocx(projectData: DraftoProject, include
         new TableRow({
             children: [
                 new TableCell({ children: [new Paragraph({ text: "2.", alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
-                new TableCell({ children: [new Paragraph({ text: annexureRangeText(lastAnnexureNumber), spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+                new TableCell({ children: [new Paragraph({ text: annexureRangeText(lastAnnexureNumber, false, annexurePrefix(projectData.courtType)), spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
                 new TableCell({ children: [new Paragraph({ text: "", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
                 new TableCell({ children: [new Paragraph({ text: "", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
             ]
@@ -2693,7 +2874,7 @@ export async function generateFilingMemoDocx(projectData: DraftoProject, include
         sections: [{
             properties: { page: { margin: getSlpMargins() } },
             children: [
-                ...createSlpHeader(projectData.caseType, ` ${calculateIoText(projectData)}`, getSlpLayout().headerStyle),
+                ...createSlpHeader(projectData.caseType, ` ${calculateIoText(projectData)}`, getSlpLayout().headerStyle, appealHeaderArg(projectData)),
                 ...createPartiesHeader(petHeader, resHeader),
                 new Paragraph({
                     text: "FILING MEMO",
@@ -2729,6 +2910,12 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
     const petHeader = getPartyHeader(projectData.petitioners);
     const resHeader = getPartyHeader(projectData.respondents);
     const { caseType, advocate } = projectData;
+    // The Supreme Court Writ Petition tool shares this generator. It is the same
+    // court, so only the jurisdiction line, the petition description and the
+    // executant's descriptor differ from an SLP.
+    const isScWp = isScWpFamily(projectData.courtType);
+    const isApp = isAppeal(projectData.courtType);
+    const vakalatnamaDocNoun = isScWp ? 'Writ Petition' : isApp ? 'Appeal' : 'Special Leave Petition';
     const aorName = advocate.aorName || "[AoR Name]";
     const currentDate = format(new Date(), "dd.MM.yyyy");
     const currentYear = new Date().getFullYear();
@@ -2755,7 +2942,7 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
         if (index === 0 && isRepRole && depName) {
             return { name: depName, descriptor: depRole, onBehalf: petitionerName };
         }
-        return { name: petitionerName, descriptor: `${petitionerPosition} in this Special Leave Petition`, onBehalf: '' };
+        return { name: petitionerName, descriptor: `${petitionerPosition} in this ${vakalatnamaDocNoun}`, onBehalf: '' };
     };
 
     const vakalatnamaStyles = {
@@ -2795,13 +2982,19 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
             : `${petitioner.name} (${petitionerPosition})`;
         const children: (Paragraph | Table)[] = [
             new Paragraph({ text: "IN THE SUPREME COURT OF INDIA", alignment: AlignmentType.CENTER, style: "VakaNormal" }),
-            new Paragraph({ text: `${caseType} Appellate Jurisdiction`, alignment: AlignmentType.CENTER, style: "VakaNormal" }),
+            new Paragraph({ text: `${caseType} ${isScWp ? 'Original' : 'Appellate'} Jurisdiction`, alignment: AlignmentType.CENTER, style: "VakaNormal" }),
             new Paragraph({
                 alignment: AlignmentType.CENTER,
                 style: "VakaNormal",
                 children: [
                     smartTextRun({
-                        text: `Special Leave Petition (${caseType}) No. _______ of ${currentYear}`,
+                        // Wording mirrors createScWpHeader() so the vakalatnama
+                        // describes the petition exactly as the petition does.
+                        text: isScWp
+                            ? `Writ Petition (${caseType === "Criminal" ? "Crl." : "Civil"}) No. _______ of ${currentYear}`
+                            : isApp
+                                ? `${appealTitle(caseType)} No. _______ of ${currentYear}`
+                                : `Special Leave Petition (${caseType}) No. _______ of ${currentYear}`,
                         bold: true,
                     }),
                 ],
@@ -2908,6 +3101,9 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
 }
 
 export async function generateAffidavitsDocx(projectData: DraftoProject) {
+    // Same affidavit, named for the document it supports.
+    const affidavitDocNoun = isAppeal(projectData.courtType) ? 'Appeal' : 'Special Leave Petition';
+    const affidavitBodyNoun = isAppeal(projectData.courtType) ? 'Appeal' : 'petition for Special Leave to Appeal';
     const { deponent, petitioners, caseType } = projectData;
     const petHeader = getPartyHeader(projectData.petitioners);
     const resHeader = getPartyHeader(projectData.respondents);
@@ -2934,7 +3130,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
 
     // 1. SLP Affidavit
     const slpAffidavitChildren = [
-        ...createSlpHeader(caseType, ioText, getSlpLayout().headerStyle),
+        ...createSlpHeader(caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData)),
         new Paragraph(""),
         ...createPartiesHeader(petHeader, resHeader),
         new Paragraph({ children: [new TextRun({ text: "AFFIDAVIT", bold: true })], alignment: AlignmentType.CENTER }),
@@ -2944,11 +3140,11 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
             numbering: { reference: "affidavit-numbering", level: 0 }
         }),
         new Paragraph({
-            text: `I have read and understood the contents of the accompanying Special Leave Petition including Synopsis and List of Dates from Page B to Page ___ and petition for Special Leave to Appeal at Paragraphs 1 to 8, and the contents of all accompanying applications/ IAs. I say that the contents thereof are true and correct to the best of my knowledge and belief.`,
+            text: `I have read and understood the contents of the accompanying ${affidavitDocNoun} including Synopsis and List of Dates from Page B to Page ___ and ${affidavitBodyNoun} at Paragraphs 1 to 8, and the contents of all accompanying applications/ IAs. I say that the contents thereof are true and correct to the best of my knowledge and belief.`,
             numbering: { reference: "affidavit-numbering", level: 0 }
         }),
         new Paragraph({
-            text: `${annexureRangeText(lastNonAdPNumber, affidavitWantsBlankAnnexureRange())} to the petition and all annexures to the accompanying applications/IAs are true/translated copies of their respective originals.`,
+            text: `${annexureRangeText(lastNonAdPNumber, affidavitWantsBlankAnnexureRange(), annexurePrefix(projectData.courtType))} to the petition and all annexures to the accompanying applications/IAs are true/translated copies of their respective originals.`,
             numbering: { reference: "affidavit-numbering", level: 0 }
         }),
         new Paragraph({ children: [new TextRun({ text: "DEPONENT", bold: true })], alignment: AlignmentType.RIGHT }),
@@ -3086,7 +3282,7 @@ const trimTrailingBlankPages = (pdf: PDFDocument): number => {
 };
 
 export async function generateAdvocateChecklistDocx(projectData: DraftoProject, includeSignature = false) {
-    const isScWp = projectData.courtType === "WritPetitionSC";
+    const isScWp = isScWpFamily(projectData.courtType);
     const { checklist } = projectData;
     // Point 1 reads "SLP (Crl.)" in a criminal SLP, "SLP (C)" otherwise.
     const checklistQueries = getChecklistQueries(projectData.caseType);
@@ -3276,7 +3472,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
     }
     const fileMetas: {id: string, label: string, useSystem: boolean, fileName?: string}[] = JSON.parse(fileMetasString);
     const projectData: DraftoProject = JSON.parse(projectDataString);
-    const isScWp = projectData.courtType === "WritPetitionSC";
+    const isScWp = isScWpFamily(projectData.courtType);
 
     // Parse settings (with defaults if not provided)
     const rawSettings = settingsString ? JSON.parse(settingsString) : { annexureLabelBackground: false };
@@ -3342,7 +3538,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         if (meta.id === 'slp') {
             return isScWp
                 ? 'Writ Petition under Article 32 of the Constitution of India, with supporting affidavit'
-                : 'Special Leave Petition with Certificate and Affidavit';
+                : mainDocumentParticular(projectData);
         }
         if (meta.id === 'slpAffidavit') return null; // Part of SLP
         
@@ -4360,7 +4556,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             });
             const _orderedAnnexures = wpAnnexureOrderFromLods(projectData.listOfDates || []);
             _orderedAnnexures.forEach(({ annex, pNumber }) => {
-                _pl.push(createAnnexureText(pNumber, annex, true));
+                _pl.push(createAnnexureText(pNumber, annex, true, annexurePrefix(projectData.courtType)));
             });
             const _allIaAnn: any[] = [];
             (projectData.customIas || []).forEach(cia => cia.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: cia.id }))));
@@ -4392,7 +4588,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             } else {
                 _pl.push('Impugned [Order Type]: True copy of [Impugned Order Details]');
             }
-            _pl.push('Special Leave Petition with Certificate and Affidavit');
+            _pl.push(mainDocumentParticular(projectData));
             // Same rows as the Index itself — see generateCiDocx.
             const _appendixItems = getActiveAppendixItems(projectData);
             _appendixItems.forEach((item, index) => {
@@ -4408,12 +4604,12 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             let _pc = 1;
             _nonAd.forEach(a => _annexMap.set(a.id, _pc++));
             _ad.forEach(a => _annexMap.set(a.id, _pc++));
-            _nonAd.forEach(a => { const n = _annexMap.get(a.id); if (n) _pl.push(createAnnexureText(n, a, true)); });
+            _nonAd.forEach(a => { const n = _annexMap.get(a.id); if (n) _pl.push(createAnnexureText(n, a, true, annexurePrefix(projectData.courtType))); });
             if (_ad.length > 0) {
                 const adIa = _iaList.find(ia => ia.id === 'additionalDocuments');
                 if (adIa) {
                     _pl.push([smartTextRun({ text: adIa.prefix, bold: true }), convertToSmartQuotes(`: ${adIa.title}`)]);
-                    _ad.forEach(a => { const n = _annexMap.get(a.id); if (n) _pl.push(createAnnexureText(n, a, true)); });
+                    _ad.forEach(a => { const n = _annexMap.get(a.id); if (n) _pl.push(createAnnexureText(n, a, true, annexurePrefix(projectData.courtType))); });
                 }
             }
             const _allIaAnn: any[] = [];
@@ -4421,6 +4617,8 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 projectData.standardIas.condonationOfDelay.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: 'condonationOfDelay' })));
             if (projectData.standardIas?.exemptionFromSurrendering?.active)
                 projectData.standardIas.exemptionFromSurrendering.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: 'exemptionFromSurrendering' })));
+            if (projectData.standardIas?.suspensionOfSentence?.active)
+                projectData.standardIas.suspensionOfSentence.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: 'suspensionOfSentence' })));
             if (projectData.customIas) projectData.customIas.forEach(cia => cia.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: cia.id }))));
             const _iaAnnMap = new Map<string, number>();
             let _ac = 1;
@@ -4509,7 +4707,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                     case 'slp':
                         result = isScWp
                             ? await generateScWpPetitionDocx(projectData, true, annexurePageRanges)
-                            : await generateSlpDocx(projectData, true);
+                            : await generateSlpDocx(projectData, true, annexurePageRanges);
                         break;
                     case 'filingMemo':
                         result = isScWp

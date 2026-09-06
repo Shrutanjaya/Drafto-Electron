@@ -23,6 +23,7 @@ import { getSettings } from "@/components/dialogs/settings-dialog";
 import { Columns2, LayoutList, Sparkles, ListPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { transposeLodToFacts, transposableLodIds, lodFingerprint, appendNewLodRowsToFacts } from "@/lib/wp/wp-facts";
+import { isPil } from "@/lib/court-family";
 
 type ScWpPetitionSection = 'synopsis' | 'listOfDates' | 'reliefs' | 'facts' | 'grounds' | 'appendix';
 const EDITOR_SECTIONS: ScWpPetitionSection[] = ['synopsis', 'listOfDates', 'reliefs', 'facts', 'grounds', 'appendix'];
@@ -138,6 +139,9 @@ export function ScWpPetitionTab() {
   const lod = useWatch({ control: form.control, name: 'listOfDates' });
   const reliefs = useWatch({ control: form.control, name: 'wp.reliefs' });
   const facts = useWatch({ control: form.control, name: 'wp.facts' });
+  // A PIL must state the public injury it alleges; it prints as Para 3.
+  const scWpPetCourtType = useWatch({ control: form.control, name: 'courtType' });
+  const isPilProject = isPil(scWpPetCourtType);
   const grounds = useWatch({ control: form.control, name: 'grounds' });
   const wantsAppendix = useWatch({ control: form.control, name: 'wantsAppendix' });
   const appendixItems = useWatch({ control: form.control, name: 'appendixItems' });
@@ -199,6 +203,22 @@ export function ScWpPetitionTab() {
 
   const factsEditor = (
     <div className="flex h-full flex-col gap-2">
+      {isPilProject && (
+        <FormField
+          control={form.control}
+          name="pil.injuryToPublic"
+          render={({ field }) => (
+            <FormItem className="flex flex-col space-y-1">
+              <p className="text-xs font-medium">Nature of injury caused or likely to be caused to the public:</p>
+              <FormControl>
+                <div className="h-28">
+                  <BadhiyaBox value={field.value} onChange={field.onChange} path={field.name} />
+                </div>
+              </FormControl>
+            </FormItem>
+          )}
+        />
+      )}
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
           Transposed from the List of Dates (with annexure sentences). Editing locks it against auto-regeneration.

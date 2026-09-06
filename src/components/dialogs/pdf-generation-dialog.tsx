@@ -36,7 +36,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ScrollArea } from "../ui/scroll-area";
+import type { DraftoProject, Annexure } from "@/lib/schema";
 import { getIaList } from "@/lib/ia-list-utils";
+import { isScWpFamily, annexurePrefix } from "@/lib/court-family";
 import { getScWpIaList } from "@/lib/sc-wp/sc-wp-actions";
 import { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures";
 import { useToast } from "@/hooks/use-toast";
@@ -93,7 +95,7 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
     }
 
     // Basic Info
-    const isScWp = data.courtType === "WritPetitionSC";
+    const isScWp = isScWpFamily(data.courtType);
     const basicIssues: string[] = [];
     if (!isScWp) {
         (data.impugnedOrders || []).forEach((order, i) => {
@@ -275,7 +277,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         const projectData = mainFormValues;
         const list: Omit<MergeItem, 'userFile' | 'useSystem'>[] = [];
 
-        const isScWp = projectData.courtType === "WritPetitionSC";
+        const isScWp = isScWpFamily(projectData.courtType);
         if (isRefiling) list.push({ id: 'refiling', label: 'Refiling Declaration' });
         list.push({ id: 'advocateChecklist', label: "Advocate's Checklist" });
         list.push({ id: 'ci', label: "Cover Page and Index" });
@@ -364,11 +366,11 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                 // its date and the user's own words — so the row being checked
                 // says as much as the Index being checked against.
                 const details = annexureDetails(a);
-                const trueCopy = { id: `annexure_${a.id}`, label: `Annexure P-${pNum}: ${details}` };
+                const trueCopy = { id: `annexure_${a.id}`, label: `Annexure ${annexurePrefix(projectData.courtType)}-${pNum}: ${details}` };
 
                 if (a.copyType === "true and typed copy" || a.copyType === "true and translated copy") {
                     const typeLabel = a.copyType.includes('typed') ? 'Typed' : 'Translated';
-                    const otherCopy = { id: `annexure_${a.id}_typed`, label: `Annexure P-${pNum}: ${details} (${typeLabel} Copy)` };
+                    const otherCopy = { id: `annexure_${a.id}_typed`, label: `Annexure ${annexurePrefix(projectData.courtType)}-${pNum}: ${details} (${typeLabel} Copy)` };
                     list.push(...(translatedFirst ? [otherCopy, trueCopy] : [trueCopy, otherCopy]));
                 } else {
                     list.push(trueCopy);
@@ -982,7 +984,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
 
     const dataRequirements: DataRequirement[] = useMemo(() => {
         const reqs: DataRequirement[] = [];
-        const isScWp = (mainFormValues as Partial<DraftoProject>).courtType === "WritPetitionSC";
+        const isScWp = isScWpFamily((mainFormValues as Partial<DraftoProject>).courtType);
         if (isScWp) return reqs;
 
         const cc = (mainFormValues as Partial<DraftoProject>).standardIas?.exemptionCertifiedCopy;

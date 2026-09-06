@@ -56,7 +56,7 @@ export const FORUM_LABEL: Record<Forum, string> = {
 };
 
 /** Project court types the app can draft. Mirrors DraftoProject['courtType']. */
-export type CourtType = 'SLP' | 'WritPetitionSC' | 'WritPetitionDHC' | 'OriginalApplicationCAT';
+export type CourtType = 'SLP' | 'Appeal' | 'WritPetitionSC' | 'WritPetitionPIL' | 'WritPetitionDHC' | 'OriginalApplicationCAT';
 
 /**
  * Which forum a document type belongs to. Document types are grouped by forum
@@ -65,7 +65,12 @@ export type CourtType = 'SLP' | 'WritPetitionSC' | 'WritPetitionDHC' | 'Original
  */
 const FORUM_OF: Record<CourtType, Forum> = {
   SLP: 'SC',
+  // Statutory appeals and PIL writs are Supreme Court documents, so they ride on
+  // the Supreme Court forum a customer already holds — exactly as the writ
+  // petition does. Nobody who has bought the Supreme Court pays again for them.
+  Appeal: 'SC',
   WritPetitionSC: 'SC',
+  WritPetitionPIL: 'SC',
   WritPetitionDHC: 'HC-DEL',
   OriginalApplicationCAT: 'CAT',
 };

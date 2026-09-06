@@ -18,6 +18,7 @@ import {
 import type { VaadiTableItem, Annexure } from "./schema";
 import { format } from "date-fns";
 import { parseHtml } from "./html-to-docx";
+import { appealOrderRule, appealTitle } from "./appeal/appeal-provisions";
 
 /**
  * Converts straight quotes and apostrophes to smart (curly) quotes.
@@ -124,7 +125,16 @@ export const getPartyHeader = (parties: VaadiTableItem[] | undefined): string =>
  * PETITION". The rule cited depends on the SLP type — Order XXI Rule 3(1)(a)
  * for civil, Order XXII Rule 2(1) for criminal.
  */
-export const createSlpHeader = (caseType: string, ioText: string, headerStyle: 'short' | 'sci' = 'short') => {
+export const createSlpHeader = (
+  caseType: string,
+  ioText: string,
+  headerStyle: 'short' | 'sci' = 'short',
+  // Set for the statutory-appeal tool. The Appeal shares this header with the
+  // SLP and differs in three places: the rule cited, the document's name, and
+  // the closing block, which names the provision the appeal is brought under.
+  // Absent, every SLP renders exactly as before.
+  appeal?: { provision: string },
+) => {
   const currentYear = new Date().getFullYear();
   const centered = (text: string, extra: Record<string, unknown> = {}) =>
     new Paragraph({
@@ -136,12 +146,14 @@ export const createSlpHeader = (caseType: string, ioText: string, headerStyle: '
   const sciBlock = headerStyle === 'sci'
     ? [
         centered("IN THE SUPREME COURT OF INDIA"),
-        centered(caseType === 'Criminal'
-          ? "[S.C.R., Order XXII Rule 2(1)]"
-          : "[S.C.R., Order XXI Rule 3(1)(a)]"),
+        centered(appeal
+          ? `[S.C.R., ${appealOrderRule(caseType)}]`
+          : caseType === 'Criminal'
+            ? "[S.C.R., Order XXII Rule 2(1)]"
+            : "[S.C.R., Order XXI Rule 3(1)(a)]"),
         centered(`${caseType.toUpperCase()} APPELLATE JURISDICTION`),
-        centered("SPECIAL LEAVE PETITION"),
-        centered("(Under Article 136 of the Constitution of India)"),
+        centered(appeal ? appealTitle(caseType).toUpperCase() : "SPECIAL LEAVE PETITION"),
+        ...(appeal ? [] : [centered("(Under Article 136 of the Constitution of India)")]),
       ]
     : null;
 
@@ -174,7 +186,9 @@ export const createSlpHeader = (caseType: string, ioText: string, headerStyle: '
       spacing: { line: 240, after: 240 },
       children: [
         smartTextRun({
-          text: `Special Leave Petition (${caseType}) No. _______ of ${currentYear}`,
+          text: appeal
+            ? `${appealTitle(caseType)} No. _______ of ${currentYear}`
+            : `Special Leave Petition (${caseType}) No. _______ of ${currentYear}`,
           bold: true,
           size: 28, // 14pt
         }),
@@ -186,7 +200,11 @@ export const createSlpHeader = (caseType: string, ioText: string, headerStyle: '
       spacing: { line: 240, after: 360 }, // 18pt after
       children: [
         smartTextRun({
-          text: `Against${ioText}`,
+          // The appeal states the provision it is brought under, in square
+          // brackets, immediately before the order appealed against.
+          text: appeal
+            ? `[Under ${appeal.provision} against${ioText}]`
+            : `Against${ioText}`,
         }),
       ],
     }),
@@ -500,12 +518,12 @@ export const createFiledByTable = (
     ]
 }
 
-export const createAnnexureText = (pNumber: number, annex: Annexure, forIndex: boolean = false): (TextRun | string)[] => {
+export const createAnnexureText = (pNumber: number, annex: Annexure, forIndex: boolean = false, prefix: string = "P"): (TextRun | string)[] => {
     let copyType = (annex.copyType || '[copy type]');
     if (forIndex) {
         copyType = copyType.charAt(0).toUpperCase() + copyType.slice(1);
     }
-    const annexureLabel = `Annexure P-${pNumber}`;
+    const annexureLabel = `Annexure ${prefix}-${pNumber}`;
 
     const parts: (TextRun | string)[] = [
         smartTextRun({ text: annexureLabel, bold: true }),

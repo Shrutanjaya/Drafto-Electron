@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/tooltip"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { FIND_REVEAL_EVENT, getPendingReveal } from "@/lib/find-reveal";
+import { isScWpFamily } from "@/lib/court-family";
 
 interface AnnexureDialogProps {
   lodIndex: number;
@@ -175,7 +176,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap, rowsN
   const courtType = useWatch({ control: form.control, name: "courtType" }) as string | undefined;
   const isWp = courtType === "WritPetitionDHC";
   const isOa = courtType === "OriginalApplicationCAT";
-  const isScWp = courtType === "WritPetitionSC";
+  const isScWp = isScWpFamily(courtType);
   // HC (writ), CAT (OA), and SC (writ) use the Impugned-Order checkbox.
   // Colly is Delhi HC only; AD is SLP only.
   const isIoDoctype = isWp || isOa;

@@ -36,8 +36,8 @@ export function buildImpugnedOrderText(
 // Common opening paragraph, inserted for every IA before its specific content.
 // `io` is the extracted impugned-order text (see buildImpugnedOrderText); when
 // omitted it falls back to the generic placeholder.
-export function getIaCommonOpening(io: string = IO): string {
-  return `The accompanying Special Leave Petition has been filed against ${io}. The contents of the Special Leave Petition may kindly be treated as part and parcel of this application and are not being repeated herein for the sake of brevity.`;
+export function getIaCommonOpening(io: string = IO, docNoun: string = "Special Leave Petition"): string {
+  return `The accompanying ${docNoun} has been filed against ${io}. The contents of the ${docNoun} may kindly be treated as part and parcel of this application and are not being repeated herein for the sake of brevity.`;
 }
 
 // Custom-IA Para 2 lead sentence; the user's free text is appended after it.
@@ -62,6 +62,8 @@ export const IA_PRAYER_TAIL =
   "Pass any such other or further order(s) as this Hon'ble Court may deem fit in the facts and circumstances of this case.";
 
 export interface IaPreviewOpts {
+  /** "Appeal" for the statutory appeal; defaults to the SLP wording. */
+  docNoun?: string;
   delayDays?: number | string;
   annexureList?: string; // OT — e.g. "Annexure P-3"
   otUserReason?: string; // OT — optional user-entered reason
@@ -97,6 +99,8 @@ export function getIaLeadIn(id: string, o: IaPreviewOpts = {}): string {
     }
     case "exemptionFromSurrendering":
       return `This application, seeking exemption from surrendering pursuant to ${io}, is preferred on the following grounds:`;
+    case "suspensionOfSentence":
+      return `The present application is filed by the Petitioner(s) under S.389 of the Code of Criminal Procedure, 1973 seeking suspension of sentence imposed on them by ${io}.`;
     case "custom":
       return "The present application is filed on the following grounds:";
     default:
@@ -110,7 +114,7 @@ export function getIaPrayer(id: string, o: IaPreviewOpts = {}): string {
   const io = o.io || IO;
   switch (id) {
     case "condonationOfDelay":
-      return `Condone the delay of ${delay} days in filing the accompanying SLP against ${io}; and`;
+      return `Condone the delay of ${delay} days in filing the accompanying ${o.docNoun || "SLP"} against ${io}; and`;
     case "exemptionCertifiedCopy":
       return `Grant exemption to the Petitioner(s) from filing certified copy of ${io}; and`;
     case "additionalDocuments":
@@ -119,6 +123,8 @@ export function getIaPrayer(id: string, o: IaPreviewOpts = {}): string {
       return `Grant exemption to the Petitioner(s) from filing Official Translation(s) of ${o.annexureList || "the annexures"}; and`;
     case "exemptionFromSurrendering":
       return `Grant exemption to the Petitioner(s) from surrendering pursuant to ${io}; and`;
+    case "suspensionOfSentence":
+      return `Suspend the sentence imposed upon the Petitioner by ${io} and direct the Petitioner to be released on bail during the pendency of the present Appeal; and`;
     default:
       return "";
   }

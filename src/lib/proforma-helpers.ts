@@ -3,6 +3,7 @@ import type { DraftoProject } from "@/lib/schema";
 import { Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } from "docx";
 import { createFiledByTable } from "./docx-helpers";
 import { format } from "date-fns";
+import { isScWpFamily } from "@/lib/court-family";
 
 const tick = () => new TextRun({ text: "✓" });
 const empty = () => new TextRun({ text: "□" });
@@ -188,7 +189,7 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
 
     // The AoR signature goes here as it does on every other signed page; the
     // Listing Proforma was the one document that never asked for it.
-    const isScWp = data.courtType === "WritPetitionSC";
+    const isScWp = isScWpFamily(data.courtType);
     content.push(...createFiledByTable(advocate.filingDate, advocate.aorName || "[AoR Name]", { includeSignature, isScWp }));
     
     content.push(

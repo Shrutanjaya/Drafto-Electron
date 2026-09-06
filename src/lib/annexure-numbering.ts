@@ -12,13 +12,14 @@
 
 import type { Annexure } from "@/lib/schema";
 import { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures";
+import { isScWpFamily } from "@/lib/court-family";
 
 export interface AnnexureRow {
   annexures?: Annexure[];
 }
 
 export function annexureNumbering(rows: AnnexureRow[], courtType?: string): Map<string, number> {
-  if (courtType === "WritPetitionDHC" || courtType === "OriginalApplicationCAT" || courtType === "WritPetitionSC") {
+  if (courtType === "WritPetitionDHC" || courtType === "OriginalApplicationCAT" || isScWpFamily(courtType)) {
     return new Map<string, number>(wpAnnexureOrderFromLods(rows || []).map(e => [e.annex.id, e.pNumber]));
   }
 

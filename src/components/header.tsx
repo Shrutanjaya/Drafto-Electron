@@ -66,6 +66,7 @@ import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
 import { newBlankProject } from "@/lib/project-defaults";
 import { stemOf, cleanProjectName } from "@/lib/project-name";
 import { getIaList } from "@/lib/ia-list-utils";
+import { isScWpFamily } from "@/lib/court-family";
 import { getActiveAppendixItems } from "@/lib/appendix";
 import { markFileAvailable, markFileUnavailable } from "@/lib/file-availability";
 import { restoreFileFromPath } from "@/lib/utils/pick-file";
@@ -126,7 +127,7 @@ export function getProjectFileName(data: { petitioners?: Array<{ name?: string }
 // for the same parties — e.g. during autosave, since the filename is derived from the party names.
 export function projectExtensionFor(data: { courtType?: string }): string {
   if (data.courtType === "WritPetitionDHC") return "dhcwp";
-  if (data.courtType === "WritPetitionSC") return "scwp";
+  if (isScWpFamily(data.courtType)) return "scwp";
   return "drafto";
 }
 
@@ -1161,7 +1162,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   // so the callers below can await each in turn.
   const runExport = async (type: DocType, iaDetails?: { identifier: string; customText?: string; }, intoFolder?: string) => {
       const data = form.getValues();
-      const isScWpDoc = data.courtType === "WritPetitionSC";
+      const isScWpDoc = isScWpFamily(data.courtType);
       
       if (type === 'pdf') {
          // This is now handled by the PdfGenerationDialog
@@ -1246,7 +1247,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   
   const runExportAllIas = async (intoFolder?: string) => {
     const data = form.getValues();
-    const allIas = data.courtType === "WritPetitionSC" ? getScWpIaList(data) : getIaList(data);
+    const allIas = isScWpFamily(data.courtType) ? getScWpIaList(data) : getIaList(data);
 
     for (const ia of allIas) {
         await runExport("ia", { identifier: ia.id, customText: ia.title }, intoFolder);
@@ -1267,7 +1268,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     setDraftSelection(prev => ({ ...prev, [id]: checked }));
   };
 
-  const activeDraftOptions = courtType === "WritPetitionSC" ? scWpDraftOptions : draftOptions;
+  const activeDraftOptions = isScWpFamily(courtType) ? scWpDraftOptions : draftOptions;
 
   const handleSelectAllDrafts = () => {
     setDraftSelection(
@@ -1306,7 +1307,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         if (!batch) return;
         const into = batch.folder;
 
-        const affidavitResult = data.courtType === "WritPetitionSC"
+        const affidavitResult = isScWpFamily(data.courtType)
           ? await generateScWpAffidavitsDocx(data)
           : await generateAffidavitsDocx(data);
         if (affidavitResult.success && affidavitResult.documents) {

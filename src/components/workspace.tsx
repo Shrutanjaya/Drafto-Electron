@@ -14,6 +14,7 @@ import { OaWorkspace } from "./oa/oa-workspace";
 import { ScWpWorkspace } from "./sc-wp/sc-wp-workspace";
 import { FIND_REVEAL_EVENT, getPendingReveal } from "@/lib/find-reveal";
 import type { DraftoProject } from "@/lib/schema";
+import { isScWpFamily } from "@/lib/court-family";
 
 export function Workspace() {
   const [tab, setTab] = useState("slp");
@@ -30,7 +31,7 @@ export function Workspace() {
   }, []);
 
   // Supreme Court writ-petition mode
-  if (courtType === "WritPetitionSC") {
+  if (isScWpFamily(courtType)) {
     return <ScWpWorkspace />;
   }
 

@@ -20,6 +20,12 @@ export const standardIaList = [
         id: "exemptionFromSurrendering" as const,
         title: "Application for exemption from Surrendering pursuant to the Impugned Order(s)",
     },
+    {
+        // Criminal appeals only — offered in the Applications tab and included
+        // only if the advocate ticks it.
+        id: "suspensionOfSentence" as const,
+        title: "Application for suspension of sentence",
+    },
 ];
 
     

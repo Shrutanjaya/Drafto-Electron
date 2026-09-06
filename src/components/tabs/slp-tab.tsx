@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
 import { useStickyState } from "@/hooks/useStickyState";
 import type { DraftoProject } from "@/lib/schema";
@@ -26,11 +26,14 @@ import { AffidavitDialog } from "../dialogs/affidavit-dialog";
 import { VakalatnamaDialog } from "../dialogs/vakalatnama-dialog";
 import { getSettings } from "../dialogs/settings-dialog";
 import { useCalculatedValues } from "@/hooks/use-calculated-values";
-import { Columns2, LayoutList } from "lucide-react";
+import { Columns2, LayoutList, Sparkles, ListPlus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { isAppeal } from "@/lib/court-family";
+import { transposeLodToFacts, transposableLodIds, lodFingerprint, appendNewLodRowsToFacts } from "@/lib/wp/wp-facts";
 import { FIND_REVEAL_EVENT, getPendingReveal } from "@/lib/find-reveal";
 
-type SlpSection = 'synopsis' | 'listOfDates' | 'grounds' | 'questionsOfLaw' | 'interimRelief' | 'appendix' | 'declarations';
-const EDITOR_SECTIONS: SlpSection[] = ['synopsis', 'listOfDates', 'grounds', 'questionsOfLaw', 'interimRelief', 'appendix'];
+type SlpSection = 'synopsis' | 'listOfDates' | 'facts' | 'grounds' | 'questionsOfLaw' | 'interimRelief' | 'appendix' | 'declarations';
+const EDITOR_SECTIONS: SlpSection[] = ['synopsis', 'listOfDates', 'facts', 'grounds', 'questionsOfLaw', 'interimRelief', 'appendix'];
 
 // Splitter/Navigation view toggle for the Petition tab. Lives next to the
 // formatting toolbar (not the global header) so it reads as tab-scoped.
@@ -155,6 +158,76 @@ export function SlpTab() {
   const declarationsWatch = useWatch({ control: form.control, name: 'declarations' });
   const aorCertWatch = useWatch({ control: form.control, name: 'aorCertificate' });
 
+  // The statutory appeal states its Facts and has no Declarations or Interim
+  // Relief. Facts live in the shared `wp.facts` field and are produced by the
+  // same engine the writ tools use, with the appeal's A-series prefix.
+  const courtType = useWatch({ control: form.control, name: 'courtType' });
+  const isAppealProject = isAppeal(courtType);
+  const facts = useWatch({ control: form.control, name: 'wp.facts' });
+  const factsActive = !!facts?.trim();
+  const newLodRowCount = React.useMemo(() => {
+    if (!isAppealProject) return 0;
+    const proj = form.getValues();
+    return transposableLodIds(proj).filter(id => !(proj.wp?.factsLodIds || []).includes(id)).length;
+  }, [isAppealProject, listOfDatesWatch, facts, form]);
+
+  const handleGenerateFacts = () => {
+    const proj = form.getValues();
+    if (proj.wp?.factsEdited && (proj.wp?.facts || '').trim()) {
+      if (!window.confirm('Replace the current (edited) Facts with a fresh transposition from the List of Dates?')) return;
+    }
+    form.setValue('wp.facts', transposeLodToFacts(proj, 'A'), { shouldDirty: true });
+    form.setValue('wp.factsEdited', false);
+    form.setValue('wp.factsLodIds', transposableLodIds(proj));
+    form.setValue('wp.factsLodFingerprint', lodFingerprint(proj));
+  };
+
+  const handleAppendNewRows = () => {
+    const proj = form.getValues();
+    const { html, appendedIds } = appendNewLodRowsToFacts(proj, proj.wp?.facts || '', proj.wp?.factsLodIds || [], 'A');
+    form.setValue('wp.facts', html, { shouldDirty: true });
+    form.setValue('wp.factsLodIds', [...(proj.wp?.factsLodIds || []), ...appendedIds]);
+    form.setValue('wp.factsLodFingerprint', lodFingerprint(proj));
+  };
+
+  const factsEditor = (
+    <div className="flex h-full flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          Transposed from the List of Dates (with annexure sentences). Editing locks it against auto-regeneration.
+        </p>
+        <div className="flex shrink-0 items-center gap-1">
+          {factsActive && newLodRowCount > 0 && (
+            <Button type="button" size="sm" variant="outline" onClick={handleAppendNewRows}
+              title="Add paragraphs for List-of-Dates rows added after the last generation, without touching your edits">
+              <ListPlus className="mr-1 h-3.5 w-3.5" />
+              Append {newLodRowCount} new row{newLodRowCount === 1 ? '' : 's'}
+            </Button>
+          )}
+          <Button type="button" size="sm" variant="secondary" onClick={handleGenerateFacts}>
+            <Sparkles className="mr-1 h-3.5 w-3.5" />
+            Generate from List of Dates
+          </Button>
+        </div>
+      </div>
+      <FormField
+        control={form.control}
+        name="wp.facts"
+        render={({ field }) => (
+          <FormItem className="flex h-full flex-col flex-grow">
+            <FormControl>
+              <BadhiyaBox
+                value={field.value}
+                onChange={(v) => { field.onChange(v); form.setValue('wp.factsEdited', true); }}
+                path={field.name}
+              />
+            </FormControl>
+          </FormItem>
+        )}
+      />
+    </div>
+  );
+
   const hasAamRow = (rows: any[]) => rows?.some((r: any) => r.particulars?.trim()) ?? false;
   const hasLoDRow = (rows: any[]) => rows?.some((r: any) => r.date?.trim() || r.event?.trim()) ?? false;
 
@@ -184,11 +257,12 @@ export function SlpTab() {
               <div className="flex flex-col h-full p-2 space-y-1">
                 <NavRow label="Synopsis" active={synopsisActive} selected={selectedSection === 'synopsis'} onClick={() => setSelectedSection('synopsis')} />
                 <NavRow label="List of Dates" active={listOfDatesActive} selected={selectedSection === 'listOfDates'} onClick={() => setSelectedSection('listOfDates')} />
+                {isAppealProject && <NavRow label="Facts" active={factsActive} selected={selectedSection === 'facts'} onClick={() => setSelectedSection('facts')} />}
                 <NavRow label="Grounds" active={groundsActive} selected={selectedSection === 'grounds'} onClick={() => setSelectedSection('grounds')} />
                 <NavRow label="Questions of Law" active={questionsOfLawActive} selected={selectedSection === 'questionsOfLaw'} onClick={() => setSelectedSection('questionsOfLaw')} />
-                <NavRow label="Interim Relief" active={interimReliefActive} selected={selectedSection === 'interimRelief'} onClick={() => setSelectedSection('interimRelief')} />
+                {!isAppealProject && <NavRow label="Interim Relief" active={interimReliefActive} selected={selectedSection === 'interimRelief'} onClick={() => setSelectedSection('interimRelief')} />}
                 <NavRow label="Appendix" active={appendixActive} selected={selectedSection === 'appendix'} onClick={() => setSelectedSection('appendix')} />
-                <NavRow label="Declarations" active={declarationsActive} selected={selectedSection === 'declarations'} onClick={() => setSelectedSection('declarations')} />
+                {!isAppealProject && <NavRow label="Declarations" active={declarationsActive} selected={selectedSection === 'declarations'} onClick={() => setSelectedSection('declarations')} />}
               </div>
             </ResizablePanel>
             <ResizableHandle withHandle />
@@ -214,11 +288,12 @@ export function SlpTab() {
                     />
                   )}
                   {selectedSection === 'listOfDates' && <LoDTable />}
+                  {selectedSection === 'facts' && isAppealProject && factsEditor}
                   {selectedSection === 'grounds' && <AamTable name="grounds" defaultRows={10} allowHeadings />}
                   {selectedSection === 'questionsOfLaw' && <AamTable name="questionsOfLaw" defaultRows={10} />}
-                  {selectedSection === 'interimRelief' && <InterimReliefContent />}
+                  {selectedSection === 'interimRelief' && !isAppealProject && <InterimReliefContent />}
                   {selectedSection === 'appendix' && <AppendixContent />}
-                  {selectedSection === 'declarations' && <DeclarationsContent />}
+                  {selectedSection === 'declarations' && !isAppealProject && <DeclarationsContent />}
                 </div>
               </div>
             </ResizablePanel>
@@ -234,8 +309,8 @@ export function SlpTab() {
       <div className="flex flex-col h-[calc(100vh-160px)]">
         <div className="flex items-center gap-1 mb-1">
           <QuestionsOfLawDialog />
-          <InterimReliefDialog />
-          <DeclarationsDialog />
+          {!isAppealProject && <InterimReliefDialog />}
+          {!isAppealProject && <DeclarationsDialog />}
           <AppendixDialog />
           <div className="flex-grow"></div>
           <EditorToolbar />

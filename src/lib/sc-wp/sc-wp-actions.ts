@@ -163,6 +163,7 @@ import { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures";
 import { inlineHtml, factsAnnexureSentenceParts, withAnnexureCustomText, injectAnnexurePageRangesIntoFacts, transposeLodToFacts } from "@/lib/wp/wp-facts";
 import { resolveFactsHtml } from "@/lib/wp/facts-mode";
 import { groundsSequence, getGroundsHeadingStyle, groundsHeadingRuns, groundsHeadingHang } from "@/lib/grounds-headings";
+import { isPil } from "@/lib/court-family";
 
 const defaultCellMargins = { top: 100, bottom: 100, left: 150, right: 150 };
 const tableParagraphSpacing = { after: 0, line: 240 };
@@ -175,7 +176,7 @@ const noBorders = {
   insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
 };
 
-const SC_WP_FACTS_LIST_GEOM: ListGeom = {
+export const SC_WP_FACTS_LIST_GEOM: ListGeom = {
   base: 720,
   step: 360,
   itemLeft: 1080,
@@ -183,7 +184,7 @@ const SC_WP_FACTS_LIST_GEOM: ListGeom = {
   itemHanging: 360,
 };
 
-function applyScWpFactsCascade(numbering: any[], style: EnumStyle = "lower-alpha") {
+export function applyScWpFactsCascade(numbering: any[], style: EnumStyle = "lower-alpha") {
   const cascade = cascadeFor(style);
   for (const cfg of numbering) {
     if (typeof cfg?.reference === "string" && /^olx?-/.test(cfg.reference) && Array.isArray(cfg.levels)) {
@@ -278,7 +279,7 @@ export const createScWpHeader = (caseType: string) => {
 export const createScWpIaHeader = (caseType: string) => {
   const currentYear = new Date().getFullYear();
   const iaLabel = caseType === "Criminal" ? "Crl. M.P. No." : "I.A. No.";
-  const f = getOutputFormatting();
+  const f = getScWpOutputFormatting();
   const headerSize = Math.round(f.sizePt * 2);
 
   return [
@@ -1013,6 +1014,13 @@ export async function generateScWpPetitionDocx(
     ];
   };
 
+  // A PIL inserts five paragraphs between Para 1 and the Facts, so every
+  // paragraph from the Facts onwards moves down by five. Para 1 never moves.
+  const isPilDoc = isPil(projectData.courtType);
+  const pilShift = isPilDoc ? 5 : 0;
+  const pilSize = Math.round(scWpF.sizePt * 2);
+  const paraRef = (n: number) => `scwp-para-${n === 1 ? 1 : n + pilShift}`;
+
   // 5. Para 1: opening praying for appropriate writ/order with inline reliefs + IO annexure sentences
   const rawReliefs = (projectData.wp?.reliefs || []).map(r => r.particulars || "").filter(h => !!h.replace(/<[^>]+>/g, "").trim());
   const para1Html = `<p>This Writ Petition is filed praying that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and: ${rawReliefs
@@ -1055,12 +1063,74 @@ export async function generateScWpPetitionDocx(
   allNumberingConfigs.push(...factsResult.numbering);
   const hasFacts = (rawFacts || "").replace(/<[^>]+>/g, "").trim().length > 0;
   const factsParagraphs: (Paragraph | Table)[] = [
-    ...headingWithText("FACTS:", "The facts giving rise to the present Writ Petition are as under:", "scwp-para-2"),
+    ...headingWithText("FACTS:", "The facts giving rise to the present Writ Petition are as under:", paraRef(2)),
     ...(hasFacts && factsResult.paragraphs.length > 0
       ? factsResult.paragraphs
       : [new Paragraph({ indent: { left: 720 }, children: [smartTextRun("[Facts — generated from the List of Dates.]")] })]
     ),
   ];
+
+
+  // ── PIL: Paras 2-6 ──────────────────────────────────────────────────────
+  // A public interest petition must disclose who is bringing it, what public
+  // injury it alleges, and that the petitioner has no personal stake. These sit
+  // between the opening paragraph and the Facts, which is why every paragraph
+  // from the Facts onwards is shifted down by five (see paraRef above).
+  const pilParagraphs: (Paragraph | Table)[] = [];
+  if (isPilDoc) {
+    const pilPetitioners = (projectData.petitioners || []).filter(p => (p.name || "").trim() !== "");
+    const pilCell = (text: string, bold = false) => new TableCell({
+      children: [new Paragraph({ children: [smartTextRun({ text, bold, size: pilSize })], spacing: { line: 240, after: 0 } })],
+      margins: defaultCellMargins,
+      verticalAlign: VerticalAlign.CENTER,
+    });
+    const pilHeadings = ["Name", "Postal Address", "Phone Number", "Aadhaar Number", "Occupation", "Annual Income", "PAN Number", "CIN Number", "Email ID"];
+    const pilParticularsTable = new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        new TableRow({ tableHeader: true, children: pilHeadings.map(h => pilCell(h, true)) }),
+        ...(pilPetitioners.length ? pilPetitioners : [{} as any]).map(p => new TableRow({
+          children: [
+            pilCell(p.name || ""),
+            pilCell(p.address || ""),
+            pilCell(p.phone || ""),
+            pilCell(p.aadhaar || ""),
+            pilCell(p.occupation || ""),
+            pilCell(p.annualIncome || ""),
+            pilCell(p.pan || ""),
+            pilCell(p.cin || ""),
+            pilCell(p.email || ""),
+          ],
+        })),
+      ],
+    });
+
+    const injuryHtml = (projectData.pil?.injuryToPublic || "").replace(/<[^>]+>/g, "").trim();
+
+    pilParagraphs.push(
+      new Paragraph({
+        children: [smartTextRun({ text: "The particulars of the Petitioners are given below:", size: pilSize })],
+        numbering: { reference: "scwp-para-2", level: 0 },
+      }),
+      pilParticularsTable,
+      new Paragraph({
+        children: [smartTextRun({ text: `Nature of injury caused or likely to be caused to the public: ${injuryHtml || "____"}.`, size: pilSize })],
+        numbering: { reference: "scwp-para-3", level: 0 },
+      }),
+      new Paragraph({
+        children: [smartTextRun({ text: "Nature and extent of Personal interest, if any, of the Petitioners:  The Petitioner declares that he has no personal interest in the present matter, and this petition is geared solely towards public interest.", size: pilSize })],
+        numbering: { reference: "scwp-para-4", level: 0 },
+      }),
+      new Paragraph({
+        children: [smartTextRun({ text: "Details of Litigation: The Petitioner is not involved in any civil, criminal, or revenue litigation that has or could have a legal connection to the issues addressed in this Public Interest Litigation.", size: pilSize })],
+        numbering: { reference: "scwp-para-5", level: 0 },
+      }),
+      new Paragraph({
+        children: [smartTextRun({ text: "No personal gain, private motive, or oblique reasons in PIL: The Petitioner declares that he has no personal gain, private motive or oblique reasons in filing this PIL.", size: pilSize })],
+        numbering: { reference: "scwp-para-6", level: 0 },
+      }),
+    );
+  }
 
   // 7. Para 3: GROUNDS
   const groundsHeadingStyle = getGroundsHeadingStyle(projectData);
@@ -1110,28 +1180,28 @@ export async function generateScWpPetitionDocx(
   });
 
   const groundsParagraphs: (Paragraph | Table)[] = [
-    ...headingWithText("GROUNDS:", "This Writ Petition is being filed on the following grounds taken without prejudice against each other:", "scwp-para-3"),
+    ...headingWithText("GROUNDS:", "This Writ Petition is being filed on the following grounds taken without prejudice against each other:", paraRef(3)),
     groundsTable,
   ];
 
   // 8. Paras 4–7: boilerplate
   const para4 = new Paragraph({
-    numbering: { reference: "scwp-para-4", level: 0 },
+    numbering: { reference: paraRef(4), level: 0 },
     children: [smartTextRun("This Hon’ble Court has the necessary jurisdiction to entertain this Writ Petition as the Respondents are situated within, and the cause of action has arisen within, the territorial jurisdiction of this Hon’ble Court.")],
   });
 
   const para5 = new Paragraph({
-    numbering: { reference: "scwp-para-5", level: 0 },
+    numbering: { reference: paraRef(5), level: 0 },
     children: [smartTextRun("The Petitioner has no other equally efficacious alternate remedy available than to approach this Hon’ble Court.")],
   });
 
   const para6 = new Paragraph({
-    numbering: { reference: "scwp-para-6", level: 0 },
+    numbering: { reference: paraRef(6), level: 0 },
     children: [smartTextRun("The Petitioner has not filed any other Writ Petition or proceeding before this Hon’ble Court or any other Court seeking the same or similar relief.")],
   });
 
   const para7 = new Paragraph({
-    numbering: { reference: "scwp-para-7", level: 0 },
+    numbering: { reference: paraRef(7), level: 0 },
     children: [smartTextRun("The Petitioner craves leave of this Hon’ble Court to produce additional documents and/or affidavits and to add, alter or amend this Writ Petition at a later stage of the proceedings, if required.")],
   });
 
@@ -1164,7 +1234,7 @@ export async function generateScWpPetitionDocx(
   });
 
   const para8Paragraphs: (Paragraph | Table)[] = [
-    ...headingWithText("PRAYERS:", "In view of the foregoing submissions, it is respectfully prayed that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and:", "scwp-para-8"),
+    ...headingWithText("PRAYERS:", "In view of the foregoing submissions, it is respectfully prayed that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and:", paraRef(8)),
     prayersTable,
   ];
 
@@ -1214,14 +1284,11 @@ export async function generateScWpPetitionDocx(
 
   const uniqueNumberingConfigs = [
     ...allNumberingConfigs.filter((v, i, a) => a.findIndex(t => t.reference === v.reference) === i),
-    makeScWpListConfig("scwp-para-1", 1),
-    makeScWpListConfig("scwp-para-2", 2),
-    makeScWpListConfig("scwp-para-3", 3),
-    makeScWpListConfig("scwp-para-4", 4),
-    makeScWpListConfig("scwp-para-5", 5),
-    makeScWpListConfig("scwp-para-6", 6),
-    makeScWpListConfig("scwp-para-7", 7),
-    makeScWpListConfig("scwp-para-8", 8),
+    // 1-8 carry the writ petition; 9-13 exist only for a PIL, whose five extra
+    // paragraphs push the Facts onwards down by five. Each heading after a table
+    // needs its own config saying where to resume — Word restarts a numbered
+    // list after every table.
+    ...Array.from({ length: 13 }, (_, i) => makeScWpListConfig(`scwp-para-${i + 1}`, i + 1)),
   ];
 
   const petitionChildren: (Paragraph | Table)[] = [
@@ -1232,6 +1299,7 @@ export async function generateScWpPetitionDocx(
     centerHeading,
     ...salutationParagraphs,
     ...para1Paragraphs,
+    ...pilParagraphs,
     ...factsParagraphs,
     ...groundsParagraphs,
     para4,
@@ -1357,14 +1425,20 @@ export async function generateScWpAffidavitsDocx(projectData: DraftoProject) {
     docs.push({ fileName: `Affidavit-${ia.id}.docx`, doc: iaAffidavitDoc });
   });
 
+  // This must match the shape generateAffidavitsDocx returns (the SLP path):
+  // the shared handler in header.tsx reads `documents`, and tests `success` on
+  // each entry. Returning `files` made every affidavit vanish in silence — the
+  // handler found no `documents` to download, and because the call itself
+  // reported `success: true` it showed no error either.
   const generatedDocs = await Promise.all(
     docs.map(async (d) => ({
+      success: true,
       fileName: d.fileName,
       docx: await Packer.toBase64String(d.doc),
     }))
   );
 
-  return { success: true, files: generatedDocs };
+  return { success: true, documents: generatedDocs };
 }
 
 // ─── Filing Memo for SC WP ──────────────────────────────────────────────────

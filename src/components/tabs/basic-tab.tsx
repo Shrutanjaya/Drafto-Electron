@@ -24,6 +24,8 @@ import { Textarea } from "../ui/textarea";
 import { Checkbox } from "../ui/checkbox";
 import { DateInput } from "../custom/date-input";
 import { UseFirstPartyButton } from "@/components/custom/use-first-party-button";
+import { isAppeal } from "@/lib/court-family";
+import { appealProvisionsFor, APPEAL_PROVISION_OTHER } from "@/lib/appeal/appeal-provisions";
 
 const highCourts = [
     "Allahabad High Court at Allahabad",
@@ -313,6 +315,11 @@ export function BasicTab() {
   });
   
   const appealStatus = useWatch({ control: form.control, name: 'intraCourtAppealStatus' });
+  // The Appeal asks for the provision it is brought under; the SLP does not.
+  const courtType = useWatch({ control: form.control, name: 'courtType' });
+  const caseType = useWatch({ control: form.control, name: 'caseType' });
+  const appealProvision = useWatch({ control: form.control, name: 'appeal.provision' });
+  const isAppealProject = isAppeal(courtType);
   const wantsDrawnBy = useWatch({ control: form.control, name: 'advocate.wantsDrawnBy' });
   const wantsSettledBy = useWatch({ control: form.control, name: 'advocate.wantsSettledBy' });
   const isCommonOrder = useWatch({ control: form.control, name: 'isCommonOrder' });
@@ -459,6 +466,55 @@ export function BasicTab() {
                       <PlusCircle className="mr-2" /> Add Another Impugned Order
                     </Button>
                   </div>
+                )}
+                {isAppealProject && (
+                  <Card>
+                    <CardContent className="p-2 space-y-2">
+                      <h5 className="text-xs font-semibold text-muted-foreground dark:text-slate-300">
+                        Appeal is filed under:
+                      </h5>
+                      <FormField
+                        control={form.control}
+                        name="appeal.provision"
+                        render={({ field }) => (
+                          <FormItem>
+                            <Select onValueChange={field.onChange} value={field.value || ""}>
+                              <FormControl>
+                                <SelectTrigger className="text-xs h-8">
+                                  <SelectValue placeholder="Select the provision" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {appealProvisionsFor(caseType).map(p => (
+                                  <SelectItem key={p.id} value={p.id} className="text-xs">{p.text}</SelectItem>
+                                ))}
+                                <SelectItem value={APPEAL_PROVISION_OTHER} className="text-xs">Other</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </FormItem>
+                        )}
+                      />
+                      {/* Only the "Other" choice needs a box to type in; the
+                          presets already carry their full wording. */}
+                      {appealProvision === APPEAL_PROVISION_OTHER && (
+                        <FormField
+                          control={form.control}
+                          name="appeal.provisionCustom"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  className="text-xs h-8"
+                                  placeholder="e.g. S.30 of the Advocates Act, 1961"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      )}
+                    </CardContent>
+                  </Card>
                 )}
                 <Card>
                   <CardContent className="p-2 space-y-2">

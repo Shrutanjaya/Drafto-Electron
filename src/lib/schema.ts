@@ -123,6 +123,17 @@ export const vaadiTableItemSchema = z.object({
   // Service designation shown in the WP Memo of Parties (e.g. "Through its
   // Standing Counsel", "Through the Secretary, Ministry of …"). SLP ignores it.
   through: z.string().default(""),
+  // ── PIL-only particulars ──
+  // Order XXXVIII Rule 12(1)(d) requires a PIL petitioner to disclose these.
+  // They are collected in Preliminary → Memo of Parties and printed as the
+  // particulars table in Para 2 of the petition. Every other tool ignores them.
+  phone: z.string().default(""),
+  aadhaar: z.string().default(""),
+  occupation: z.string().default(""),
+  annualIncome: z.string().default(""),
+  pan: z.string().default(""),
+  cin: z.string().default(""),
+  email: z.string().default(""),
 });
 
 export const lodTableItemSchema = z.object({
@@ -195,15 +206,38 @@ export const draftoProjectSchema = z.object({
   caseType: z.enum(["Civil", "Criminal"]).default("Civil"),
   // Top-level document-type discriminator. Existing saved projects predate this
   // field, so it defaults to "SLP" — they parse and behave exactly as before.
+  // "Appeal" selects the Supreme Court statutory-appeal interface (an SLP with
+  // an Appeal cover, a Facts section and A-series annexures).
   // "WritPetitionDHC" selects the Delhi High Court writ-petition interface.
   // "WritPetitionSC" selects the Supreme Court writ-petition interface.
-  courtType: z.enum(["SLP", "WritPetitionSC", "WritPetitionDHC", "OriginalApplicationCAT"]).default("SLP"),
+  // "WritPetitionPIL" selects the Supreme Court PIL writ-petition interface.
+  courtType: z.enum(["SLP", "Appeal", "WritPetitionSC", "WritPetitionPIL", "WritPetitionDHC", "OriginalApplicationCAT"]).default("SLP"),
   isCommonOrder: z.boolean().default(false),
   commonOrderParties: z.array(commonOrderPartyGroupSchema).default([]),
   impugnedOrders: z.array(impugnedOrderSchema).default([impugnedOrderSchema.parse({})]),
   intraCourtAppealStatus: z.enum(["", "no_appeal_lies", "appeal_lies_but"]).default(""),
   intraCourtAppealReason: z.string().default(""),
   para1BContent: z.string().default(""),
+
+  // ── Writ Petition (PIL) ─────────────────────────────────────────────────
+  // Active only when courtType === "WritPetitionPIL". The petitioner's own
+  // particulars live on each party row; this holds the one free-text
+  // disclosure that is not per-party.
+  pil: z.object({
+    injuryToPublic: z.string().default(""),
+  }).default({}),
+
+  // ── Appeal (Supreme Court) ──────────────────────────────────────────────
+  // Active only when courtType === "Appeal". The statutory provision the appeal
+  // is filed under, chosen in Preliminary → Impugned Order(s). `provision` holds
+  // the id of a preset from src/lib/appeal/appeal-provisions.ts, or "other";
+  // `provisionCustom` holds what the user typed when they chose "Other".
+  // appealProvisionText() resolves the pair into the wording printed on the
+  // cover page, in the Index and in Para 1.
+  appeal: z.object({
+    provision: z.string().default(""),
+    provisionCustom: z.string().default(""),
+  }).default({}),
 
   advocate: z.object({
     aorName: z.string().default(""),
@@ -320,6 +354,12 @@ export const draftoProjectSchema = z.object({
       userReason: z.string().default(""),   // optional user-entered reason for not obtaining official translations
     }).default({}),
     exemptionFromSurrendering: z.object({
+      active: z.boolean().default(false),
+      grounds: z.array(iaGroundItemSchema).default([iaGroundItemSchema.parse({})]),
+    }).default({}),
+    // Criminal appeals only: suspension of the sentence pending the appeal,
+    // under S.389 CrPC. Never offered for a civil appeal or for an SLP.
+    suspensionOfSentence: z.object({
       active: z.boolean().default(false),
       grounds: z.array(iaGroundItemSchema).default([iaGroundItemSchema.parse({})]),
     }).default({}),

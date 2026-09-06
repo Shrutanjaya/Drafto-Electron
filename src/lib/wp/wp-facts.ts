@@ -15,6 +15,7 @@
 
 import type { DraftoProject, Annexure } from "@/lib/schema";
 import { wpAnnexureOrder, annexLabel } from "./wp-annexures";
+import { isScWpFamily } from "@/lib/court-family";
 
 function stripHtml(html: string): string {
   return (html || "")
@@ -263,7 +264,7 @@ function factsItem(project: DraftoProject, lod: DraftoProject["listOfDates"][num
     ? transposeEventHtmlKeepingStructure(lod.date || "", lod.event || "")
     : transposeEventHtml(lod.date || "", lod.event || "");
   if (!sentence && annexes.length === 0) return null;
-  const pageRangeText = project.courtType === "WritPetitionSC" ? "(pp.___ to ___)" : undefined;
+  const pageRangeText = isScWpFamily(project.courtType) ? "(pp.___ to ___)" : undefined;
   for (const annex of annexes) {
     const entry = pMap.get(annex.id);
     if (!entry) continue;
@@ -311,7 +312,7 @@ export function transposeLodToFacts(project: DraftoProject, prefix: string = "P"
     if (item !== null) items.push(item);
   }
   if (items.length === 0) return "";
-  const regimeAttr = project.courtType === "WritPetitionSC" ? ' data-regime="lower-alpha"' : '';
+  const regimeAttr = isScWpFamily(project.courtType) ? ' data-regime="lower-alpha"' : '';
   return `<ol${regimeAttr}>${items.map(i => `<li>${i}</li>`).join("")}</ol>`;
 }
 
@@ -337,7 +338,7 @@ export function appendNewLodRowsToFacts(
   const lis = additions.map(a => `<li>${a.item}</li>`).join("");
   const html = (factsHtml || "").trim();
   const m = html.match(/^([\s\S]*)(<\/ol>\s*)$/i);
-  const regimeAttr = project.courtType === "WritPetitionSC" ? ' data-regime="lower-alpha"' : '';
+  const regimeAttr = isScWpFamily(project.courtType) ? ' data-regime="lower-alpha"' : '';
   const merged = m ? `${m[1]}${lis}${m[2]}` : html ? `${html}<ol${regimeAttr}>${lis}</ol>` : `<ol${regimeAttr}>${lis}</ol>`;
   return { html: merged, appendedIds: additions.map(a => a.id) };
 }

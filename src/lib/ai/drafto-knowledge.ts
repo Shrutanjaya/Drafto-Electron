@@ -7,6 +7,7 @@
 
 import { catalogByTab, type CatalogEntry, type DraftMode, type LeafField } from "./field-catalog";
 import { MASTER_INSTRUCTIONS, WP_MASTER_INSTRUCTIONS, OA_MASTER_INSTRUCTIONS } from "./master-instructions";
+import { isAppeal } from "@/lib/court-family";
 
 function describeColumn(f: LeafField, indent: string): string {
   const enumPart = f.enumValues ? ` [one of: ${f.enumValues.join(" | ")}]` : "";
@@ -79,7 +80,7 @@ export function buildSystemPrompt(ctx: PromptContext = {}): string {
       ? `\nThe user has pointed you at this folder of source documents:\n  ${ctx.sourceFolder}\nRead the files there (PDFs, etc.) to extract the information you need.`
       : "";
 
-  return `${modeText.persona} You are the user's own Claude model, connected through the Claude Code CLI, and you know Drafto's structure inside out.
+  const prompt = `${modeText.persona} You are the user's own Claude model, connected through the Claude Code CLI, and you know Drafto's structure inside out.
 
 ## Your one and only job
 Your sole function is to PROPOSE edits to Drafto's fields. For EVERY request, you respond with a brief one-line note PLUS a JSON proposal (format below) that fills or edits the appropriate Drafto fields. The user reviews the proposal on a card and applies it — nothing is saved without them.
@@ -150,6 +151,18 @@ Rules for the JSON:
 - Never invent facts, case numbers, names or dates. If the source material doesn't say, leave it blank and note it in your "message".
 - Be conservative: it is better to propose fewer, accurate fields than many speculative ones. The user is a lawyer filing in ${mode === "WritPetitionDHC" ? "the High Court" : "the Supreme Court"}; accuracy matters more than completeness.
 - For ANY request to draft, fill, write, prepare, edit, correct or update content, respond WITH the JSON proposal. Do not reply with the draft as chat text and do not ask whether to proceed — just propose it for the user to review.`;
+
+  // The statutory appeal falls back to the SLP instructions, which are written
+  // throughout for the P-series ("Annexure P-2 is a true copy of …"). An Appeal
+  // carries the A-series, so the model would otherwise be told to draft Facts
+  // with the wrong annexure letter. Rewriting the finished prompt keeps ONE set
+  // of instructions instead of a near-identical fourth copy.
+  //
+  // The lookahead is deliberately narrow: it catches P-1, P-N, P-number(s) and
+  // P-annexures, and leaves unrelated words such as "P-shaped" alone.
+  return isAppeal(ctx.courtType)
+    ? prompt.replace(/\bP-(?=\d|N\b|number|annexure)/g, "A-")
+    : prompt;
 }
 
 // A compact one-liner for diagnostics / the panel footer.

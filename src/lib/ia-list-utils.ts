@@ -1,6 +1,7 @@
 
 import type { DraftoProject, Annexure } from "@/lib/schema";
 import { standardIaList } from "@/lib/ia-list";
+import { annexurePrefix, isAppeal } from "@/lib/court-family";
 
 export const getIaList = (projectData: DraftoProject) => {
     const ias: {prefix: string, title: string, id: string}[] = [];
@@ -16,7 +17,7 @@ export const getIaList = (projectData: DraftoProject) => {
     }
     if (projectData.standardIas.condonationOfDelay.active) {
         const delayDays = projectData.standardIas.condonationOfDelay.delayDays > 0 ? projectData.standardIas.condonationOfDelay.delayDays : "__";
-        const title = `Application for condonation of delay of ${delayDays} days in filing the SLP`;
+        const title = `Application for condonation of delay of ${delayDays} days in filing the ${isAppeal(projectData.courtType) ? 'Appeal' : 'SLP'}`;
         ias.push({ prefix: iaPrefix, title, id: 'condonationOfDelay' });
     }
     if (projectData.standardIas.exemptionCertifiedCopy.active) {
@@ -33,7 +34,7 @@ export const getIaList = (projectData: DraftoProject) => {
           .filter(annex => annex.copyType === 'translated copy' || annex.copyType === 'true and translated copy')
           .map(annex => annexureNumberingMap.get(annex.id))
           .filter(Boolean)
-          .map(pNumber => `P-${pNumber}`);
+          .map(pNumber => `${annexurePrefix(projectData.courtType)}-${pNumber}`);
         
         let annexureList = '';
         if (translatedAnnexures.length > 0) {
@@ -49,6 +50,11 @@ export const getIaList = (projectData: DraftoProject) => {
     if (projectData.standardIas.exemptionFromSurrendering.active) {
         const title = standardIaList.find(i => i.id === 'exemptionFromSurrendering')?.title || "";
         ias.push({ prefix: iaPrefix, title, id: 'exemptionFromSurrendering' });
+    }
+    // Criminal appeals only.
+    if (isAppeal(projectData.courtType) && projectData.caseType === 'Criminal' && projectData.standardIas.suspensionOfSentence?.active) {
+        const title = standardIaList.find(i => i.id === 'suspensionOfSentence')?.title || "";
+        ias.push({ prefix: iaPrefix, title, id: 'suspensionOfSentence' });
     }
     projectData.customIas.forEach(ia => {
         ias.push({ prefix: iaPrefix, title: ia.title, id: ia.id });

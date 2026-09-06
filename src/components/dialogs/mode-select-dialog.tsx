@@ -38,11 +38,27 @@ const SC_OPTIONS: ModeOption[] = [
     subtitle: "Under Article 136 of the Constitution",
   },
   {
+    courtType: "Appeal",
+    icon: Scale,
+    title: "Appeal",
+    forum: "Supreme Court of India",
+    subtitle: "Under a statutory right of appeal",
+    beta: true,
+  },
+  {
     courtType: "WritPetitionSC",
     icon: Scale,
     title: "Writ Petition",
     forum: "Supreme Court of India",
     subtitle: "Under Article 32 of the Constitution",
+    beta: true,
+  },
+  {
+    courtType: "WritPetitionPIL",
+    icon: Scale,
+    title: "Writ Petition (PIL)",
+    forum: "Supreme Court of India",
+    subtitle: "Public interest litigation under Article 32",
     beta: true,
   },
 ];
@@ -85,12 +101,16 @@ export function ModeSelectDialog({ open, onSelect }: ModeSelectDialogProps) {
 
   // Hooks cannot be called in a loop, so resolve each option up front.
   const canDraftSlp = useCanDraft("SLP");
+  const canDraftAppeal = useCanDraft("Appeal");
   const canDraftScWp = useCanDraft("WritPetitionSC");
+  const canDraftPil = useCanDraft("WritPetitionPIL");
   const canDraftWp = useCanDraft("WritPetitionDHC");
   const canDraftOa = useCanDraft("OriginalApplicationCAT");
   const allowed: Record<CourtType, boolean> = {
     SLP: canDraftSlp,
+    Appeal: canDraftAppeal,
     WritPetitionSC: canDraftScWp,
+    WritPetitionPIL: canDraftPil,
     WritPetitionDHC: canDraftWp,
     OriginalApplicationCAT: canDraftOa,
   };

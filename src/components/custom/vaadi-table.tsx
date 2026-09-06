@@ -49,6 +49,9 @@ interface VaadiTableProps {
     // CAT: each Applicant signs their own last page / vakalatnama / affidavit,
     // so each needs their own deponent particulars.
     showDeponentDetails?: boolean;
+    // PIL: the disclosures Order XXXVIII Rule 12(1)(d) requires of a public
+    // interest petitioner, printed as the Para 2 particulars table.
+    showPilDetails?: boolean;
 }
 
 // Auto-growing single-field cell. The field name is shown as in-field preview
@@ -94,6 +97,7 @@ const SortableCard = ({
   showThrough = false,
   throughPlaceholder,
   showDeponentDetails = false,
+  showPilDetails = false,
 }: {
   id: string;
   index: number;
@@ -103,6 +107,7 @@ const SortableCard = ({
   showThrough?: boolean;
   throughPlaceholder?: string;
   showDeponentDetails?: boolean;
+  showPilDetails?: boolean;
 }) => {
   const form = useFormContext<DraftoProject>();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
@@ -151,6 +156,17 @@ const SortableCard = ({
         {showThrough && <PartyField name={`${name}.${index}.through`} label="Through (e.g. its Standing Counsel) — optional" placeholder={throughPlaceholder} />}
         <PartyField name={`${name}.${index}.address`} label="Address" />
         {showPosition && <PartyField name={`${name}.${index}.positionInEarlierCourt`} label="Position in the Court Below" />}
+        {showPilDetails && (
+          <>
+            <PartyField name={`${name}.${index}.phone`} label="Phone Number" />
+            <PartyField name={`${name}.${index}.aadhaar`} label="Aadhaar Number" />
+            <PartyField name={`${name}.${index}.occupation`} label="Occupation" />
+            <PartyField name={`${name}.${index}.annualIncome`} label="Annual Income" />
+            <PartyField name={`${name}.${index}.pan`} label="PAN Number" />
+            <PartyField name={`${name}.${index}.cin`} label="CIN Number" />
+            <PartyField name={`${name}.${index}.email`} label="Email ID" />
+          </>
+        )}
         {showDeponentDetails && (
           <div className="grid grid-cols-3 gap-1.5">
             <PartyField name={`${name}.${index}.relationship`} label="son of / daughter of / wife of" />
@@ -172,7 +188,7 @@ const ClientSideDnd = ({ children }: { children: React.ReactNode }) => {
   return isClient ? <>{children}</> : null;
 };
 
-export function VaadiTable({ name, disabled = false, showPosition = true, showThrough = false, throughPlaceholder, compactAdd = false, showDeponentDetails = false }: VaadiTableProps) {
+export function VaadiTable({ name, disabled = false, showPosition = true, showThrough = false, throughPlaceholder, compactAdd = false, showDeponentDetails = false, showPilDetails = false }: VaadiTableProps) {
   const form = useFormContext<DraftoProject>()
   const { fields, append, remove, move } = useFieldArray({
     control: form.control,
@@ -216,6 +232,7 @@ export function VaadiTable({ name, disabled = false, showPosition = true, showTh
                     onRemove={() => remove(index)}
                     showPosition={showPosition}
                     showThrough={showThrough}
+                    showPilDetails={showPilDetails}
                     throughPlaceholder={throughPlaceholder}
                     showDeponentDetails={showDeponentDetails}
                   />

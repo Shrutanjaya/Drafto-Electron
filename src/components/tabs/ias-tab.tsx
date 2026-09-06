@@ -33,6 +33,7 @@ import { DateInput } from "../custom/date-input";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui/resizable";
 import { pickFile } from "@/lib/utils/pick-file";
 import { format } from "date-fns";
+import { annexurePrefix, isAppeal } from "@/lib/court-family";
 import {
   getIaCommonOpening,
   IA_COMMON_CLOSING,
@@ -247,6 +248,10 @@ export function IasTab() {
   const caseType = useWatch({ control: form.control, name: "caseType" });
   const listOfDates = useWatch({ control: form.control, name: 'listOfDates' });
   const impugnedOrders = useWatch({ control: form.control, name: 'impugnedOrders' });
+  // Previews here must show the same annexure letter the documents will carry:
+  // A-series for a statutory appeal, P-series everywhere else.
+  const iasCourtType = useWatch({ control: form.control, name: 'courtType' });
+  const annexPrefix = annexurePrefix(iasCourtType);
   const hasAppliedForCC = useWatch({ control: form.control, name: "standardIas.exemptionCertifiedCopy.hasApplied" });
   const ccReceiptDate = useWatch({ control: form.control, name: "standardIas.exemptionCertifiedCopy.receiptDate" });
   const ccReason = useWatch({ control: form.control, name: "standardIas.exemptionCertifiedCopy.reasonForNotApplying" });
@@ -261,6 +266,10 @@ export function IasTab() {
   const adGrounds = useWatch({ control: form.control, name: "standardIas.additionalDocumentsGrounds" });
 
   const isCriminal = caseType === "Criminal";
+  const isAppealProject = isAppeal(iasCourtType);
+  // Previews name the document they accompany, matching the generator.
+  const iaDocLong = isAppealProject ? "Appeal" : "Special Leave Petition";
+  const suspensionActive = useWatch({ control: form.control, name: "standardIas.suspensionOfSentence.active" });
 
   // Delay IA is "ready" (green) only once the user has supplied at least one
   // non-blank ground. AD/OT grounds are optional, so those stay green when active.
@@ -295,8 +304,9 @@ export function IasTab() {
   // Translation (no translated annexures).
   useEffect(() => {
     if (!isCriminal && selectedId === "surrender") setSelectedId("delay");
+    if (!(isAppealProject && isCriminal) && selectedId === "susp") setSelectedId("delay");
     if (!otActive && selectedId === "ot") setSelectedId("delay");
-  }, [isCriminal, otActive, selectedId]);
+  }, [isCriminal, otActive, selectedId, isAppealProject]);
 
   // Auto-sync active flags from computed values
   useEffect(() => {
@@ -348,7 +358,7 @@ export function IasTab() {
       .filter(a => a.copyType === 'translated copy' || a.copyType === 'true and translated copy')
       .map(a => annexureNumberingMap.get(a.id))
       .filter(Boolean)
-      .map(n => `P-${n}`);
+      .map(n => `${annexPrefix}-${n}`);
     let newReason = '';
     if (translated.length > 0) {
       const last = translated.pop();
@@ -371,7 +381,7 @@ export function IasTab() {
       .filter((n): n is number => typeof n === "number")
       .sort((a, b) => a - b);
     if (nums.length === 0) return "";
-    return nums.length === 1 ? `Annexure P-${nums[0]}` : `Annexures P-${nums[0]} to P-${nums[nums.length - 1]}`;
+    return nums.length === 1 ? `Annexure ${annexPrefix}-${nums[0]}` : `Annexures ${annexPrefix}-${nums[0]} to ${annexPrefix}-${nums[nums.length - 1]}`;
   }, [listOfDates, annexureNumberingMap]);
 
   // Extracted impugned-order text, mirrored from the docx, so Para 1 and the
@@ -386,7 +396,7 @@ export function IasTab() {
       .filter(a => a.isAdditionalDocument)
       .map(a => {
         const pNumber = annexureNumberingMap.get(a.id);
-        let t = `Annexure P-${pNumber ?? "_"} (pp.___ to ___) is a ${a.copyType || "[description]"} of`;
+        let t = `Annexure ${annexPrefix}-${pNumber ?? "_"} (pp.___ to ___) is a ${a.copyType || "[description]"} of`;
         if (a.title) t += ` ${a.title}`;
         if (a.date) t += ` dated ${a.date}`;
         if ((a as any).customText) t += ` ${(a as any).customText}`;
@@ -413,6 +423,7 @@ export function IasTab() {
                 const rows = [
                   { id: "cc", label: "Exemption (Certified Copy)", included: !!ccActive, show: true },
                   { id: "surrender", label: "Exemption (Surrender)", included: !!surrenderActive, show: isCriminal },
+                  { id: "susp", label: "Suspension of Sentence", included: !!suspensionActive, show: isAppealProject && isCriminal },
                   { id: "delay", label: "Condonation of Delay", included: delay > 0, show: true },
                   { id: "ot", label: "Exemption (Official Translation)", included: true, show: !!otActive },
                   { id: "ad", label: "Additional Documents", included: !!adActive, show: true },
@@ -473,14 +484,14 @@ export function IasTab() {
               {/* ── Condonation of Delay (Mandatory / Auto) ── */}
               {selectedId === "delay" && (
                 <div className="space-y-3">
-                  <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{`Application for condonation of delay of ${delay > 0 ? delay : "__"} days in filing the SLP`}</h4>
+                  <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{`Application for condonation of delay of ${delay > 0 ? delay : "__"} days in filing the ${isAppealProject ? "Appeal" : "SLP"}`}</h4>
                   {delay <= 0 && (
                     <p className="text-xs text-muted-foreground italic">Since there is no delay, this IA won't be included.</p>
                   )}
-                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText), getIaLeadIn("condonationOfDelay", { delayDays: delay > 0 ? delay : "__" })]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("condonationOfDelay", { delayDays: delay > 0 ? delay : "__" })]} />
                   <IaGroundTable name="standardIas.condonationOfDelay.grounds" />
                   <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
-                  <StandardPrayerBlock id="condonationOfDelay" num={5} opts={{ delayDays: delay > 0 ? delay : "__", io: ioText }} />
+                  <StandardPrayerBlock id="condonationOfDelay" num={5} opts={{ delayDays: delay > 0 ? delay : "__", io: ioText, docNoun: isAppealProject ? "Appeal" : "SLP" }} />
                 </div>
               )}
 
@@ -549,7 +560,7 @@ export function IasTab() {
                       />
                     )}
                   </div>
-                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText)]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong)]} />
                   <StandardBlock startNum={2} paras={[getIaLeadIn("exemptionCertifiedCopy", ccOpts)]} />
                   <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
                   <StandardPrayerBlock id="exemptionCertifiedCopy" num={5} opts={{ io: ioText }} />
@@ -572,10 +583,33 @@ export function IasTab() {
                       )}
                     />
                   </div>
-                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText), getIaLeadIn("exemptionFromSurrendering", { io: ioText })]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("exemptionFromSurrendering", { io: ioText })]} />
                   <IaGroundTable name="standardIas.exemptionFromSurrendering.grounds" />
                   <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
                   <StandardPrayerBlock id="exemptionFromSurrendering" num={5} opts={{ io: ioText }} />
+                </div>
+              )}
+
+              {/* ── Suspension of Sentence — criminal appeals only ── */}
+              {selectedId === "susp" && isAppealProject && isCriminal && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{titleFor("suspensionOfSentence")}</h4>
+                    <FormField
+                      control={form.control}
+                      name="standardIas.suspensionOfSentence.active"
+                      render={({ field }) => (
+                        <FormItem className="flex items-center gap-1.5 space-y-0">
+                          <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="susp-active" /></FormControl>
+                          <FormLabel htmlFor="susp-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("suspensionOfSentence", { io: ioText })]} />
+                  <IaGroundTable name="standardIas.suspensionOfSentence.grounds" />
+                  <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
+                  <StandardPrayerBlock id="suspensionOfSentence" num={5} opts={{ io: ioText }} />
                 </div>
               )}
 
@@ -583,7 +617,7 @@ export function IasTab() {
               {selectedId === "ot" && (
                 <div className="space-y-3">
                   <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{`Application for exemption from filing Official Translation(s) of ${otReason || "the annexures"}`}</h4>
-                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText)]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong)]} />
                   <FormField
                     control={form.control}
                     name="standardIas.exemptionOfficialTranslation.userReason"
@@ -609,7 +643,7 @@ export function IasTab() {
                       ? `Auto-included because ${adCount} document${adCount !== 1 ? "s are" : " is"} marked as Additional Document(s) in the List of Dates.`
                       : "This IA is included automatically only when an annexure is marked as an Additional Document (AD). None are at present, so it won't be included."}
                   </p>
-                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText), getIaLeadIn("additionalDocuments")]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("additionalDocuments")]} />
                   {/* Live list of additional documents (lettered, gray) — exactly what the docx inserts here. */}
                   <div className="pl-4 space-y-1">
                     {adAnnexureEntries.length > 0 ? (
@@ -646,7 +680,7 @@ export function IasTab() {
                       </FormItem>
                     )}
                   />
-                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText)]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong)]} />
                   {/* Para 2: fixed lead sentence + user-fillable text (reproduced verbatim in the docx). */}
                   <div className="space-y-1">
                     <p className={STD_TEXT}>

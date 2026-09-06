@@ -2,6 +2,7 @@ import { draftoProjectSchema, type DraftoProject } from "@/lib/schema";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 import { getWpFiledBy } from "@/lib/wp/wp-settings";
 import { getOaFiledBy } from "@/lib/oa/oa-settings";
+import { isScWpFamily, isAppeal } from "@/lib/court-family";
 
 // A fresh blank project with the user's Settings → User Defaults pre-applied
 // (currently AoR name/code). Used for the launch project and for "New Project".
@@ -15,7 +16,7 @@ export function newBlankProject(courtType: DraftoProject["courtType"] = "SLP"): 
     if (s.defaultAorName) project.advocate.aorName = s.defaultAorName;
     if (s.defaultAorCode) project.advocate.aorCode = s.defaultAorCode;
     // Supreme Court Writ Petitions pre-seed Article 32 and checklist defaults.
-    if (courtType === "WritPetitionSC") {
+    if (isScWpFamily(courtType)) {
       project.listingProforma.legalProvisions = [
         { id: `lp_${Date.now()}`, type: "Central Act", act: "Constitution of India, 1950", section: "Article 32" } as any
       ];
@@ -23,6 +24,13 @@ export function newBlankProject(courtType: DraftoProject["courtType"] = "SLP"): 
       project.checklist.q3_papersArranged = "NA";
       project.standardIas.exemptionCertifiedCopy.active = false;
       project.standardIas.exemptionFromSurrendering.active = false;
+    }
+    // A statutory appeal is not in Form 28 and is not arranged under Order XXI,
+    // so checklist points 1 and 3 start as "NA" — the same two the writ
+    // petition answers that way, for the same reason.
+    if (isAppeal(courtType)) {
+      project.checklist.q1_form28 = "NA";
+      project.checklist.q3_papersArranged = "NA";
     }
     // Writ petitions pre-fill the "Filed by" block from the WP defaults.
     if (courtType === "WritPetitionDHC") {

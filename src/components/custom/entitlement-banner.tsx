@@ -3,8 +3,14 @@ import { useEntitlement, useHasFreeForumSlot } from '@/providers/entitlement-pro
 import { entitlementMessage, type CourtType } from '@/lib/entitlement/entitlement';
 import { Button } from '@/components/ui/button';
 
+// Every court type needs an entry: this label is dropped into the "your plan
+// does not cover …" sentence, and a missing key renders it as "undefined".
+// WritPetitionSC was already absent before the Appeal and PIL tools existed.
 const FORUM_LABEL: Record<CourtType, string> = {
   SLP: 'Special Leave Petitions',
+  Appeal: 'Appeals',
+  WritPetitionSC: 'Writ Petitions',
+  WritPetitionPIL: 'Writ Petitions (PIL)',
   WritPetitionDHC: 'Writ Petitions',
   OriginalApplicationCAT: 'Original Applications',
 };

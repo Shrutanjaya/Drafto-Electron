@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import type { DraftoProject, VaadiTableItem } from "@/lib/schema";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { VaadiTable } from "@/components/custom/vaadi-table";
+import { isPil } from "@/lib/court-family";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -79,6 +80,9 @@ export function ScWpBasicTab() {
   const wantsSettledBy = useWatch({ control: form.control, name: 'advocate.wantsSettledBy' });
 
   // Nav dot watches
+  // A PIL asks its petitioners for the Rule 12(1)(d) disclosures.
+  const scWpCourtType = useWatch({ control: form.control, name: 'courtType' });
+  const isPilProject = isPil(scWpCourtType);
   const petitionersWatch = useWatch({ control: form.control, name: 'petitioners' as any }) as VaadiTableItem[];
   const respondentsWatch = useWatch({ control: form.control, name: 'respondents' as any }) as VaadiTableItem[];
   const aorName = useWatch({ control: form.control, name: 'advocate.aorName' });
@@ -172,7 +176,7 @@ export function ScWpBasicTab() {
                   <ResizablePanel defaultSize={50}>
                     <div className="flex flex-col h-full p-1">
                       <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Petitioners</h4>
-                      <div className="flex-grow overflow-auto"><VaadiTable name="petitioners" showThrough showPosition={false} /></div>
+                      <div className="flex-grow overflow-auto"><VaadiTable name="petitioners" showThrough showPosition={false} showPilDetails={isPilProject} /></div>
                     </div>
                   </ResizablePanel>
                   <ResizableHandle withHandle />

@@ -18,6 +18,7 @@
 import type { Annexure, DraftoProject } from "@/lib/schema";
 import { factsAnnexureSentenceHtml } from "./wp-facts";
 import { wpAnnexureOrderFromLods } from "./wp-annexures";
+import { isScWpFamily } from "@/lib/court-family";
 
 type LodRow = DraftoProject["listOfDates"][number];
 
@@ -107,7 +108,7 @@ export function resolveFactsHtml(project: DraftoProject, prefix: string = "P"): 
     // left alone — unwrapping it would run them together.
     let html = unwrapLoneParagraph(row.event || "");
     if (!html && annexes.length === 0) continue;
-    const pageRangeText = project.courtType === "WritPetitionSC" ? "(pp.___ to ___)" : undefined;
+    const pageRangeText = isScWpFamily(project.courtType) ? "(pp.___ to ___)" : undefined;
     for (const annex of annexes) {
       const entry = pMap.get(annex.id);
       if (!entry) continue;
