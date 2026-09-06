@@ -14,6 +14,16 @@ export function newBlankProject(courtType: DraftoProject["courtType"] = "SLP"): 
     const s = getSettings();
     if (s.defaultAorName) project.advocate.aorName = s.defaultAorName;
     if (s.defaultAorCode) project.advocate.aorCode = s.defaultAorCode;
+    // Supreme Court Writ Petitions pre-seed Article 32 and checklist defaults.
+    if (courtType === "WritPetitionSC") {
+      project.listingProforma.legalProvisions = [
+        { id: `lp_${Date.now()}`, type: "Central Act", act: "Constitution of India, 1950", section: "Article 32" } as any
+      ];
+      project.checklist.q1_form28 = "NA";
+      project.checklist.q3_papersArranged = "NA";
+      project.standardIas.exemptionCertifiedCopy.active = false;
+      project.standardIas.exemptionFromSurrendering.active = false;
+    }
     // Writ petitions pre-fill the "Filed by" block from the WP defaults.
     if (courtType === "WritPetitionDHC") {
       project.wp.advocate = { ...project.wp.advocate, ...getWpFiledBy() };

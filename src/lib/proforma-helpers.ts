@@ -1,4 +1,4 @@
-﻿
+
 import type { DraftoProject } from "@/lib/schema";
 import { Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } from "docx";
 import { createFiledByTable } from "./docx-helpers";
@@ -188,7 +188,8 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
 
     // The AoR signature goes here as it does on every other signed page; the
     // Listing Proforma was the one document that never asked for it.
-    content.push(...createFiledByTable(advocate.filingDate, advocate.aorName || "[AoR Name]", { includeSignature }));
+    const isScWp = data.courtType === "WritPetitionSC";
+    content.push(...createFiledByTable(advocate.filingDate, advocate.aorName || "[AoR Name]", { includeSignature, isScWp }));
     
     content.push(
       new Paragraph({

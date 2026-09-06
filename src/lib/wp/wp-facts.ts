@@ -174,8 +174,14 @@ export function withAnnexureCustomText(sentence: string, annex: { customText?: s
 
 // Facts-style annexure sentence (not the colon Index style), split into the
 // "Annexure P-N" label and the rest so renderers can bold the label.
-export function factsAnnexureSentenceParts(pNumber: number, annex: Annexure, prefix: string = "P"): { label: string; rest: string } {
-  const label = annexLabel(pNumber, annex, prefix);
+export function factsAnnexureSentenceParts(
+  pNumber: number,
+  annex: Annexure,
+  prefix: string = "P",
+  pageRangeText?: string
+): { label: string; rest: string } {
+  const baseLabel = annexLabel(pNumber, annex, prefix);
+  const label = pageRangeText ? `${baseLabel} ${pageRangeText}` : baseLabel;
   const dated = annex.date ? ` dated ${annex.date}` : "";
   const body = annex.isColly
     ? ` are true copies of ${annex.title || "[description]"}${dated}`
@@ -183,15 +189,64 @@ export function factsAnnexureSentenceParts(pNumber: number, annex: Annexure, pre
   return { label, rest: withAnnexureCustomText(body, annex) };
 }
 
-export function factsAnnexureSentence(pNumber: number, annex: Annexure, prefix: string = "P"): string {
-  const { label, rest } = factsAnnexureSentenceParts(pNumber, annex, prefix);
+export function factsAnnexureSentence(
+  pNumber: number,
+  annex: Annexure,
+  prefix: string = "P",
+  pageRangeText?: string
+): string {
+  const { label, rest } = factsAnnexureSentenceParts(pNumber, annex, prefix, pageRangeText);
   return label + rest;
 }
 
 // HTML form with the label in bold, for the generated Facts paragraphs.
-export function factsAnnexureSentenceHtml(pNumber: number, annex: Annexure, prefix: string = "P"): string {
-  const { label, rest } = factsAnnexureSentenceParts(pNumber, annex, prefix);
+export function factsAnnexureSentenceHtml(
+  pNumber: number,
+  annex: Annexure,
+  prefix: string = "P",
+  pageRangeText?: string
+): string {
+  const { label, rest } = factsAnnexureSentenceParts(pNumber, annex, prefix, pageRangeText);
   return `<b>${escapeHtml(label)}</b>${escapeHtml(rest)}`;
+}
+
+// Injects real annexure page numbers (or placeholders) into Facts HTML.
+export function injectAnnexurePageRangesIntoFacts(
+  factsHtml: string,
+  projectData: DraftoProject,
+  annexurePageRanges?: Map<string, { start: number; end: number }>,
+  prefix: string = "P"
+): string {
+  if (!factsHtml) return "";
+  let updated = factsHtml;
+  const ordered = wpAnnexureOrder(projectData);
+  for (const { annex, pNumber } of ordered) {
+    const pr = annexurePageRanges?.get(annex.id);
+    const prText = pr
+      ? pr.start === pr.end
+        ? `(p.${pr.start})`
+        : `(pp.${pr.start} to ${pr.end})`
+      : "(pp.___ to ___)";
+
+    const basePattern = `Annexure\\s+${prefix}-${pNumber}(?!\\d)(?:\\s*\\(Colly\\))?`;
+
+    // 1. Existing page range inside tag or plain: e.g. "Annexure P-2 (pp.___ to ___)" or "<b>Annexure P-2 (pp.___ to ___)</b>"
+    const regexParenInsideOrPlain = new RegExp(`(${basePattern})\\s*\\(pp?\\.?[^)]*\\)`, "gi");
+    updated = updated.replace(regexParenInsideOrPlain, `$1 ${prText}`);
+
+    // 2. Existing page range outside tag: e.g. "<b>Annexure P-2</b> (pp.___ to ___)" -> "<b>Annexure P-2 (pp.___ to ___)</b>"
+    const regexParenOutside = new RegExp(`(${basePattern})\\s*(</(?:b|strong)>)\\s*\\(pp?\\.?[^)]*\\)`, "gi");
+    updated = updated.replace(regexParenOutside, `$1 ${prText}$2`);
+
+    // 3. No existing page range, inside tag: e.g. "<b>Annexure P-2</b>" -> "<b>Annexure P-2 (pp.___ to ___)</b>"
+    const regexTagNoParen = new RegExp(`(${basePattern})\\s*(</(?:b|strong)>)(?!\\s*\\(pp?\\.?[^)]*\\))`, "gi");
+    updated = updated.replace(regexTagNoParen, `$1 ${prText}$2`);
+
+    // 4. No existing page range, plain text: e.g. "Annexure P-2 is a true copy" -> "Annexure P-2 (pp.___ to ___) is a true copy"
+    const regexPlainNoParen = new RegExp(`(${basePattern})(?!\\s*(?:\\(Colly\\))?\\s*(?:</(?:b|strong)>)?\\s*\\(pp?\\.?[^)]*\\))`, "gi");
+    updated = updated.replace(regexPlainNoParen, `$1 ${prText}`);
+  }
+  return updated;
 }
 
 // One transposed <li> (inner HTML) for a LoD row, or null when the row is empty.
@@ -208,10 +263,11 @@ function factsItem(project: DraftoProject, lod: DraftoProject["listOfDates"][num
     ? transposeEventHtmlKeepingStructure(lod.date || "", lod.event || "")
     : transposeEventHtml(lod.date || "", lod.event || "");
   if (!sentence && annexes.length === 0) return null;
+  const pageRangeText = project.courtType === "WritPetitionSC" ? "(pp.___ to ___)" : undefined;
   for (const annex of annexes) {
     const entry = pMap.get(annex.id);
     if (!entry) continue;
-    const annexSentence = factsAnnexureSentenceHtml(entry.pNumber, annex, prefix);
+    const annexSentence = factsAnnexureSentenceHtml(entry.pNumber, annex, prefix, pageRangeText);
     sentence = keepStructure
       ? appendSentenceToLastBlock(sentence, annexSentence)
       : `${sentence} ${annexSentence}`.trim();
@@ -255,7 +311,8 @@ export function transposeLodToFacts(project: DraftoProject, prefix: string = "P"
     if (item !== null) items.push(item);
   }
   if (items.length === 0) return "";
-  return `<ol>${items.map(i => `<li>${i}</li>`).join("")}</ol>`;
+  const regimeAttr = project.courtType === "WritPetitionSC" ? ' data-regime="lower-alpha"' : '';
+  return `<ol${regimeAttr}>${items.map(i => `<li>${i}</li>`).join("")}</ol>`;
 }
 
 // Append-only transposition: paragraphs for LoD rows NOT in `doneIds` are added
@@ -280,6 +337,7 @@ export function appendNewLodRowsToFacts(
   const lis = additions.map(a => `<li>${a.item}</li>`).join("");
   const html = (factsHtml || "").trim();
   const m = html.match(/^([\s\S]*)(<\/ol>\s*)$/i);
-  const merged = m ? `${m[1]}${lis}${m[2]}` : html ? `${html}<ol>${lis}</ol>` : `<ol>${lis}</ol>`;
+  const regimeAttr = project.courtType === "WritPetitionSC" ? ' data-regime="lower-alpha"' : '';
+  const merged = m ? `${m[1]}${lis}${m[2]}` : html ? `${html}<ol${regimeAttr}>${lis}</ol>` : `<ol${regimeAttr}>${lis}</ol>`;
   return { html: merged, appendedIds: additions.map(a => a.id) };
 }

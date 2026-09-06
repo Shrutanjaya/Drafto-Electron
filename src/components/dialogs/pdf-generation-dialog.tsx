@@ -36,8 +36,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ScrollArea } from "../ui/scroll-area";
-import type { DraftoProject, Annexure } from "@/lib/schema";
 import { getIaList } from "@/lib/ia-list-utils";
+import { getScWpIaList } from "@/lib/sc-wp/sc-wp-actions";
+import { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { useEntitlement, useExportPermission } from "@/providers/entitlement-provider";
@@ -92,12 +93,15 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
     }
 
     // Basic Info
+    const isScWp = data.courtType === "WritPetitionSC";
     const basicIssues: string[] = [];
-    (data.impugnedOrders || []).forEach((order, i) => {
-        const suffix = (data.impugnedOrders || []).length > 1 ? ` ${i + 1}` : '';
-        if (!order.caseNumber?.trim()) basicIssues.push(`Impugned Order${suffix}: Case Number`);
-        if (!order.effect?.trim()) basicIssues.push(`Impugned Order${suffix}: HC Action`);
-    });
+    if (!isScWp) {
+        (data.impugnedOrders || []).forEach((order, i) => {
+            const suffix = (data.impugnedOrders || []).length > 1 ? ` ${i + 1}` : '';
+            if (!order.caseNumber?.trim()) basicIssues.push(`Impugned Order${suffix}: Case Number`);
+            if (!order.effect?.trim()) basicIssues.push(`Impugned Order${suffix}: HC Action`);
+        });
+    }
     if (!data.advocate?.aorName?.trim()) basicIssues.push('Advocates: AoR Name');
     if (!data.advocate?.aorCode?.trim()) basicIssues.push('Advocates: AoR Code');
     if (!data.deponent?.name?.trim()) basicIssues.push('Deponent: Name');
@@ -106,10 +110,15 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
     if (!data.deponent?.address?.trim()) basicIssues.push('Deponent: Address');
     if (basicIssues.length) issues.push({ tab: 'Basic Info', items: basicIssues });
 
-    // SLP
+    // Petition (SLP or Writ Petition)
     const slpIssues: string[] = [];
     if (!(data.listOfDates || []).some(r => r.event?.trim())) slpIssues.push('List of Dates table is empty');
-    if (!(data.questionsOfLaw || []).some(r => r.particulars?.trim())) slpIssues.push('Questions of Law table is empty');
+    if (!isScWp) {
+        if (!(data.questionsOfLaw || []).some(r => r.particulars?.trim())) slpIssues.push('Questions of Law table is empty');
+    } else {
+        if (!data.wp?.facts?.trim()) slpIssues.push('Facts section is empty (click "Generate from List of Dates")');
+        if (!(data.wp?.reliefs || []).some(r => r.particulars?.trim())) slpIssues.push('Relief(s) table is empty');
+    }
     if (!(data.grounds || []).some(r => r.particulars?.trim())) slpIssues.push('Grounds table is empty');
     if (!data.synopsis?.trim()) slpIssues.push('Synopsis is blank');
     // Each Appendix row in the Index is built from its description; without one
@@ -127,11 +136,11 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
             slpIssues.push('Appendix: one or more documents have nothing attached and will be left out');
         }
     }
-    if (slpIssues.length) issues.push({ tab: 'SLP', items: slpIssues });
+    if (slpIssues.length) issues.push({ tab: isScWp ? 'Petition' : 'SLP', items: slpIssues });
 
     // IAs
     const iaIssues: string[] = [];
-    if (data.standardIas?.condonationOfDelay?.active) {
+    if (!isScWp && data.standardIas?.condonationOfDelay?.active) {
         if (!(data.standardIas.condonationOfDelay.grounds || []).some(g => g.particulars?.trim()))
             iaIssues.push('Condonation of Delay: Grounds table is empty');
     }
@@ -266,19 +275,22 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         const projectData = mainFormValues;
         const list: Omit<MergeItem, 'userFile' | 'useSystem'>[] = [];
 
+        const isScWp = projectData.courtType === "WritPetitionSC";
         if (isRefiling) list.push({ id: 'refiling', label: 'Refiling Declaration' });
         list.push({ id: 'advocateChecklist', label: "Advocate's Checklist" });
         list.push({ id: 'ci', label: "Cover Page and Index" });
-        list.push({ id: 'or', label: "Office Report" });
+        if (!isScWp) list.push({ id: 'or', label: "Office Report" });
         list.push({ id: 'lp', label: "Listing Proforma" });
         list.push({ id: 'slod', label: "Synopsis and List of Dates" });
 
-        (projectData.impugnedOrders || []).forEach((order, index) => {
-            list.push({ id: `impugnedOrder_${order.id}`, label: `Impugned Order ${index + 1}` });
-        });
+        if (!isScWp) {
+            (projectData.impugnedOrders || []).forEach((order, index) => {
+                list.push({ id: `impugnedOrder_${order.id}`, label: `Impugned Order ${index + 1}` });
+            });
+        }
 
-        list.push({ id: 'slp', label: "SLP with Certificate" });
-        list.push({ id: 'slpAffidavit', label: "SLP Affidavit (Executed)" });
+        list.push({ id: 'slp', label: isScWp ? "Writ Petition" : "SLP with Certificate" });
+        list.push({ id: 'slpAffidavit', label: isScWp ? "Writ Petition Affidavit (Executed)" : "SLP Affidavit (Executed)" });
 
         // One merge component per attached Appendix document, in the same order
         // (and with the same labels) as the Index rows.
@@ -297,12 +309,17 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         const nonAdAnnexures = allAnnexures.filter(a => !a.isAdditionalDocument);
         const adAnnexures = allAnnexures.filter(a => a.isAdditionalDocument);
 
-        nonAdAnnexures.forEach(a => annexureNumberingMap.set(a.id, pCounter++));
-        adAnnexures.forEach(a => annexureNumberingMap.set(a.id, pCounter++));
+        if (isScWp) {
+            const scWpOrder = wpAnnexureOrderFromLods(projectData.listOfDates || []);
+            scWpOrder.forEach(e => annexureNumberingMap.set(e.annex.id, e.pNumber));
+        } else {
+            nonAdAnnexures.forEach(a => annexureNumberingMap.set(a.id, pCounter++));
+            adAnnexures.forEach(a => annexureNumberingMap.set(a.id, pCounter++));
+        }
 
         // Collect IA ground annexures
         const allIaAnnexures: any[] = [];
-        if (projectData.standardIas?.condonationOfDelay?.active) {
+        if (!isScWp && projectData.standardIas?.condonationOfDelay?.active) {
             projectData.standardIas.condonationOfDelay.grounds?.forEach(ground => {
                 if (ground.annexures) {
                     ground.annexures.forEach(annex => {
@@ -338,9 +355,8 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         let aCounter = 1;
         allIaAnnexures.forEach(a => iaAnnexureNumberingMap.set(a.id, aCounter++));
         
-        // Where an annexure has both copies, Settings decides which comes first.
-        // The Index, List of Dates and page stamps all read this same order.
-        const translatedFirst = getSettings().slpTranslatedCopyFirst;
+        const settings = getSettings();
+        const translatedFirst = isScWp ? (settings.scWpTranslatedCopyFirst ?? settings.slpTranslatedCopyFirst) : settings.slpTranslatedCopyFirst;
         const processAnnexures = (annexures: (Annexure & {lodId: string})[]) => {
             annexures.forEach(a => {
                 const pNum = annexureNumberingMap.get(a.id);
@@ -360,9 +376,19 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             });
         };
 
-        processAnnexures(nonAdAnnexures);
+        if (isScWp) {
+            const scWpOrderedAnnexures = wpAnnexureOrderFromLods(projectData.listOfDates || []).map(e => ({
+                ...e.annex,
+                lodId: '',
+            }));
+            processAnnexures(scWpOrderedAnnexures);
+        } else {
+            processAnnexures(nonAdAnnexures);
+        }
         
-        const ias = getIaList(projectData as DraftoProject);
+        const ias = isScWp
+            ? getScWpIaList(projectData as DraftoProject)
+            : getIaList(projectData as DraftoProject);
         
         ias.forEach(ia => {
              list.push({id: `ia_${ia.id}`, label: ia.title});
@@ -380,20 +406,20 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                  list.push({ id: `ia_annexure_${a.id}`, label: `Annexure A-${aNum}: ${annexureDetails(a)}` });
              });
              
-             if (ia.id === 'additionalDocuments') {
+             if (!isScWp && ia.id === 'additionalDocuments') {
                  processAnnexures(adAnnexures);
              }
         });
 
         // Custody Certificate, FIR Details and Proof of Service are required for
-        // Criminal SLPs (optional to attach)
-        if (projectData.caseType === 'Criminal') {
+        // Criminal SLPs (optional to attach; not required in Writ Petitions)
+        if (!isScWp && projectData.caseType === 'Criminal') {
             list.push({ id: 'custodyCertificate', label: 'Custody Certificate' });
             list.push({ id: 'firDetails', label: 'FIR Details' });
             list.push({ id: 'proofOfService', label: 'Proof of Service' });
         }
 
-        list.push({ id: 'memoOfParties', label: 'Memo of Parties' });
+        if (!isScWp) list.push({ id: 'memoOfParties', label: 'Memo of Parties' });
         list.push({ id: 'filingMemo', label: 'Filing Memo' });
         list.push({ id: 'vakalatnama', label: 'Vakalatnama(s)' });
 
@@ -728,12 +754,13 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
 
     const getMissingOptionalDocs = (data: PdfMergeForm): string[] => {
         const isCriminal = mainForm.getValues('caseType') === 'Criminal';
+        const isScWp = mainForm.getValues('courtType') === 'WritPetitionSC';
         return data.mergeItems
             .filter(item => {
                 // IA Affidavits are optional in all SLPs.
                 if (isOptionalUpload(item.id)) return true;
-                // Custody Certificate / FIR Details are optional in Criminal SLPs.
-                return isCriminal && ['custodyCertificate', 'firDetails', 'proofOfService'].includes(item.id);
+                // Custody Certificate / FIR Details are optional in Criminal SLPs (not WP).
+                return !isScWp && isCriminal && ['custodyCertificate', 'firDetails', 'proofOfService'].includes(item.id);
             })
             .filter(item => !(item.userFile instanceof File))
             .map(item => item.label);
@@ -955,6 +982,9 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
 
     const dataRequirements: DataRequirement[] = useMemo(() => {
         const reqs: DataRequirement[] = [];
+        const isScWp = (mainFormValues as Partial<DraftoProject>).courtType === "WritPetitionSC";
+        if (isScWp) return reqs;
+
         const cc = (mainFormValues as Partial<DraftoProject>).standardIas?.exemptionCertifiedCopy;
         // Only when the exemption-from-certified-copy IA is included and the
         // petitioner has applied — that's the case that puts the receipt (and its

@@ -1,4 +1,4 @@
-﻿
+
 import {
   AlignmentType,
   BorderStyle,
@@ -388,16 +388,20 @@ export const createWithTable = (iaList: { prefix: string; title: string }[], wit
  * (the same context that generates the .docx). Returns null when no signature
  * is configured or the "place in paperbook" toggle is off.
  */
-const getFiledBySignature = (): { data: Uint8Array; widthPx: number; heightPx: number } | null => {
+const getFiledBySignature = (isScWp = false): { data: Uint8Array; widthPx: number; heightPx: number } | null => {
     if (typeof window === 'undefined') return null;
     try {
         const raw = window.localStorage.getItem('drafto-settings');
         if (!raw) return null;
         const s = JSON.parse(raw);
-        if (!s.placeSignatureInPaperbook || !s.aorSignaturePng || !s.aorSignatureW || !s.aorSignatureH) return null;
-        const base64 = String(s.aorSignaturePng).split(',').pop() || '';
-        const widthPx = Math.max(24, Math.round(s.signatureSizePx ?? 120));
-        const heightPx = Math.max(1, Math.round(widthPx * (s.aorSignatureH / s.aorSignatureW)));
+        const placeSig = isScWp ? (s.scWpPlaceSignatureInPaperbook ?? s.placeSignatureInPaperbook) : s.placeSignatureInPaperbook;
+        const sigPng = isScWp ? (s.scWpAorSignaturePng || s.aorSignaturePng) : s.aorSignaturePng;
+        const sigW = isScWp ? (s.scWpAorSignatureW || s.aorSignatureW) : s.aorSignatureW;
+        const sigH = isScWp ? (s.scWpAorSignatureH || s.aorSignatureH) : s.aorSignatureH;
+        if (!placeSig || !sigPng || !sigW || !sigH) return null;
+        const base64 = String(sigPng).split(',').pop() || '';
+        const widthPx = Math.max(24, Math.round((isScWp ? (s.scWpSignatureSizePx ?? s.signatureSizePx) : s.signatureSizePx) ?? 120));
+        const heightPx = Math.max(1, Math.round(widthPx * (sigH / sigW)));
         return { data: base64ToBuffer(base64), widthPx, heightPx };
     } catch {
         return null;
@@ -407,7 +411,7 @@ const getFiledBySignature = (): { data: Uint8Array; widthPx: number; heightPx: n
 export const createFiledByTable = (
     filingDate: Date,
     aorName: string,
-    opts?: { fontSizePt?: number; lineSpacing?: number; paraSpacingPt?: number; includeSignature?: boolean }
+    opts?: { fontSizePt?: number; lineSpacing?: number; paraSpacingPt?: number; includeSignature?: boolean; isScWp?: boolean }
 ) => {
     const formattedDate = filingDate ? format(new Date(filingDate), "dd.MM.yyyy") : "";
     const noBorders = {
@@ -434,7 +438,7 @@ export const createFiledByTable = (
     // column and lifted above the baseline by its own height so it sits over the name.
     // Only embedded when the caller opts in (the PDF path) — plain .docx exports must
     // never carry the AoR signature, so drafts can be shared without it.
-    const signature = opts?.includeSignature ? getFiledBySignature() : null;
+    const signature = opts?.includeSignature ? getFiledBySignature(opts?.isScWp) : null;
     const EMU_PER_PX = 9525;   // 914400 EMU/in ÷ 96 px/in
     const EMU_PER_PT = 12700;  // 914400 EMU/in ÷ 72 pt/in
     const SIGNATURE_OVERLAP_PT = 6; // signature dips this many pt into the "Filed by" line

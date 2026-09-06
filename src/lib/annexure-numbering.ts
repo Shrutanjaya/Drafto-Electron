@@ -18,7 +18,7 @@ export interface AnnexureRow {
 }
 
 export function annexureNumbering(rows: AnnexureRow[], courtType?: string): Map<string, number> {
-  if (courtType === "WritPetitionDHC" || courtType === "OriginalApplicationCAT") {
+  if (courtType === "WritPetitionDHC" || courtType === "OriginalApplicationCAT" || courtType === "WritPetitionSC") {
     return new Map<string, number>(wpAnnexureOrderFromLods(rows || []).map(e => [e.annex.id, e.pNumber]));
   }
 

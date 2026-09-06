@@ -1,4 +1,4 @@
-﻿
+
 import { z } from "zod";
 
 // A constituent document inside a "(Colly)" annexure (Delhi HC writ petitions
@@ -196,7 +196,8 @@ export const draftoProjectSchema = z.object({
   // Top-level document-type discriminator. Existing saved projects predate this
   // field, so it defaults to "SLP" — they parse and behave exactly as before.
   // "WritPetitionDHC" selects the Delhi High Court writ-petition interface.
-  courtType: z.enum(["SLP", "WritPetitionDHC", "OriginalApplicationCAT"]).default("SLP"),
+  // "WritPetitionSC" selects the Supreme Court writ-petition interface.
+  courtType: z.enum(["SLP", "WritPetitionSC", "WritPetitionDHC", "OriginalApplicationCAT"]).default("SLP"),
   isCommonOrder: z.boolean().default(false),
   commonOrderParties: z.array(commonOrderPartyGroupSchema).default([]),
   impugnedOrders: z.array(impugnedOrderSchema).default([impugnedOrderSchema.parse({})]),
@@ -373,9 +374,9 @@ export const draftoProjectSchema = z.object({
   // carries no answer, so it is not a field here. declarationVerified backs the
   // attestation checkbox shown at the top of the checklist.
   checklist: z.object({
-    q1_form28: yesNoSchema,
+    q1_form28: yesNoNaSchema,
     q2_orderXV: yesNoSchema,
-    q3_papersArranged: yesNoSchema,
+    q3_papersArranged: yesNoNaSchema,
     q4_lod: yesNoSchema,
     q5_numbering: yesNoSchema,
     q6_paperBooks: yesNoSchema,

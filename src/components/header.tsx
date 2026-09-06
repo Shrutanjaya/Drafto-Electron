@@ -45,6 +45,15 @@ import { ModeSelectDialog } from "./dialogs/mode-select-dialog";
 import { generateWpIndex, generateWpNoticeOfMotion, generateWpUrgencyApplication, generateWpMemoOfParties, generateWpSynopsisAndLod, generateWpPetition, generateWpVakalatnama, generateWpCms } from "@/lib/wp/wp-actions";
 import { generateWpPdf } from "@/lib/wp/wp-pdf";
 import { WpPdfGenerationDialog } from "./dialogs/wp-pdf-generation-dialog";
+import {
+  generateScWpCiDocx,
+  generateScWpSlodDocx,
+  generateScWpPetitionDocx,
+  generateScWpFilingMemoDocx,
+  generateScWpIaDocx,
+  generateScWpAffidavitsDocx,
+  getScWpIaList,
+} from "@/lib/sc-wp/sc-wp-actions";
 import { WP_ENABLED } from "@/lib/wp/wp-enabled";
 import { OA_ENABLED } from "@/lib/oa/oa-enabled";
 import {
@@ -113,10 +122,12 @@ export function getProjectFileName(data: { petitioners?: Array<{ name?: string }
 }
 
 // Project-file extension by document type. A Delhi HC writ petition saves as
-// .dhcwp so it never overwrites an SLP (.drafto) for the same parties — e.g.
-// during autosave, since the filename is derived from the party names.
+// .dhcwp and an SC writ petition saves as .scwp so they never overwrite an SLP (.drafto)
+// for the same parties — e.g. during autosave, since the filename is derived from the party names.
 export function projectExtensionFor(data: { courtType?: string }): string {
-  return data.courtType === "WritPetitionDHC" ? "dhcwp" : "drafto";
+  if (data.courtType === "WritPetitionDHC") return "dhcwp";
+  if (data.courtType === "WritPetitionSC") return "scwp";
+  return "drafto";
 }
 
 // ── The project name, in the header ─────────────────────────────────────────
@@ -217,6 +228,17 @@ const draftOptions = [
     { id: 'lp', label: 'Listing Proforma' },
     { id: 'slod', label: 'Synopsis and List of Dates' },
     { id: 'slp', label: 'SLP with Certificate' },
+    { id: 'appendix', label: 'Appendix' },
+    { id: 'ias', label: 'IAs' },
+    { id: 'filingMemo', label: 'Filing Memo' },
+] as const;
+
+const scWpDraftOptions = [
+    { id: 'ci', label: 'Cover Page and Index' },
+    { id: 'advocateChecklist', label: 'Advocate\'s Checklist' },
+    { id: 'lp', label: 'Listing Proforma' },
+    { id: 'slod', label: 'Synopsis and List of Dates' },
+    { id: 'slp', label: 'Writ Petition (Article 32)' },
     { id: 'appendix', label: 'Appendix' },
     { id: 'ias', label: 'IAs' },
     { id: 'filingMemo', label: 'Filing Memo' },
@@ -1139,6 +1161,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   // so the callers below can await each in turn.
   const runExport = async (type: DocType, iaDetails?: { identifier: string; customText?: string; }, intoFolder?: string) => {
       const data = form.getValues();
+      const isScWpDoc = data.courtType === "WritPetitionSC";
       
       if (type === 'pdf') {
          // This is now handled by the PdfGenerationDialog
@@ -1148,14 +1171,14 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       let result;
       switch (type) {
         case 'ci':
-            result = await generateCiDocx(data);
+            result = isScWpDoc ? await generateScWpCiDocx(data) : await generateCiDocx(data);
             break;
         case 'or':
             result = await generateOrDocx(data);
             break;
         case 'cior':
             // Legacy: Generate both CI and OR as one file
-            result = await generateCiorDocx(data);
+            result = isScWpDoc ? await generateScWpCiDocx(data) : await generateCiorDocx(data);
             break;
         case 'advocateChecklist':
             result = await generateAdvocateChecklistDocx(data);
@@ -1164,10 +1187,10 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
             result = await generateLpDocx(data);
             break;
         case 'slod':
-            result = await generateSlodDocx(data);
+            result = isScWpDoc ? await generateScWpSlodDocx(data) : await generateSlodDocx(data);
             break;
         case 'slp':
-            result = await generateSlpDocx(data);
+            result = isScWpDoc ? await generateScWpPetitionDocx(data) : await generateSlpDocx(data);
             break;
         case 'appendix':
             // Only typed-out Appendix documents can be exported as a DOCX;
@@ -1180,14 +1203,16 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
             }
             break;
         case 'filingMemo':
-            result = await generateFilingMemoDocx(data);
+            result = isScWpDoc ? await generateScWpFilingMemoDocx(data) : await generateFilingMemoDocx(data);
             break;
         case 'vakalatnama':
             result = await generateVakalatnamaDocx(data);
             break;
         case 'ia':
             if (iaDetails) {
-                result = await generateIaDocx(data, iaDetails.identifier, iaDetails.customText);
+                result = isScWpDoc
+                  ? await generateScWpIaDocx(data, iaDetails.identifier, iaDetails.customText)
+                  : await generateIaDocx(data, iaDetails.identifier, iaDetails.customText);
             }
             break;
         default:
@@ -1221,7 +1246,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   
   const runExportAllIas = async (intoFolder?: string) => {
     const data = form.getValues();
-    const allIas = getIaList(data);
+    const allIas = data.courtType === "WritPetitionSC" ? getScWpIaList(data) : getIaList(data);
 
     for (const ia of allIas) {
         await runExport("ia", { identifier: ia.id, customText: ia.title }, intoFolder);
@@ -1242,15 +1267,17 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     setDraftSelection(prev => ({ ...prev, [id]: checked }));
   };
 
+  const activeDraftOptions = courtType === "WritPetitionSC" ? scWpDraftOptions : draftOptions;
+
   const handleSelectAllDrafts = () => {
     setDraftSelection(
-      draftOptions.reduce((acc, opt) => ({ ...acc, [opt.id]: true }), {} as DraftSelection)
+      activeDraftOptions.reduce((acc, opt) => ({ ...acc, [opt.id]: true }), {} as DraftSelection)
     );
   };
   
   const handleClearAllDrafts = () => {
     setDraftSelection(
-      draftOptions.reduce((acc, opt) => ({ ...acc, [opt.id]: false }), {} as DraftSelection)
+      activeDraftOptions.reduce((acc, opt) => ({ ...acc, [opt.id]: false }), {} as DraftSelection)
     );
   };
 
@@ -1279,7 +1306,9 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         if (!batch) return;
         const into = batch.folder;
 
-        const affidavitResult = await generateAffidavitsDocx(data);
+        const affidavitResult = data.courtType === "WritPetitionSC"
+          ? await generateScWpAffidavitsDocx(data)
+          : await generateAffidavitsDocx(data);
         if (affidavitResult.success && affidavitResult.documents) {
             for (const doc of affidavitResult.documents) {
                 if (doc.success && doc.docx) {
@@ -1402,7 +1431,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
                     <span>Drafts</span>
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="p-2">
-                    {draftOptions.map(option => (
+                    {activeDraftOptions.map(option => (
                         <DropdownMenuCheckboxItem
                             key={option.id}
                             checked={draftSelection[option.id]}
@@ -1537,7 +1566,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         type="file"
         ref={fileInputRef}
         onChange={handleLoad}
-        accept=".drafto,.dhcwp"
+        accept=".drafto,.dhcwp,.scwp"
         className="hidden"
       />
       <LoadProjectDialog

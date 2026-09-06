@@ -55,7 +55,8 @@ export function AdvocateChecklistTab() {
   const form = useFormContext<DraftoProject>();
   // Point 1 reads "SLP (Crl.)" in a criminal SLP, "SLP (C)" otherwise.
   const caseType = useWatch({ control: form.control, name: "caseType" });
-  const checklistQueries = getChecklistQueries(caseType);
+  const courtType = useWatch({ control: form.control, name: "courtType" });
+  const checklistQueries = getChecklistQueries(caseType, courtType);
 
   return (
     <div className="space-y-2">

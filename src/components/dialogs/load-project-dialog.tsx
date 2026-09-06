@@ -165,11 +165,11 @@ export function LoadProjectDialog({ open, onOpenChange, onLoadFromPath }: LoadPr
     setDragOver(false);
     const f = e.dataTransfer.files?.[0] as (File & { path?: string }) | undefined;
     const p = f?.path;
-    if (p && (p.toLowerCase().endsWith('.drafto') || p.toLowerCase().endsWith('.dhcwp'))) {
+    if (p && (p.toLowerCase().endsWith('.drafto') || p.toLowerCase().endsWith('.dhcwp') || p.toLowerCase().endsWith('.scwp'))) {
       onLoadFromPath(p);
       onOpenChange(false);
     } else if (f) {
-      toast({ variant: "destructive", title: "Not a Drafto file", description: "Drop a .drafto or .dhcwp project file." });
+      toast({ variant: "destructive", title: "Not a Drafto file", description: "Drop a .drafto, .scwp, or .dhcwp project file." });
     }
   };
 

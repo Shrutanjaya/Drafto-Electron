@@ -30,6 +30,20 @@ let exportQuoteItalics = true;
 export interface ListGeom { base: number; step: number; itemLeft?: number; itemStep?: number; itemHanging?: number }
 const DEFAULT_LIST_GEOM: ListGeom = { base: 360, step: 360, itemLeft: 720, itemStep: 360, itemHanging: 360 };
 let quoteListGeom: ListGeom = DEFAULT_LIST_GEOM;
+
+export interface DocxExportContext {
+  quoteSingleSpacing?: boolean;
+  quoteItalics?: boolean;
+  outputFontSizePt?: number;
+  outputLineSpacing?: number;
+  outputParaAfterPt?: number;
+}
+
+let activeExportContext: DocxExportContext | null = null;
+
+export function setDocxExportContext(ctx: DocxExportContext | null) {
+  activeExportContext = ctx;
+}
 // Output formatting (mirrors Settings → Customize → Output Text Formatting), read
 // at export time so the blockquote trailing space tracks the user's choices.
 let exportOutputFontSizePt = 14;
@@ -789,18 +803,27 @@ export function parseHtml(html: string, spacing?: ParagraphSpacing, defaultNumbe
     const emptyResult: ParseResult = { paragraphs: [new Paragraph("")], numbering: [] };
     if (!html || !html.trim()) return emptyResult;
 
-    // Read exportHighlight from localStorage at export time
+    // Read exportHighlight and formatting options
     let exportHighlight = false;
+    if (activeExportContext) {
+        if (activeExportContext.quoteSingleSpacing !== undefined) exportQuoteSingleSpacing = activeExportContext.quoteSingleSpacing;
+        if (activeExportContext.quoteItalics !== undefined) exportQuoteItalics = activeExportContext.quoteItalics;
+        if (activeExportContext.outputFontSizePt !== undefined) exportOutputFontSizePt = activeExportContext.outputFontSizePt;
+        if (activeExportContext.outputLineSpacing !== undefined) exportOutputLineSpacing = activeExportContext.outputLineSpacing;
+        if (activeExportContext.outputParaAfterPt !== undefined) exportOutputParaAfterPt = activeExportContext.outputParaAfterPt;
+    }
     if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
         try {
             const stored = window.localStorage.getItem('drafto-settings');
             const parsed = stored ? JSON.parse(stored) : null;
             exportHighlight = parsed?.exportHighlight === true;
-            exportQuoteSingleSpacing = parsed?.quoteLineSpacing === 'single';
-            exportQuoteItalics = parsed?.quoteItalics !== false;
-            exportOutputFontSizePt = parsed?.outputFontSizePt ?? 14;
-            exportOutputLineSpacing = parsed?.outputLineSpacing ?? 1.5;
-            exportOutputParaAfterPt = parsed?.outputParaAfterPt ?? 12;
+            if (!activeExportContext) {
+                exportQuoteSingleSpacing = parsed?.quoteLineSpacing === 'single';
+                exportQuoteItalics = parsed?.quoteItalics !== false;
+                exportOutputFontSizePt = parsed?.outputFontSizePt ?? 14;
+                exportOutputLineSpacing = parsed?.outputLineSpacing ?? 1.5;
+                exportOutputParaAfterPt = parsed?.outputParaAfterPt ?? 12;
+            }
         } catch { /* ignore */ }
     }
 

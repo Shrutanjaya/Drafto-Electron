@@ -33,7 +33,7 @@ type TrueCopyPosition = 'left' | 'center';
 /** 'short' = the title block Drafto has always produced; 'sci' = the long form. */
 type SlpHeaderStyle = 'short' | 'sci';
 type AiModel = 'default' | 'haiku' | 'sonnet' | 'opus';
-type SettingsSection = 'interface' | 'customize' | 'save' | 'shortcuts' | 'support' | 'slp' | 'wp' | 'oa';
+type SettingsSection = 'interface' | 'customize' | 'save' | 'shortcuts' | 'support' | 'slp' | 'sc-wp' | 'wp' | 'oa';
 
 // Court tag shown next to each document-type nav item.
 type CourtTag = 'SC' | 'HC' | 'CAT';
@@ -222,6 +222,56 @@ interface SettingsData {
   wpVakParaSpacingPt: number;
   // CAT — force the Last Page (Para 10 onwards) onto a fresh page
   oaForceLastPageBreak: boolean;
+
+  // ── Supreme Court Writ Petition (WritPetitionSC) ──
+  scWpOutputFont: string;
+  scWpOutputFontSizePt: number;
+  scWpOutputLineSpacing: number;
+  scWpOutputParaAfterPt: number;
+  scWpMarginTopIn: number;
+  scWpMarginRightIn: number;
+  scWpMarginBottomIn: number;
+  scWpMarginLeftIn: number;
+  scWpHeadingBreak: boolean;
+  scWpTranslatedCopyFirst: boolean;
+  scWpAffidavitAnnexureRef: 'actual' | 'blank';
+  scWpAnnexureLabelSize: number;
+  scWpAnnexureLabelMarginPt: number;
+  scWpAnnexureLabelBackground: boolean;
+  scWpPageNumberSizePt: number;
+  scWpPageNumberMarginTopPt: number;
+  scWpPageNumberMarginRightPt: number;
+  scWpChecklistFontSizePt: number;
+  scWpChecklistLineSpacing: number;
+  scWpChecklistParaSpacingPt: number;
+  scWpChecklistMarginTopInches: number;
+  scWpChecklistMarginLeftInches: number;
+  scWpLpFollowChecklist: boolean;
+  scWpLpFontSizePt: number;
+  scWpLpLineSpacing: number;
+  scWpLpParaSpacingPt: number;
+  scWpLpMarginTopInches: number;
+  scWpLpMarginLeftInches: number;
+  scWpVolumeSplitThreshold: number;
+  scWpVolumeStepSize: number;
+  scWpMaxComponentSplitPages: number;
+  scWpMinVolumeTailPages: number;
+  scWpMinVolumeHeadPages: number;
+  scWpSeparateVolumePdfs: boolean;
+  scWpAorSignaturePng: string;
+  scWpAorSignatureW: number;
+  scWpAorSignatureH: number;
+  scWpPlaceSignatureInPaperbook: boolean;
+  scWpPlaceTrueCopyText: boolean;
+  scWpSignatureSizePx: number;
+  scWpTrueCopyPosition: TrueCopyPosition;
+  scWpTrueCopyBackground: boolean;
+  scWpTrueCopyMarginXPt: number;
+  scWpTrueCopyMarginBottomPt: number;
+  scWpQuoteLineSpacing: QuoteLineSpacing;
+  scWpQuoteItalics: boolean;
+  scWpHeaderStyle: SlpHeaderStyle;
+  scWpNumbering: WpNumbering;
 }
 
 // Fonts offered for the output text formatting
@@ -648,6 +698,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const [selectedSection, setSelectedSection] = useState<SettingsSection>('interface');
   const [showAdvancedVolume, setShowAdvancedVolume] = useState(false);
+  const [showScWpAdvancedVolume, setShowScWpAdvancedVolume] = useState(false);
   const [usageCounts, setUsageCounts] = useState<UsageCounts | null>(null);
   const [licenseOpen, setLicenseOpen] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
@@ -803,6 +854,58 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     wpVakLineSpacing: 1,
     wpVakParaSpacingPt: 4,
     oaForceLastPageBreak: true,
+    scWpOutputFont: 'Times New Roman',
+    scWpOutputFontSizePt: 14,
+    scWpOutputLineSpacing: 1.5,
+    scWpOutputParaAfterPt: 12,
+    scWpMarginTopIn: 1.5,
+    scWpMarginRightIn: 1,
+    scWpMarginBottomIn: 1,
+    scWpMarginLeftIn: 1.5,
+    scWpQuoteLineSpacing: 'default',
+    scWpQuoteItalics: true,
+    scWpHeaderStyle: 'short',
+    scWpHeadingBreak: false,
+    scWpTranslatedCopyFirst: false,
+    scWpAffidavitAnnexureRef: 'actual',
+    scWpAnnexureLabelSize: 14,
+    scWpAnnexureLabelMarginPt: 14.4,
+    scWpAnnexureLabelBackground: false,
+    scWpPageNumberSizePt: 20,
+    scWpPageNumberMarginTopPt: 54,
+    scWpPageNumberMarginRightPt: 54,
+    scWpChecklistFontSizePt: 14,
+    scWpChecklistLineSpacing: 1.5,
+    scWpChecklistParaSpacingPt: 6,
+    scWpChecklistMarginTopInches: 1,
+    scWpChecklistMarginLeftInches: 1,
+    scWpLpFollowChecklist: false,
+    scWpLpFontSizePt: 13,
+    scWpLpLineSpacing: 1,
+    scWpLpParaSpacingPt: 0,
+    scWpLpMarginTopInches: 1.5,
+    scWpLpMarginLeftInches: 1.5,
+    scWpVolumeSplitThreshold: 400,
+    scWpVolumeStepSize: 200,
+    scWpMaxComponentSplitPages: 50,
+    scWpMinVolumeTailPages: 20,
+    scWpMinVolumeHeadPages: 20,
+    scWpSeparateVolumePdfs: true,
+    scWpAorSignaturePng: "",
+    scWpAorSignatureW: 0,
+    scWpAorSignatureH: 0,
+    scWpPlaceSignatureInPaperbook: false,
+    scWpPlaceTrueCopyText: false,
+    scWpSignatureSizePx: 120,
+    scWpTrueCopyPosition: 'left',
+    scWpTrueCopyBackground: false,
+    scWpTrueCopyMarginXPt: 36,
+    scWpTrueCopyMarginBottomPt: 36,
+    scWpNumbering: {
+      facts: 'lower-alpha',
+      grounds: 'upper-alpha',
+      prayers: 'lower-alpha',
+    },
   });
 
   // Load settings from localStorage on mount
@@ -964,6 +1067,58 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           wpVakLineSpacing: parsed.wpVakLineSpacing ?? 1,
           wpVakParaSpacingPt: parsed.wpVakParaSpacingPt ?? 4,
           oaForceLastPageBreak: parsed.oaForceLastPageBreak ?? true,
+          scWpOutputFont: parsed.scWpOutputFont || parsed.outputFont || 'Times New Roman',
+          scWpOutputFontSizePt: parsed.scWpOutputFontSizePt ?? parsed.outputFontSizePt ?? 14,
+          scWpOutputLineSpacing: parsed.scWpOutputLineSpacing ?? parsed.outputLineSpacing ?? 1.5,
+          scWpOutputParaAfterPt: parsed.scWpOutputParaAfterPt ?? parsed.outputParaAfterPt ?? 12,
+          scWpMarginTopIn: parsed.scWpMarginTopIn ?? parsed.slpMarginTopIn ?? 1.5,
+          scWpMarginRightIn: parsed.scWpMarginRightIn ?? parsed.slpMarginRightIn ?? 1,
+          scWpMarginBottomIn: parsed.scWpMarginBottomIn ?? parsed.slpMarginBottomIn ?? 1,
+          scWpMarginLeftIn: parsed.scWpMarginLeftIn ?? parsed.slpMarginLeftIn ?? 1.5,
+          scWpQuoteLineSpacing: (parsed.scWpQuoteLineSpacing || parsed.quoteLineSpacing || 'default') as QuoteLineSpacing,
+          scWpQuoteItalics: parsed.scWpQuoteItalics !== undefined ? parsed.scWpQuoteItalics : (parsed.quoteItalics !== false),
+          scWpHeaderStyle: (parsed.scWpHeaderStyle === 'sci' ? 'sci' : (parsed.slpHeaderStyle === 'sci' ? 'sci' : 'short')) as SlpHeaderStyle,
+          scWpHeadingBreak: parsed.scWpHeadingBreak ?? parsed.slpHeadingBreak ?? false,
+          scWpTranslatedCopyFirst: parsed.scWpTranslatedCopyFirst ?? parsed.slpTranslatedCopyFirst ?? false,
+          scWpAffidavitAnnexureRef: (parsed.scWpAffidavitAnnexureRef || parsed.slpAffidavitAnnexureRef || 'actual') as 'actual' | 'blank',
+          scWpAnnexureLabelSize: parsed.scWpAnnexureLabelSize ?? parsed.annexureLabelSize ?? 14,
+          scWpAnnexureLabelMarginPt: parsed.scWpAnnexureLabelMarginPt ?? parsed.annexureLabelMarginPt ?? 14.4,
+          scWpAnnexureLabelBackground: parsed.scWpAnnexureLabelBackground ?? parsed.annexureLabelBackground ?? false,
+          scWpPageNumberSizePt: parsed.scWpPageNumberSizePt ?? parsed.pageNumberSizePt ?? 20,
+          scWpPageNumberMarginTopPt: parsed.scWpPageNumberMarginTopPt ?? parsed.pageNumberMarginTopPt ?? 54,
+          scWpPageNumberMarginRightPt: parsed.scWpPageNumberMarginRightPt ?? parsed.pageNumberMarginRightPt ?? 54,
+          scWpChecklistFontSizePt: parsed.scWpChecklistFontSizePt ?? parsed.checklistFontSizePt ?? 14,
+          scWpChecklistLineSpacing: parsed.scWpChecklistLineSpacing ?? parsed.checklistLineSpacing ?? 1.5,
+          scWpChecklistParaSpacingPt: parsed.scWpChecklistParaSpacingPt ?? parsed.checklistParaSpacingPt ?? 6,
+          scWpChecklistMarginTopInches: parsed.scWpChecklistMarginTopInches ?? parsed.checklistMarginTopInches ?? 1,
+          scWpChecklistMarginLeftInches: parsed.scWpChecklistMarginLeftInches ?? parsed.checklistMarginLeftInches ?? 1,
+          scWpLpFollowChecklist: parsed.scWpLpFollowChecklist ?? parsed.lpFollowChecklist ?? false,
+          scWpLpFontSizePt: parsed.scWpLpFontSizePt ?? parsed.lpFontSizePt ?? 13,
+          scWpLpLineSpacing: parsed.scWpLpLineSpacing ?? parsed.lpLineSpacing ?? 1,
+          scWpLpParaSpacingPt: parsed.scWpLpParaSpacingPt ?? parsed.lpParaSpacingPt ?? 0,
+          scWpLpMarginTopInches: parsed.scWpLpMarginTopInches ?? parsed.lpMarginTopInches ?? 1.5,
+          scWpLpMarginLeftInches: parsed.scWpLpMarginLeftInches ?? parsed.lpMarginLeftInches ?? 1.5,
+          scWpVolumeSplitThreshold: parsed.scWpVolumeSplitThreshold ?? parsed.volumeSplitThreshold ?? 400,
+          scWpVolumeStepSize: parsed.scWpVolumeStepSize ?? parsed.volumeStepSize ?? 200,
+          scWpMaxComponentSplitPages: parsed.scWpMaxComponentSplitPages ?? parsed.maxComponentSplitPages ?? 50,
+          scWpMinVolumeTailPages: parsed.scWpMinVolumeTailPages ?? parsed.minVolumeTailPages ?? 20,
+          scWpMinVolumeHeadPages: parsed.scWpMinVolumeHeadPages ?? parsed.minVolumeHeadPages ?? 20,
+          scWpSeparateVolumePdfs: parsed.scWpSeparateVolumePdfs ?? parsed.separateVolumePdfs ?? true,
+          scWpAorSignaturePng: parsed.scWpAorSignaturePng ?? parsed.aorSignaturePng ?? "",
+          scWpAorSignatureW: parsed.scWpAorSignatureW ?? parsed.aorSignatureW ?? 0,
+          scWpAorSignatureH: parsed.scWpAorSignatureH ?? parsed.aorSignatureH ?? 0,
+          scWpPlaceSignatureInPaperbook: parsed.scWpPlaceSignatureInPaperbook ?? parsed.placeSignatureInPaperbook ?? false,
+          scWpPlaceTrueCopyText: parsed.scWpPlaceTrueCopyText ?? parsed.placeTrueCopyText ?? false,
+          scWpSignatureSizePx: parsed.scWpSignatureSizePx ?? parsed.signatureSizePx ?? 120,
+          scWpTrueCopyPosition: (parsed.scWpTrueCopyPosition || parsed.trueCopyPosition || 'left') as TrueCopyPosition,
+          scWpTrueCopyBackground: parsed.scWpTrueCopyBackground ?? parsed.trueCopyBackground ?? false,
+          scWpTrueCopyMarginXPt: parsed.scWpTrueCopyMarginXPt ?? parsed.trueCopyMarginXPt ?? 36,
+          scWpTrueCopyMarginBottomPt: parsed.scWpTrueCopyMarginBottomPt ?? parsed.trueCopyMarginBottomPt ?? 36,
+          scWpNumbering: {
+            facts: parsed.scWpNumbering?.facts ?? 'lower-alpha',
+            grounds: parsed.scWpNumbering?.grounds ?? 'upper-alpha',
+            prayers: parsed.scWpNumbering?.prayers ?? 'lower-alpha',
+          },
         });
         applyUiFont(parsed.uiFont || DEFAULT_UI_FONT);
         applyUiFontSize(parsed.uiFontSize ?? DEFAULT_UI_FONT_SIZE);
@@ -1075,6 +1230,69 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     applyInputFontSize(APPEARANCE_DEFAULTS.inputFontSize);
   };
 
+  // Reset Writ Petition (SC) settings to match SLP (SC) settings
+  const resetScWpToSlp = () => {
+    setSettings((prev) => ({
+      ...prev,
+      scWpOutputFont: prev.outputFont,
+      scWpOutputFontSizePt: prev.outputFontSizePt,
+      scWpOutputLineSpacing: prev.outputLineSpacing,
+      scWpOutputParaAfterPt: prev.outputParaAfterPt,
+      scWpMarginTopIn: prev.slpMarginTopIn,
+      scWpMarginRightIn: prev.slpMarginRightIn,
+      scWpMarginBottomIn: prev.slpMarginBottomIn,
+      scWpMarginLeftIn: prev.slpMarginLeftIn,
+      scWpQuoteLineSpacing: prev.quoteLineSpacing,
+      scWpQuoteItalics: prev.quoteItalics,
+      scWpHeaderStyle: prev.slpHeaderStyle,
+      scWpHeadingBreak: prev.slpHeadingBreak,
+      scWpTranslatedCopyFirst: prev.slpTranslatedCopyFirst,
+      scWpAffidavitAnnexureRef: prev.slpAffidavitAnnexureRef,
+      scWpAnnexureLabelSize: prev.annexureLabelSize,
+      scWpAnnexureLabelMarginPt: prev.annexureLabelMarginPt,
+      scWpAnnexureLabelBackground: prev.annexureLabelBackground,
+      scWpPageNumberSizePt: prev.pageNumberSizePt,
+      scWpPageNumberMarginTopPt: prev.pageNumberMarginTopPt,
+      scWpPageNumberMarginRightPt: prev.pageNumberMarginRightPt,
+      scWpChecklistFontSizePt: prev.checklistFontSizePt,
+      scWpChecklistLineSpacing: prev.checklistLineSpacing,
+      scWpChecklistParaSpacingPt: prev.checklistParaSpacingPt,
+      scWpChecklistMarginTopInches: prev.checklistMarginTopInches,
+      scWpChecklistMarginLeftInches: prev.checklistMarginLeftInches,
+      scWpLpFollowChecklist: prev.lpFollowChecklist,
+      scWpLpFontSizePt: prev.lpFontSizePt,
+      scWpLpLineSpacing: prev.lpLineSpacing,
+      scWpLpParaSpacingPt: prev.lpParaSpacingPt,
+      scWpLpMarginTopInches: prev.lpMarginTopInches,
+      scWpLpMarginLeftInches: prev.lpMarginLeftInches,
+      scWpVolumeSplitThreshold: prev.volumeSplitThreshold,
+      scWpVolumeStepSize: prev.volumeStepSize,
+      scWpMaxComponentSplitPages: prev.maxComponentSplitPages,
+      scWpMinVolumeTailPages: prev.minVolumeTailPages,
+      scWpMinVolumeHeadPages: prev.minVolumeHeadPages,
+      scWpSeparateVolumePdfs: prev.separateVolumePdfs,
+      scWpAorSignaturePng: prev.aorSignaturePng,
+      scWpAorSignatureW: prev.aorSignatureW,
+      scWpAorSignatureH: prev.aorSignatureH,
+      scWpPlaceSignatureInPaperbook: prev.placeSignatureInPaperbook,
+      scWpPlaceTrueCopyText: prev.placeTrueCopyText,
+      scWpSignatureSizePx: prev.signatureSizePx,
+      scWpTrueCopyPosition: prev.trueCopyPosition,
+      scWpTrueCopyBackground: prev.trueCopyBackground,
+      scWpTrueCopyMarginXPt: prev.trueCopyMarginXPt,
+      scWpTrueCopyMarginBottomPt: prev.trueCopyMarginBottomPt,
+      scWpNumbering: {
+        facts: 'lower-alpha',
+        grounds: 'upper-alpha',
+        prayers: 'lower-alpha',
+      },
+    }));
+    toast({
+      title: "Settings reset",
+      description: "Writ Petition (SC) settings have been matched to SLP (SC) settings.",
+    });
+  };
+
   const handleBrowse = async (type: "docx" | "pdf" | "drafto") => {
     if (window.electron?.selectDirectory) {
       try {
@@ -1104,10 +1322,11 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   };
 
   const signatureInputRef = useRef<HTMLInputElement>(null);
+  const scWpSignatureInputRef = useRef<HTMLInputElement>(null);
   const wpSignatureInputRef = useRef<HTMLInputElement>(null);
   const oaSignatureInputRef = useRef<HTMLInputElement>(null);
 
-  // Shared PNG-upload flow for every signature slot (SLP AoR / WP / CAT advocate).
+  // Shared PNG-upload flow for every signature slot (SLP AoR / SC WP AoR / WP / CAT advocate).
   const readSignaturePng = (
     e: React.ChangeEvent<HTMLInputElement>,
     apply: (dataUrl: string, w: number, h: number) => void,
@@ -1132,6 +1351,9 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
 
   const handleSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) =>
     readSignaturePng(e, (dataUrl, w, h) => setSettings((prev) => ({ ...prev, aorSignaturePng: dataUrl, aorSignatureW: w, aorSignatureH: h })));
+
+  const handleScWpSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) =>
+    readSignaturePng(e, (dataUrl, w, h) => setSettings((prev) => ({ ...prev, scWpAorSignaturePng: dataUrl, scWpAorSignatureW: w, scWpAorSignatureH: h })));
 
   const handleWpSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) =>
     readSignaturePng(e, (dataUrl, w, h) => setSettings((prev) => ({ ...prev, wpSignaturePng: dataUrl, wpSignatureW: w, wpSignatureH: h })));
@@ -1500,6 +1722,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
             {/* Per document type */}
             <div className="my-1 px-2 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Document types</div>
             <SettingsNavRow label="Special Leave Petition" tag="SC" selected={selectedSection === 'slp'} onClick={() => setSelectedSection('slp')} />
+            <SettingsNavRow label="Writ Petition" tag="SC" selected={selectedSection === 'sc-wp'} onClick={() => setSelectedSection('sc-wp')} />
             <SettingsNavRow label="Writ Petition" tag="HC" selected={selectedSection === 'wp'} onClick={() => setSelectedSection('wp')} />
             <SettingsNavRow label="Original Application" tag="CAT" selected={selectedSection === 'oa'} onClick={() => setSelectedSection('oa')} />
 
@@ -2316,6 +2539,461 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                         id="truecopy-bg"
                         checked={settings.trueCopyBackground}
                         onChange={(v) => setSettings((prev) => ({ ...prev, trueCopyBackground: v }))}
+                        label="White background behind the True Copy stamp"
+                      />
+                    </div>
+                  )}
+                  <SignatureLiabilityNote />
+                </SettingsGroup>
+
+              </div>
+            )}
+
+            {/* ── WRIT PETITION (SC) ── */}
+            {selectedSection === 'sc-wp' && (
+              <div className="space-y-4">
+
+                <div className="flex items-center justify-between pb-2 border-b">
+                  <div>
+                    <h3 className="text-sm font-semibold">Writ Petition (Supreme Court)</h3>
+                    <p className="text-xs text-muted-foreground">Formatting and defaults for Supreme Court Writ Petitions.</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1.5"
+                    onClick={resetScWpToSlp}
+                    title="Reset all Writ Petition (SC) settings to match your current SLP (SC) settings"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Reset to SLP (SC) Settings
+                  </Button>
+                </div>
+
+                <SettingsGroup
+                  title="Output text formatting"
+                  info={"Body text of the generated Supreme Court Writ Petition. Defaults: Times New Roman, 14 pt, 1.5 line spacing, 12 pt after each paragraph.\n\nTo preserve the paperbook structure, these settings are not fully reflected in the Cover Page and Listing Proforma — only the font type is applied there; their size and spacing stay fixed.\n\nMake sure the chosen font is installed on your computer, or the document may appear in a substitute font."}
+                >
+                  <SettingRow label="Font">
+                    <Select value={settings.scWpOutputFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, scWpOutputFont: v }))}>
+                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {OUTPUT_FONTS.map((f) => (<SelectItem key={f} value={f} className="text-xs" style={{ fontFamily: f }}>{f}</SelectItem>))}
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow label="Size & line spacing">
+                    {numField('scWpOutputFontSizePt', { min: 8, max: 24, step: 0.5, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                    <Select value={String(settings.scWpOutputLineSpacing)} onValueChange={(v) => setSettings((prev) => ({ ...prev, scWpOutputLineSpacing: parseFloat(v) }))}>
+                      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
+                        <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
+                        <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
+                        <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow label="Space after paragraph">
+                    {numField('scWpOutputParaAfterPt', { min: 0, max: 36, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Page margins"
+                  info={"Margins for every generated Supreme Court writ-petition document. Defaults: 1.5\" top and left, 1\" bottom and right. The Advocate's Checklist keeps its own top/left margins."}
+                >
+                  <SettingRow>
+                    {marginInputs({ top: 'scWpMarginTopIn', right: 'scWpMarginRightIn', bottom: 'scWpMarginBottomIn', left: 'scWpMarginLeftIn' })}
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Quotes"
+                  info={"How text formatted as a Quote is exported. Quoted blocks are always wrapped in quotation marks; the line spacing and whether they are italicised are yours to set.\n\nBoth apply to the generated documents only — quotes look the same while you are editing."}
+                >
+                  <SettingRow label="Quote line spacing">
+                    <SegGroup
+                      value={settings.scWpQuoteLineSpacing}
+                      onChange={(v: QuoteLineSpacing) => setSettings((prev) => ({ ...prev, scWpQuoteLineSpacing: v }))}
+                      options={[{ value: 'default', label: 'Default' }, { value: 'single', label: 'Single' }]}
+                    />
+                  </SettingRow>
+                  <SettingRow label="Italicise quoted text">
+                    <SegGroup
+                      value={settings.scWpQuoteItalics ? 'yes' : 'no'}
+                      onChange={(v: string) => setSettings((prev) => ({ ...prev, scWpQuoteItalics: v === 'yes' }))}
+                      options={[{ value: 'yes', label: 'Italics' }, { value: 'no', label: 'Roman' }]}
+                    />
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Petition layout"
+                  info={"How the writ petition itself is laid out. These affect presentation while keeping petition wording intact."}
+                >
+                  <SettingRow
+                    label="Title block"
+                    info={"Short: standard title block.\n\nSCI form: adds \"[S.C.R., Order XXXVIII, Rule 1(1)]\" between \"IN THE SUPREME COURT OF INDIA\" and the jurisdiction line."}
+                  >
+                    <SegGroup
+                      value={settings.scWpHeaderStyle}
+                      onChange={(v: SlpHeaderStyle) => setSettings((prev) => ({ ...prev, scWpHeaderStyle: v }))}
+                      options={[{ value: 'short', label: 'Short' }, { value: 'sci', label: 'SCI form' }]}
+                    />
+                  </SettingRow>
+                  <div className="rounded border bg-white p-2 text-[11px] leading-snug text-black">
+                    {settings.scWpHeaderStyle === 'sci' ? (
+                      <div className="text-center">
+                        <div>IN THE SUPREME COURT OF INDIA</div>
+                        <div>[S.C.R., Order XXXVIII, Rule 1(1)]</div>
+                        <div className="italic">Civil Original Jurisdiction</div>
+                        <div className="mt-1 font-semibold">Writ Petition (Civil) No. _______ of {new Date().getFullYear()}</div>
+                        <div>[Under Article 32 of the Constitution of India]</div>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <div>IN THE SUPREME COURT OF INDIA</div>
+                        <div className="italic">Civil Original Jurisdiction</div>
+                        <div className="mt-1 font-semibold">Writ Petition (Civil) No. _______ of {new Date().getFullYear()}</div>
+                        <div>[Under Article 32 of the Constitution of India]</div>
+                      </div>
+                    )}
+                  </div>
+
+                  <SettingRow
+                    label="Headings"
+                    info={"Applies to lead-in headings inside the petition — Grounds, Main Prayers, etc."}
+                  >
+                    <SegGroup
+                      value={settings.scWpHeadingBreak ? 'break' : 'inline'}
+                      onChange={(v) => setSettings((prev) => ({ ...prev, scWpHeadingBreak: v === 'break' }))}
+                      options={[{ value: 'inline', label: 'Same line' }, { value: 'break', label: 'Own line' }]}
+                    />
+                  </SettingRow>
+                  <div className="rounded border bg-white p-2 text-[11px] leading-snug text-black">
+                    {settings.scWpHeadingBreak ? (
+                      <>
+                        <div className="font-semibold">GROUNDS:</div>
+                        <div>The Petitioner respectfully submits the following grounds…</div>
+                      </>
+                    ) : (
+                      <div>
+                        <span className="font-semibold">GROUNDS: </span>
+                        The Petitioner respectfully submits the following grounds…
+                      </div>
+                    )}
+                  </div>
+
+                  <SettingRow
+                    label="Translated copies"
+                    info={"Where an annexure has both a true copy and a typed or translated copy, this decides which of the two comes first in the paper-book. The Index and page stamps follow the order you choose."}
+                  >
+                    <SegGroup
+                      value={settings.scWpTranslatedCopyFirst ? 'translated' : 'true'}
+                      onChange={(v) => setSettings((prev) => ({ ...prev, scWpTranslatedCopyFirst: v === 'translated' }))}
+                      options={[{ value: 'true', label: 'True copy first' }, { value: 'translated', label: 'Translated first' }]}
+                    />
+                  </SettingRow>
+
+                  <SettingRow
+                    label="Affidavit: annexure range"
+                    info={"Paragraph 3 of the affidavit swears to \"Annexures P-1 to P-N\".\n\nActual number: N is the last annexure.\n\nLeave blank: the affidavit always reads \"P-__\", for the deponent to complete by hand."}
+                  >
+                    <SegGroup
+                      value={settings.scWpAffidavitAnnexureRef}
+                      onChange={(v: 'actual' | 'blank') => setSettings((prev) => ({ ...prev, scWpAffidavitAnnexureRef: v }))}
+                      options={[{ value: 'actual', label: 'Actual number' }, { value: 'blank', label: 'Leave blank' }]}
+                    />
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Sub-paragraph numbering"
+                  info="First-level lettering for each section. Deeper levels follow a fixed cascade automatically."
+                >
+                  {([
+                    ["facts", "Facts"],
+                    ["grounds", "Grounds"],
+                    ["prayers", "Prayers"],
+                  ] as [keyof WpNumbering, string][]).map(([key, label]) => (
+                    <SettingRow key={String(key)} label={label}>
+                      <Select
+                        value={settings.scWpNumbering?.[key] ?? (key === 'grounds' ? 'upper-alpha' : 'lower-alpha')}
+                        onValueChange={(v) => setSettings((prev) => ({ ...prev, scWpNumbering: { ...(prev.scWpNumbering ?? { facts: 'lower-alpha', grounds: 'upper-alpha', prayers: 'lower-alpha' }), [key]: v as EnumStyle } }))}
+                      >
+                        <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {WP_NUMBER_STYLES.map((s) => (<SelectItem key={s.value} value={s.value} className="text-xs">{s.label}</SelectItem>))}
+                        </SelectContent>
+                      </Select>
+                    </SettingRow>
+                  ))}
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Advocate-on-Record (AoR) details"
+                  info={"Supreme Court filings are made by an Advocate-on-Record. Changing them here pre-fills them into new Supreme Court petitions."}
+                >
+                  <SettingRow label="AoR name" htmlFor="default-aor-name-scwp">
+                    <Input
+                      id="default-aor-name-scwp"
+                      value={settings.defaultAorName}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorName: e.target.value }))}
+                      placeholder="Advocate-on-Record name"
+                      className="h-7 max-w-[280px] text-xs"
+                    />
+                  </SettingRow>
+                  <SettingRow label="AoR code" htmlFor="default-aor-code-scwp">
+                    <Input
+                      id="default-aor-code-scwp"
+                      value={settings.defaultAorCode}
+                      onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorCode: e.target.value }))}
+                      placeholder="AoR registration code"
+                      className="h-7 max-w-[280px] text-xs"
+                    />
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Annexure labels"
+                  info={"The \"Annexure P-X\" label stamped on the first page of each annexure. Defaults: size 14, margin 14.4 pt (0.2 inch) from the top edge. 72 pt = 1 inch."}
+                >
+                  <SettingRow label="Label text size">
+                    <Slider
+                      min={10}
+                      max={24}
+                      step={1}
+                      value={[settings.scWpAnnexureLabelSize]}
+                      onValueChange={([v]) => setSettings((prev) => ({ ...prev, scWpAnnexureLabelSize: v }))}
+                      className="w-[170px]"
+                    />
+                    <span className="text-xs font-semibold tabular-nums">{settings.scWpAnnexureLabelSize}</span>
+                  </SettingRow>
+                  <SettingRow label="Margin from top edge">
+                    {numField('scWpAnnexureLabelMarginPt', { min: 0, max: 144, step: 1, width: 'w-20' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                  <CheckRow
+                    id="scwp-annexure-bg"
+                    checked={settings.scWpAnnexureLabelBackground}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, scWpAnnexureLabelBackground: v }))}
+                    label="White background behind annexure labels and page numbers"
+                  />
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Page numbers"
+                  info="Size and position of the page numbers stamped at the top-right of each paginated page. Defaults: 20 pt size, 54 pt (0.75 inch) top and right margins."
+                >
+                  <SettingRow label="Text size">
+                    {numField('scWpPageNumberSizePt', { min: 8, max: 36, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                  <SettingRow label="Margins">
+                    <Unit>Top</Unit>
+                    {numField('scWpPageNumberMarginTopPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                    <Unit>Right</Unit>
+                    {numField('scWpPageNumberMarginRightPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Advocate's checklist"
+                  info={"Tighten these to keep the checklist from spilling over several pages in the PDF paperbook.\n\nDefaults: 14 pt font, 1.5 line spacing, 6 pt paragraph spacing, and 1 inch top and left margins."}
+                >
+                  <SettingRow label="Size & line spacing">
+                    {numField('scWpChecklistFontSizePt', { min: 6, max: 18, step: 0.5, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                    <Select value={String(settings.scWpChecklistLineSpacing)} onValueChange={(v) => setSettings((prev) => ({ ...prev, scWpChecklistLineSpacing: parseFloat(v) }))}>
+                      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
+                        <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
+                        <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
+                        <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
+                  <SettingRow label="Space after paragraph">
+                    {numField('scWpChecklistParaSpacingPt', { min: 0, max: 18, step: 1, width: 'w-16' })}
+                    <Unit>pt</Unit>
+                  </SettingRow>
+                  <SettingRow label="Margins">
+                    <Unit>Top</Unit>
+                    {numField('scWpChecklistMarginTopInches', { min: 0.5, max: 2, step: 0.1, width: 'w-16' })}
+                    <Unit>Left</Unit>
+                    {numField('scWpChecklistMarginLeftInches', { min: 0.5, max: 2, step: 0.1, width: 'w-16' })}
+                    <Unit>inches</Unit>
+                  </SettingRow>
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Listing Proforma"
+                  info={"The proforma is generated as a standard form. Give it more air if you prefer, or tick \"Follow the checklist\" to use the checklist's settings."}
+                >
+                  <SettingRow
+                    label="Follow the checklist"
+                    info="Uses whatever is set for the Advocate's checklist above, so the two are formatted alike."
+                  >
+                    <SegGroup
+                      value={settings.scWpLpFollowChecklist ? 'yes' : 'no'}
+                      onChange={(v: string) => setSettings((prev) => ({ ...prev, scWpLpFollowChecklist: v === 'yes' }))}
+                      options={[{ value: 'no', label: 'Its own settings' }, { value: 'yes', label: 'Follow checklist' }]}
+                    />
+                  </SettingRow>
+                  {!settings.scWpLpFollowChecklist && (
+                    <>
+                      <SettingRow label="Size & line spacing">
+                        {numField('scWpLpFontSizePt', { min: 6, max: 18, step: 0.5, width: 'w-16' })}
+                        <Unit>pt</Unit>
+                        <Select value={String(settings.scWpLpLineSpacing)} onValueChange={(v) => setSettings((prev) => ({ ...prev, scWpLpLineSpacing: parseFloat(v) }))}>
+                          <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
+                            <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
+                            <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
+                            <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </SettingRow>
+                      <SettingRow label="Space after paragraph">
+                        {numField('scWpLpParaSpacingPt', { min: 0, max: 18, step: 1, width: 'w-16' })}
+                        <Unit>pt</Unit>
+                      </SettingRow>
+                      <SettingRow label="Margins">
+                        <Unit>Top</Unit>
+                        {numField('scWpLpMarginTopInches', { min: 0.5, max: 2, step: 0.1, width: 'w-16' })}
+                        <Unit>Left</Unit>
+                        {numField('scWpLpMarginLeftInches', { min: 0.5, max: 2, step: 0.1, width: 'w-16' })}
+                        <Unit>inches</Unit>
+                      </SettingRow>
+                    </>
+                  )}
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="Volume splitting"
+                  info="Paperbooks exceeding the first threshold are automatically split into volumes. Each additional threshold adds another volume."
+                >
+                  <SettingRow label="First threshold">
+                    {numField('scWpVolumeSplitThreshold', { min: 100, step: 50, int: true, width: 'w-20' })}
+                    <Unit>pages</Unit>
+                  </SettingRow>
+                  <SettingRow label="Subsequent step">
+                    {numField('scWpVolumeStepSize', { min: 50, step: 50, int: true, width: 'w-20' })}
+                    <Unit>pages</Unit>
+                  </SettingRow>
+                  <button
+                    type="button"
+                    onClick={() => setShowScWpAdvancedVolume((v) => !v)}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    {showScWpAdvancedVolume ? "Hide advanced options" : "Show advanced options"}
+                  </button>
+                  {showScWpAdvancedVolume && (
+                    <div className="ml-1.5 space-y-1 border-l pl-4">
+                      <SettingRow label="Keep intact" info="A component no longer than this is never split across a volume boundary.">
+                        {numField('scWpMaxComponentSplitPages', { min: 1, step: 5, int: true, width: 'w-20' })}
+                        <Unit>pages or fewer</Unit>
+                      </SettingRow>
+                      <SettingRow label="Retain in volume" info="If this much or less would spill into the next volume, the component stays in the current one.">
+                        {numField('scWpMinVolumeTailPages', { min: 1, step: 5, int: true, width: 'w-20' })}
+                        <Unit>pages or fewer</Unit>
+                      </SettingRow>
+                      <SettingRow label="Push to next volume" info="If this much or less would be left in the current volume, the component moves to the next one.">
+                        {numField('scWpMinVolumeHeadPages', { min: 1, step: 5, int: true, width: 'w-20' })}
+                        <Unit>pages or fewer</Unit>
+                      </SettingRow>
+                      <SettingRow label="Output format">
+                        <SegGroup
+                          value={settings.scWpSeparateVolumePdfs ? 'separate' : 'consolidated'}
+                          onChange={(v) => setSettings((prev) => ({ ...prev, scWpSeparateVolumePdfs: v === 'separate' }))}
+                          options={[{ value: 'separate', label: 'Separate PDFs' }, { value: 'consolidated', label: 'Single PDF' }]}
+                        />
+                      </SettingRow>
+                    </div>
+                  )}
+                </SettingsGroup>
+
+                <SettingsGroup
+                  title="AoR signature & True Copy"
+                  beta
+                  info={"The signature is placed above the AoR's name in every \"Filed by\" block. The True Copy mark — a small signature above the words \"True Copy\" — is stamped on every annexure page at half the signature width.\n\nPro-tip: use a PNG with a transparent background and minimal white margins."}
+                >
+                  <SettingRow label="Signature (PNG)">
+                    {signatureSlot({
+                      png: settings.scWpAorSignaturePng || settings.aorSignaturePng,
+                      inputRef: scWpSignatureInputRef,
+                      onUpload: handleScWpSignatureUpload,
+                      onRemove: () => setSettings((prev) => ({ ...prev, scWpAorSignaturePng: "", scWpAorSignatureW: 0, scWpAorSignatureH: 0 })),
+                    })}
+                  </SettingRow>
+                  <SettingRow label="Signature width">
+                    <Slider
+                      min={48}
+                      max={240}
+                      step={4}
+                      value={[settings.scWpSignatureSizePx]}
+                      onValueChange={([v]) => setSettings((prev) => ({ ...prev, scWpSignatureSizePx: v }))}
+                      className="w-[170px]"
+                    />
+                    <span className="text-xs font-semibold tabular-nums">{settings.scWpSignatureSizePx}&nbsp;px</span>
+                  </SettingRow>
+                  {(settings.scWpAorSignaturePng || settings.aorSignaturePng) && (
+                    <div className="flex items-center justify-center rounded border bg-white p-2">
+                      <img
+                        src={settings.scWpAorSignaturePng || settings.aorSignaturePng}
+                        alt="signature size preview"
+                        style={{
+                          width: settings.scWpSignatureSizePx,
+                          height: (settings.scWpAorSignatureW > 0)
+                            ? settings.scWpSignatureSizePx * (settings.scWpAorSignatureH / settings.scWpAorSignatureW)
+                            : (settings.aorSignatureW > 0)
+                              ? settings.scWpSignatureSizePx * (settings.aorSignatureH / settings.aorSignatureW)
+                              : undefined,
+                        }}
+                      />
+                    </div>
+                  )}
+                  <CheckRow
+                    id="scwp-place-signature"
+                    disabled={!(settings.scWpAorSignaturePng || settings.aorSignaturePng)}
+                    checked={settings.scWpPlaceSignatureInPaperbook}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, scWpPlaceSignatureInPaperbook: v }))}
+                    label={'Place the signature above the AoR name in every "Filed by" block'}
+                  />
+                  <CheckRow
+                    id="scwp-place-truecopy"
+                    disabled={!(settings.scWpAorSignaturePng || settings.aorSignaturePng)}
+                    checked={settings.scWpPlaceTrueCopyText}
+                    onChange={(v) => setSettings((prev) => ({ ...prev, scWpPlaceTrueCopyText: v }))}
+                    label={'Stamp "True Copy" with a small signature on every annexure page'}
+                  />
+                  {settings.scWpPlaceTrueCopyText && (
+                    <div className="ml-1.5 space-y-1 border-l pl-4">
+                      <SettingRow label="True Copy position">
+                        <SegGroup
+                          value={settings.scWpTrueCopyPosition}
+                          onChange={(v: TrueCopyPosition) => setSettings((prev) => ({ ...prev, scWpTrueCopyPosition: v }))}
+                          options={[{ value: 'left', label: 'Bottom-left' }, { value: 'center', label: 'Bottom-centre' }]}
+                        />
+                      </SettingRow>
+                      <SettingRow label="True Copy margins" info="Defaults: 36 pt (0.5 inch) on both. In bottom-centre mode the horizontal margin is ignored.">
+                        <Unit>Horizontal</Unit>
+                        {numField('scWpTrueCopyMarginXPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                        <Unit>Bottom</Unit>
+                        {numField('scWpTrueCopyMarginBottomPt', { min: 0, max: 216, step: 1, width: 'w-16' })}
+                        <Unit>pt</Unit>
+                      </SettingRow>
+                      <CheckRow
+                        id="scwp-truecopy-bg"
+                        checked={settings.scWpTrueCopyBackground}
+                        onChange={(v) => setSettings((prev) => ({ ...prev, scWpTrueCopyBackground: v }))}
                         label="White background behind the True Copy stamp"
                       />
                     </div>
@@ -3243,6 +3921,58 @@ export function getSettings(): SettingsData {
     wpVakLineSpacing: 1,
     wpVakParaSpacingPt: 4,
     oaForceLastPageBreak: true,
+    scWpOutputFont: 'Times New Roman',
+    scWpOutputFontSizePt: 14,
+    scWpOutputLineSpacing: 1.5,
+    scWpOutputParaAfterPt: 12,
+    scWpMarginTopIn: 1.5,
+    scWpMarginRightIn: 1,
+    scWpMarginBottomIn: 1,
+    scWpMarginLeftIn: 1.5,
+    scWpHeadingBreak: false,
+    scWpTranslatedCopyFirst: false,
+    scWpAffidavitAnnexureRef: 'actual' as const,
+    scWpAnnexureLabelSize: 14,
+    scWpAnnexureLabelMarginPt: 14.4,
+    scWpAnnexureLabelBackground: false,
+    scWpPageNumberSizePt: 20,
+    scWpPageNumberMarginTopPt: 54,
+    scWpPageNumberMarginRightPt: 54,
+    scWpChecklistFontSizePt: 14,
+    scWpChecklistLineSpacing: 1.5,
+    scWpChecklistParaSpacingPt: 6,
+    scWpChecklistMarginTopInches: 1,
+    scWpChecklistMarginLeftInches: 1,
+    scWpLpFollowChecklist: false,
+    scWpLpFontSizePt: 13,
+    scWpLpLineSpacing: 1,
+    scWpLpParaSpacingPt: 0,
+    scWpLpMarginTopInches: 1.5,
+    scWpLpMarginLeftInches: 1.5,
+    scWpVolumeSplitThreshold: 400,
+    scWpVolumeStepSize: 200,
+    scWpMaxComponentSplitPages: 50,
+    scWpMinVolumeTailPages: 20,
+    scWpMinVolumeHeadPages: 20,
+    scWpSeparateVolumePdfs: true,
+    scWpAorSignaturePng: "",
+    scWpAorSignatureW: 0,
+    scWpAorSignatureH: 0,
+    scWpPlaceSignatureInPaperbook: false,
+    scWpPlaceTrueCopyText: false,
+    scWpSignatureSizePx: 120,
+    scWpTrueCopyPosition: 'left' as TrueCopyPosition,
+    scWpTrueCopyBackground: false,
+    scWpTrueCopyMarginXPt: 36,
+    scWpTrueCopyMarginBottomPt: 36,
+    scWpQuoteLineSpacing: 'default' as QuoteLineSpacing,
+    scWpQuoteItalics: true,
+    scWpHeaderStyle: 'short' as SlpHeaderStyle,
+    scWpNumbering: {
+      facts: 'lower-alpha',
+      grounds: 'upper-alpha',
+      prayers: 'lower-alpha',
+    },
   };
 
   if (typeof window === "undefined") return defaults;
@@ -3404,6 +4134,58 @@ export function getSettings(): SettingsData {
         wpVakLineSpacing: parsed.wpVakLineSpacing ?? 1,
         wpVakParaSpacingPt: parsed.wpVakParaSpacingPt ?? 4,
         oaForceLastPageBreak: parsed.oaForceLastPageBreak ?? true,
+        scWpOutputFont: parsed.scWpOutputFont || parsed.outputFont || 'Times New Roman',
+        scWpOutputFontSizePt: parsed.scWpOutputFontSizePt ?? parsed.outputFontSizePt ?? 14,
+        scWpOutputLineSpacing: parsed.scWpOutputLineSpacing ?? parsed.outputLineSpacing ?? 1.5,
+        scWpOutputParaAfterPt: parsed.scWpOutputParaAfterPt ?? parsed.outputParaAfterPt ?? 12,
+        scWpMarginTopIn: parsed.scWpMarginTopIn ?? parsed.slpMarginTopIn ?? 1.5,
+        scWpMarginRightIn: parsed.scWpMarginRightIn ?? parsed.slpMarginRightIn ?? 1,
+        scWpMarginBottomIn: parsed.scWpMarginBottomIn ?? parsed.slpMarginBottomIn ?? 1,
+        scWpMarginLeftIn: parsed.scWpMarginLeftIn ?? parsed.slpMarginLeftIn ?? 1.5,
+        scWpQuoteLineSpacing: (parsed.scWpQuoteLineSpacing || parsed.quoteLineSpacing || 'default') as QuoteLineSpacing,
+        scWpQuoteItalics: parsed.scWpQuoteItalics !== undefined ? parsed.scWpQuoteItalics : (parsed.quoteItalics !== false),
+        scWpHeaderStyle: (parsed.scWpHeaderStyle === 'sci' ? 'sci' : (parsed.slpHeaderStyle === 'sci' ? 'sci' : 'short')) as SlpHeaderStyle,
+        scWpHeadingBreak: parsed.scWpHeadingBreak ?? parsed.slpHeadingBreak ?? false,
+        scWpTranslatedCopyFirst: parsed.scWpTranslatedCopyFirst ?? parsed.slpTranslatedCopyFirst ?? false,
+        scWpAffidavitAnnexureRef: (parsed.scWpAffidavitAnnexureRef || parsed.slpAffidavitAnnexureRef || 'actual') as 'actual' | 'blank',
+        scWpAnnexureLabelSize: parsed.scWpAnnexureLabelSize ?? parsed.annexureLabelSize ?? 14,
+        scWpAnnexureLabelMarginPt: parsed.scWpAnnexureLabelMarginPt ?? parsed.annexureLabelMarginPt ?? 14.4,
+        scWpAnnexureLabelBackground: parsed.scWpAnnexureLabelBackground ?? parsed.annexureLabelBackground ?? false,
+        scWpPageNumberSizePt: parsed.scWpPageNumberSizePt ?? parsed.pageNumberSizePt ?? 20,
+        scWpPageNumberMarginTopPt: parsed.scWpPageNumberMarginTopPt ?? parsed.pageNumberMarginTopPt ?? 54,
+        scWpPageNumberMarginRightPt: parsed.scWpPageNumberMarginRightPt ?? parsed.pageNumberMarginRightPt ?? 54,
+        scWpChecklistFontSizePt: parsed.scWpChecklistFontSizePt ?? parsed.checklistFontSizePt ?? 14,
+        scWpChecklistLineSpacing: parsed.scWpChecklistLineSpacing ?? parsed.checklistLineSpacing ?? 1.5,
+        scWpChecklistParaSpacingPt: parsed.scWpChecklistParaSpacingPt ?? parsed.checklistParaSpacingPt ?? 6,
+        scWpChecklistMarginTopInches: parsed.scWpChecklistMarginTopInches ?? parsed.checklistMarginTopInches ?? 1,
+        scWpChecklistMarginLeftInches: parsed.scWpChecklistMarginLeftInches ?? parsed.checklistMarginLeftInches ?? 1,
+        scWpLpFollowChecklist: parsed.scWpLpFollowChecklist ?? parsed.lpFollowChecklist ?? false,
+        scWpLpFontSizePt: parsed.scWpLpFontSizePt ?? parsed.lpFontSizePt ?? 13,
+        scWpLpLineSpacing: parsed.scWpLpLineSpacing ?? parsed.lpLineSpacing ?? 1,
+        scWpLpParaSpacingPt: parsed.scWpLpParaSpacingPt ?? parsed.lpParaSpacingPt ?? 0,
+        scWpLpMarginTopInches: parsed.scWpLpMarginTopInches ?? parsed.lpMarginTopInches ?? 1.5,
+        scWpLpMarginLeftInches: parsed.scWpLpMarginLeftInches ?? parsed.lpMarginLeftInches ?? 1.5,
+        scWpVolumeSplitThreshold: parsed.scWpVolumeSplitThreshold ?? parsed.volumeSplitThreshold ?? 400,
+        scWpVolumeStepSize: parsed.scWpVolumeStepSize ?? parsed.volumeStepSize ?? 200,
+        scWpMaxComponentSplitPages: parsed.scWpMaxComponentSplitPages ?? parsed.maxComponentSplitPages ?? 50,
+        scWpMinVolumeTailPages: parsed.scWpMinVolumeTailPages ?? parsed.minVolumeTailPages ?? 20,
+        scWpMinVolumeHeadPages: parsed.scWpMinVolumeHeadPages ?? parsed.minVolumeHeadPages ?? 20,
+        scWpSeparateVolumePdfs: parsed.scWpSeparateVolumePdfs ?? parsed.separateVolumePdfs ?? true,
+        scWpAorSignaturePng: parsed.scWpAorSignaturePng ?? parsed.aorSignaturePng ?? "",
+        scWpAorSignatureW: parsed.scWpAorSignatureW ?? parsed.aorSignatureW ?? 0,
+        scWpAorSignatureH: parsed.scWpAorSignatureH ?? parsed.aorSignatureH ?? 0,
+        scWpPlaceSignatureInPaperbook: parsed.scWpPlaceSignatureInPaperbook ?? parsed.placeSignatureInPaperbook ?? false,
+        scWpPlaceTrueCopyText: parsed.scWpPlaceTrueCopyText ?? parsed.placeTrueCopyText ?? false,
+        scWpSignatureSizePx: parsed.scWpSignatureSizePx ?? parsed.signatureSizePx ?? 120,
+        scWpTrueCopyPosition: (parsed.scWpTrueCopyPosition || parsed.trueCopyPosition || 'left') as TrueCopyPosition,
+        scWpTrueCopyBackground: parsed.scWpTrueCopyBackground ?? parsed.trueCopyBackground ?? false,
+        scWpTrueCopyMarginXPt: parsed.scWpTrueCopyMarginXPt ?? parsed.trueCopyMarginXPt ?? 36,
+        scWpTrueCopyMarginBottomPt: parsed.scWpTrueCopyMarginBottomPt ?? parsed.trueCopyMarginBottomPt ?? 36,
+        scWpNumbering: {
+          facts: parsed.scWpNumbering?.facts ?? 'lower-alpha',
+          grounds: parsed.scWpNumbering?.grounds ?? 'upper-alpha',
+          prayers: parsed.scWpNumbering?.prayers ?? 'lower-alpha',
+        },
       };
     } catch (err) {
       console.error("Failed to parse settings:", err);

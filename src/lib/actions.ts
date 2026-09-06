@@ -1,4 +1,4 @@
-﻿
+
 import { Packer } from "docx";
 import { createSlpHeader, createPartiesHeader, createWithTable, getPartyHeader, createAnnexureText, createIaAnnexureText, createFiledByTable, createIaHeader, base64ToBuffer, convertToSmartQuotes, smartTextRun } from "@/lib/docx-helpers";
 import type { DraftoProject, Annexure } from "@/lib/schema";
@@ -25,6 +25,18 @@ import {
   appendixItemIdFromComponentId,
   isAppendixComponentId,
 } from "@/lib/appendix";
+import {
+  generateScWpCiDocx,
+  generateScWpSlodDocx,
+  generateScWpPetitionDocx,
+  generateScWpFilingMemoDocx,
+  generateScWpIaDocx,
+  generateScWpAffidavitsDocx,
+  getScWpIaList,
+  wpAnnexureOrderFromLods,
+  getScWpOutputFormatting,
+  getScWpMargins,
+} from "@/lib/sc-wp/sc-wp-actions";
 
 
 const calculateIoText = (projectData: DraftoProject) => {
@@ -155,7 +167,7 @@ export const getSlpLayout = () => {
 
 // User-configurable output text formatting (read from drafto-settings at export
 // time, in the renderer). Falls back to the historical defaults.
-const getOutputFormatting = () => {
+export const getOutputFormatting = () => {
     const d = { font: "Times New Roman", sizePt: 14, lineSpacing: 1.5, afterPt: 12 };
     if (typeof window === 'undefined') return d;
     try {
@@ -221,7 +233,48 @@ const getLpFormatting = () => {
     }
 };
 
-const getDefaultStyles = () => {
+const getScWpChecklistFormatting = () => {
+    const d = { sizePt: 14, lineSpacing: 1.5, paraSpacingPt: 6, marginTopInches: 1, marginLeftInches: 1 };
+    if (typeof window === 'undefined') return d;
+    try {
+        const raw = window.localStorage.getItem('drafto-settings');
+        if (!raw) return d;
+        const s = JSON.parse(raw);
+        return {
+            sizePt: s.scWpChecklistFontSizePt ?? s.checklistFontSizePt ?? d.sizePt,
+            lineSpacing: s.scWpChecklistLineSpacing ?? s.checklistLineSpacing ?? d.lineSpacing,
+            paraSpacingPt: s.scWpChecklistParaSpacingPt ?? s.checklistParaSpacingPt ?? d.paraSpacingPt,
+            marginTopInches: s.scWpChecklistMarginTopInches ?? s.checklistMarginTopInches ?? d.marginTopInches,
+            marginLeftInches: s.scWpChecklistMarginLeftInches ?? s.checklistMarginLeftInches ?? d.marginLeftInches,
+        };
+    } catch {
+        return d;
+    }
+};
+
+const getScWpLpFormatting = () => {
+    const d = { sizePt: 13, lineSpacing: 1, paraSpacingPt: 0, marginTopInches: 1.5, marginLeftInches: 1.5 };
+    if (typeof window === 'undefined') return d;
+    try {
+        const s = JSON.parse(window.localStorage.getItem('drafto-settings') || '{}');
+        const followChecklist = s.scWpLpFollowChecklist ?? s.lpFollowChecklist;
+        if (followChecklist) {
+            const c = getScWpChecklistFormatting();
+            return { sizePt: c.sizePt, lineSpacing: c.lineSpacing, paraSpacingPt: c.paraSpacingPt, marginTopInches: c.marginTopInches, marginLeftInches: c.marginLeftInches };
+        }
+        return {
+            sizePt: s.scWpLpFontSizePt ?? s.lpFontSizePt ?? d.sizePt,
+            lineSpacing: s.scWpLpLineSpacing ?? s.lpLineSpacing ?? d.lineSpacing,
+            paraSpacingPt: s.scWpLpParaSpacingPt ?? s.lpParaSpacingPt ?? d.paraSpacingPt,
+            marginTopInches: s.scWpLpMarginTopInches ?? s.lpMarginTopInches ?? d.marginTopInches,
+            marginLeftInches: s.scWpLpMarginLeftInches ?? s.lpMarginLeftInches ?? d.marginLeftInches,
+        };
+    } catch {
+        return d;
+    }
+};
+
+export const getDefaultStyles = () => {
     const f = getOutputFormatting();
     return {
         paragraphStyles: [
@@ -289,12 +342,12 @@ const getConstrainedStyles = () => {
 // read "P-1 to P-0"; it now leaves the number blank for the deponent to fill
 // in. Settings → SLP can also force the blank form even when annexures exist,
 // for drafters who prefer the affidavit not to commit to a number.
-const annexureRangeText = (lastNumber: number, alwaysBlank = false): string =>
+export const annexureRangeText = (lastNumber: number, alwaysBlank = false): string =>
     (alwaysBlank || lastNumber < 1) ? "Annexures P-1 to P-__" : `Annexures P-1 to P-${lastNumber}`;
 
 // Whether the affidavit states the actual last annexure number or always leaves
 // it blank (Settings → SLP → Affidavit).
-const affidavitWantsBlankAnnexureRange = (): boolean => {
+export const affidavitWantsBlankAnnexureRange = (): boolean => {
     if (typeof window === 'undefined') return false;
     try {
         const s = JSON.parse(window.localStorage.getItem('drafto-settings') || '{}');
@@ -302,7 +355,7 @@ const affidavitWantsBlankAnnexureRange = (): boolean => {
     } catch { return false; }
 };
 
-const getSlpMargins = () => {
+export const getSlpMargins = () => {
     const d = { top: 1.5, right: 1, bottom: 1, left: 1.5 };
     if (typeof window !== 'undefined') {
         try {
@@ -495,13 +548,14 @@ function buildNumericComponents(
     fileMetas: { id: string }[],
     docPageCounts: Map<string, { id: string; pageCount: number; shouldCombineWithNext: boolean }>,
     docIdToIndexSNo: Map<string, number>,
+    isScWp?: boolean,
 ): NumericComponent[] {
     const components: NumericComponent[] = [];
     let runningPage = 1;
     let seenImpugned = false;
 
     for (const meta of fileMetas) {
-        if (meta.id.startsWith('impugnedOrder_')) seenImpugned = true;
+        if (isScWp ? meta.id === 'slp' : meta.id.startsWith('impugnedOrder_')) seenImpugned = true;
         if (!seenImpugned) continue;
         if (['ci','or','lp','slod','advocateChecklist','slpAffidavit'].includes(meta.id)) continue;
         if (meta.id.startsWith('ia_affidavit_') || isSecondOfPair(meta.id, fileMetas)) continue;
@@ -1120,10 +1174,13 @@ export async function generateCiorDocx(projectData: DraftoProject, pageRanges?: 
 
 export async function generateLpDocx(projectData: DraftoProject, includeSignature = false) {
     // The font family follows Output Text Formatting; size, spacing and margins
-    // are the Listing Proforma's own (Settings → SLP → Listing Proforma), which
+    // are the Listing Proforma's own (Settings → SLP/SC WP → Listing Proforma), which
     // default to the rigid 13pt single-spaced form.
-    const lpf = getLpFormatting();
-    const lpMargins = { ...getSlpMargins(), top: Math.round(lpf.marginTopInches * 1440), left: Math.round(lpf.marginLeftInches * 1440) };
+    const isScWp = projectData.courtType === "WritPetitionSC";
+    const lpf = isScWp ? getScWpLpFormatting() : getLpFormatting();
+    const baseMargins = isScWp ? getScWpMargins() : getSlpMargins();
+    const outputFont = isScWp ? getScWpOutputFormatting().font : getOutputFormatting().font;
+    const lpMargins = { ...baseMargins, top: Math.round(lpf.marginTopInches * 1440), left: Math.round(lpf.marginLeftInches * 1440) };
     const lpStyles = {
         paragraphStyles: [
           {
@@ -1133,7 +1190,7 @@ export async function generateLpDocx(projectData: DraftoProject, includeSignatur
             next: "Normal",
             quickFormat: true,
             run: {
-              font: getOutputFormatting().font,
+              font: outputFont,
               size: Math.round(lpf.sizePt * 2), // half-points
             },
             paragraph: {
@@ -1179,7 +1236,7 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
 
     let allNumberingConfigs: any[] = [];
     const lodEventParagraphs = projectData.listOfDates.map(lod => {
-        const { paragraphs, numbering } = parseHtml(lod.event, tableParagraphSpacing);
+        const { paragraphs, numbering } = parseHtml(lod.event);
         if (numbering.length > 0) {
             allNumberingConfigs.push(...numbering);
         }
@@ -1248,7 +1305,7 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
                 const textRuns = createLodAnnexureText(pNumber, annex).map(part =>
                     typeof part === 'string' ? smartTextRun(part) : part
                 );
-                return new Paragraph({ children: textRuns, style: "Normal", spacing: tableParagraphSpacing });
+                return new Paragraph({ children: textRuns, style: "Normal" });
             })
             .filter((p): p is Paragraph => p !== null);
 
@@ -1257,7 +1314,7 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
         return new TableRow({
             children: [
                 new TableCell({
-                    children: [new Paragraph({ text: lod.date, style: "Normal", alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })],
+                    children: [new Paragraph({ text: lod.date, style: "Normal", alignment: AlignmentType.CENTER })],
                     width: { size: 20, type: WidthType.PERCENTAGE },
                     verticalAlign: VerticalAlign.TOP,
                     margins: defaultCellMargins
@@ -1281,18 +1338,18 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
         rows: [
             new TableRow({
                 children: [
-                    new TableCell({ 
-                        children: [new Paragraph({ children: [smartTextRun({ text: "Date", bold: true })], alignment: AlignmentType.CENTER, style: "Normal", spacing: tableParagraphSpacing })], 
-                        width: { size: 20, type: WidthType.PERCENTAGE },
-                        verticalAlign: VerticalAlign.CENTER,
-                        margins: defaultCellMargins
-                    }),
-                    new TableCell({ 
-                        children: [new Paragraph({ children: [smartTextRun({ text: "Particulars", bold: true })], alignment: AlignmentType.CENTER, style: "Normal", spacing: tableParagraphSpacing })], 
-                        width: { size: 80, type: WidthType.PERCENTAGE },
-                        verticalAlign: VerticalAlign.CENTER,
-                        margins: defaultCellMargins
-                    }),
+                  new TableCell({ 
+                      children: [new Paragraph({ children: [smartTextRun({ text: "Date", bold: true })], alignment: AlignmentType.CENTER, style: "Normal" })], 
+                      width: { size: 20, type: WidthType.PERCENTAGE },
+                      verticalAlign: VerticalAlign.CENTER,
+                      margins: defaultCellMargins
+                  }),
+                  new TableCell({ 
+                      children: [new Paragraph({ children: [smartTextRun({ text: "Particulars", bold: true })], alignment: AlignmentType.CENTER, style: "Normal" })], 
+                      width: { size: 80, type: WidthType.PERCENTAGE },
+                      verticalAlign: VerticalAlign.CENTER,
+                      margins: defaultCellMargins
+                  }),
                 ]
             }),
             ...lodTableRows,
@@ -3029,13 +3086,14 @@ const trimTrailingBlankPages = (pdf: PDFDocument): number => {
 };
 
 export async function generateAdvocateChecklistDocx(projectData: DraftoProject, includeSignature = false) {
+    const isScWp = projectData.courtType === "WritPetitionSC";
     const { checklist } = projectData;
     // Point 1 reads "SLP (Crl.)" in a criminal SLP, "SLP (C)" otherwise.
     const checklistQueries = getChecklistQueries(projectData.caseType);
 
     // Checklist-specific formatting (font size / line spacing / paragraph spacing)
-    const cf = getChecklistFormatting();
-    const of = getOutputFormatting();
+    const cf = isScWp ? getScWpChecklistFormatting() : getChecklistFormatting();
+    const of = isScWp ? getScWpOutputFormatting() : getOutputFormatting();
     const checklistStyles = {
         paragraphStyles: [
             {
@@ -3098,9 +3156,10 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject, 
     });
 
     // Checklist top/left margins are user-configurable (default 1", vs the 1.5"
-    // used elsewhere); right/bottom follow the shared SLP margins.
+    // used elsewhere); right/bottom follow the shared SLP/SC WP margins.
+    const baseMargins = isScWp ? getScWpMargins() : getSlpMargins();
     const checklistMargins = {
-        ...getSlpMargins(),
+        ...baseMargins,
         top: Math.round(cf.marginTopInches * 1440),
         left: Math.round(cf.marginLeftInches * 1440),
     };
@@ -3179,7 +3238,7 @@ export async function generateAdvocateChecklistDocx(projectData: DraftoProject, 
                 ...createFiledByTable(
                     projectData.advocate.filingDate,
                     projectData.advocate.aorName || "[AoR Name]",
-                    { fontSizePt: cf.sizePt, lineSpacing: cf.lineSpacing, paraSpacingPt: cf.paraSpacingPt, includeSignature }
+                    { fontSizePt: cf.sizePt, lineSpacing: cf.lineSpacing, paraSpacingPt: cf.paraSpacingPt, includeSignature, isScWp }
                 ),
             ],
         }],
@@ -3217,9 +3276,35 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
     }
     const fileMetas: {id: string, label: string, useSystem: boolean, fileName?: string}[] = JSON.parse(fileMetasString);
     const projectData: DraftoProject = JSON.parse(projectDataString);
+    const isScWp = projectData.courtType === "WritPetitionSC";
 
     // Parse settings (with defaults if not provided)
-    const settings = settingsString ? JSON.parse(settingsString) : { annexureLabelBackground: false };
+    const rawSettings = settingsString ? JSON.parse(settingsString) : { annexureLabelBackground: false };
+    const settings = {
+        ...rawSettings,
+        annexureLabelSize: (isScWp ? rawSettings.scWpAnnexureLabelSize : undefined) ?? rawSettings.annexureLabelSize ?? 14,
+        annexureLabelMarginPt: (isScWp ? rawSettings.scWpAnnexureLabelMarginPt : undefined) ?? rawSettings.annexureLabelMarginPt ?? 14.4,
+        annexureLabelBackground: isScWp ? (rawSettings.scWpAnnexureLabelBackground ?? rawSettings.annexureLabelBackground ?? false) : (rawSettings.annexureLabelBackground ?? false),
+        pageNumberSizePt: (isScWp ? rawSettings.scWpPageNumberSizePt : undefined) ?? rawSettings.pageNumberSizePt ?? 20,
+        pageNumberMarginTopPt: (isScWp ? rawSettings.scWpPageNumberMarginTopPt : undefined) ?? rawSettings.pageNumberMarginTopPt ?? 54,
+        pageNumberMarginRightPt: (isScWp ? rawSettings.scWpPageNumberMarginRightPt : undefined) ?? rawSettings.pageNumberMarginRightPt ?? 54,
+        volumeSplitThreshold: (isScWp ? rawSettings.scWpVolumeSplitThreshold : undefined) ?? rawSettings.volumeSplitThreshold ?? 400,
+        volumeStepSize: (isScWp ? rawSettings.scWpVolumeStepSize : undefined) ?? rawSettings.volumeStepSize ?? 200,
+        maxComponentSplitPages: (isScWp ? rawSettings.scWpMaxComponentSplitPages : undefined) ?? rawSettings.maxComponentSplitPages ?? 50,
+        minVolumeTailPages: (isScWp ? rawSettings.scWpMinVolumeTailPages : undefined) ?? rawSettings.minVolumeTailPages ?? 20,
+        minVolumeHeadPages: (isScWp ? rawSettings.scWpMinVolumeHeadPages : undefined) ?? rawSettings.minVolumeHeadPages ?? 20,
+        separateVolumePdfs: (isScWp ? rawSettings.scWpSeparateVolumePdfs : undefined) ?? rawSettings.separateVolumePdfs ?? true,
+        aorSignaturePng: isScWp ? (rawSettings.scWpAorSignaturePng || rawSettings.aorSignaturePng) : rawSettings.aorSignaturePng,
+        aorSignatureW: isScWp ? (rawSettings.scWpAorSignatureW || rawSettings.aorSignatureW) : rawSettings.aorSignatureW,
+        aorSignatureH: isScWp ? (rawSettings.scWpAorSignatureH || rawSettings.aorSignatureH) : rawSettings.aorSignatureH,
+        placeSignatureInPaperbook: isScWp ? (rawSettings.scWpPlaceSignatureInPaperbook ?? rawSettings.placeSignatureInPaperbook) : rawSettings.placeSignatureInPaperbook,
+        placeTrueCopyText: isScWp ? (rawSettings.scWpPlaceTrueCopyText ?? rawSettings.placeTrueCopyText) : rawSettings.placeTrueCopyText,
+        signatureSizePx: (isScWp ? rawSettings.scWpSignatureSizePx : undefined) ?? rawSettings.signatureSizePx ?? 120,
+        trueCopyPosition: (isScWp ? rawSettings.scWpTrueCopyPosition : undefined) ?? rawSettings.trueCopyPosition ?? 'left',
+        trueCopyBackground: isScWp ? (rawSettings.scWpTrueCopyBackground ?? rawSettings.trueCopyBackground ?? false) : (rawSettings.trueCopyBackground ?? false),
+        trueCopyMarginXPt: (isScWp ? rawSettings.scWpTrueCopyMarginXPt : undefined) ?? rawSettings.trueCopyMarginXPt ?? 36,
+        trueCopyMarginBottomPt: (isScWp ? rawSettings.scWpTrueCopyMarginBottomPt : undefined) ?? rawSettings.trueCopyMarginBottomPt ?? 36,
+    };
 
     // Determine which optional criminal docs actually have files attached
     const optionalDocIds = new Set<string>();
@@ -3254,7 +3339,11 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             }
         }
         
-        if (meta.id === 'slp') return 'Special Leave Petition with Certificate and Affidavit';
+        if (meta.id === 'slp') {
+            return isScWp
+                ? 'Writ Petition under Article 32 of the Constitution of India, with supporting affidavit'
+                : 'Special Leave Petition with Certificate and Affidavit';
+        }
         if (meta.id === 'slpAffidavit') return null; // Part of SLP
         
         if (isAppendixComponentId(meta.id)) {
@@ -3307,7 +3396,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         // IAs
         if (meta.id.startsWith('ia_') && !meta.id.startsWith('ia_affidavit_') && !meta.id.startsWith('ia_annexure_')) {
             const iaId = meta.id.substring(3);
-            const ia = getIaList(projectData).find(i => i.id === iaId);
+            const ia = (isScWp ? getScWpIaList(projectData) : getIaList(projectData)).find(i => i.id === iaId);
             if (ia) {
                 return `${ia.prefix}: ${ia.title}`;
             }
@@ -3925,12 +4014,16 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 
                 // Skip CI for now - we'll regenerate it in Pass 2 with page ranges
                 if (meta.id === 'ci') {
-                    result = await generateCiDocx(projectData, undefined, undefined, optionalDocIds);
+                    result = isScWp
+                        ? await generateScWpCiDocx(projectData, undefined, undefined, optionalDocIds)
+                        : await generateCiDocx(projectData, undefined, undefined, optionalDocIds);
                 } else if (meta.id === 'or') {
                     result = await generateOrDocx(projectData, true);
                 } else if (meta.id === 'cior') {
                     // Legacy support - generate CI only
-                    result = await generateCiDocx(projectData, undefined, undefined, optionalDocIds);
+                    result = isScWp
+                        ? await generateScWpCiDocx(projectData, undefined, undefined, optionalDocIds)
+                        : await generateCiDocx(projectData, undefined, undefined, optionalDocIds);
                 } else if (meta.id === 'refiling') {
                     result = await generateRefilingDocx(projectData, true);
                 } else if (isAppendixComponentId(meta.id)) {
@@ -3938,13 +4031,27 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 } else {
                     switch (meta.id) {
                         case 'lp': result = await generateLpDocx(projectData, true); break;
-                        case 'slod': result = await generateSlodDocx(projectData); break;
-                        case 'slp': result = await generateSlpDocx(projectData, true); break;
-                        case 'filingMemo': result = await generateFilingMemoDocx(projectData, true); break;
+                        case 'slod':
+                            result = isScWp
+                                ? await generateScWpSlodDocx(projectData)
+                                : await generateSlodDocx(projectData);
+                            break;
+                        case 'slp':
+                            result = isScWp
+                                ? await generateScWpPetitionDocx(projectData, true)
+                                : await generateSlpDocx(projectData, true);
+                            break;
+                        case 'filingMemo':
+                            result = isScWp
+                                ? await generateScWpFilingMemoDocx(projectData, true)
+                                : await generateFilingMemoDocx(projectData, true);
+                            break;
                         case 'advocateChecklist': result = await generateAdvocateChecklistDocx(projectData, true); break;
                         default:
                             if (iaIdentifier && !meta.id.startsWith('ia_affidavit_')) {
-                                result = await generateIaDocx(projectData, iaIdentifier, undefined, undefined, true);
+                                result = isScWp
+                                    ? await generateScWpIaDocx(projectData, iaIdentifier, undefined, undefined, true)
+                                    : await generateIaDocx(projectData, iaIdentifier, undefined, undefined, true);
                             }
                             break;
                     }
@@ -3995,7 +4102,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
     // S.No. 9 is Synopsis (needs B-X format)
     // S.No. 10+ are other documents (need numeric ranges)
     
-    let sNo = 9; // Start from Synopsis
+    let sNo = isScWp ? 8 : 9; // Start from Synopsis (Row 8 in SC WP, Row 9 in SLP)
     let currentAlphabetIndex = 2; // B
     let currentNumericPageNum = 1;
     let hasSeenImpugnedOrder = false; // Track when we switch to numeric
@@ -4043,12 +4150,12 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             }
             currentAlphabetIndex = lastLetterIndex + 1;
         } else {
-            // Check if we've reached Impugned Order to start numeric numbering
-            if (meta.id.startsWith('impugnedOrder_')) {
+            // Check if we've reached numeric start (Impugned Order in SLP, slp in SC WP)
+            if (isScWp ? meta.id === 'slp' : meta.id.startsWith('impugnedOrder_')) {
                 hasSeenImpugnedOrder = true;
             }
             
-            // All documents after Synopsis use numeric ranges (starting from Impugned Order)
+            // All documents after Synopsis use numeric ranges (starting from Impugned Order / Writ Petition)
             if (hasSeenImpugnedOrder && totalPages > 0) {
                 const endPage = currentNumericPageNum + totalPages - 1;
                 // Handle single page case
@@ -4064,11 +4171,13 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         sNo++;
     }
     
-    // Row 3 of the Index is the Listing Proforma, whose pages are stamped A1,
-    // A2, A3… Its formatting is the user's to set, so the row states the pages
-    // it actually runs to rather than the customary two.
+    // Listing Proforma: Row 2 in SC WP, Row 3 in SLP
     const lpPageCount = Math.max(1, docPageCounts.get('lp')?.pageCount ?? 2);
-    indexPageRanges.set(3, lpPageCount === 1 ? 'A1' : `A1-A${lpPageCount}`);
+    if (isScWp) {
+        indexPageRanges.set(2, lpPageCount === 1 ? 'A1' : `A1-A${lpPageCount}`);
+    } else {
+        indexPageRanges.set(3, lpPageCount === 1 ? 'A1' : `A1-A${lpPageCount}`);
+    }
 
     console.log('[PDF GEN] Index page ranges calculated:', Array.from(indexPageRanges.entries()));
     
@@ -4087,8 +4196,8 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         const pageInfo = docPageCounts.get(meta.id);
         if (!pageInfo) continue;
         
-        // Start tracking page numbers when we hit the first Impugned Order
-        if (meta.id.startsWith('impugnedOrder_')) {
+        // Start tracking page numbers when we hit the first Impugned Order (or slp in SC WP)
+        if (isScWp ? meta.id === 'slp' : meta.id.startsWith('impugnedOrder_')) {
             trackingAnnexures = true;
         }
         
@@ -4160,7 +4269,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
     const isVolumeSplitting = numVolumes > 1;
 
     // Build ordered list of numeric components for split-point calculation
-    const numericComponents = buildNumericComponents(fileMetas, docPageCounts, docIdToIndexSNo);
+    const numericComponents = buildNumericComponents(fileMetas, docPageCounts, docIdToIndexSNo, isScWp);
 
     // Calculate split points
     const splitPoints: SplitPoint[] = [];
@@ -4176,12 +4285,13 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
     const sNoToVolume = new Map<number, number>();
     const splitSNos   = new Map<number, { v1: number; v2: number; splitPage: number }>();
 
-    // Pre-numeric items always in Volume I
-    for (let sno = 1; sno <= 9; sno++) sNoToVolume.set(sno, 1);
+    // Pre-numeric items always in Volume I (up to row 8 in SC WP, row 9 in SLP)
+    const firstNumericSno = isScWp ? 9 : 10;
+    for (let sno = 1; sno < firstNumericSno; sno++) sNoToVolume.set(sno, 1);
 
     if (isVolumeSplitting) {
         for (const [sno, rangeStr] of indexPageRanges) {
-            if (sno < 10) continue;
+            if (sno < firstNumericSno) continue;
             const parsed = parsePageRange(rangeStr);
             if (!parsed || parsed.isAlphabetical) { sNoToVolume.set(sno, 1); continue; }
 
@@ -4228,73 +4338,110 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
     // We need it ahead of time so we can pass it to generateCiDocx with volumeOptions
     let ciParticularsListForVolume: (string | (TextRun | string)[])[] = [];
     if (isVolumeSplitting) {
-        // Temporarily call generateCiDocx without volumeOptions to get the particularsList
-        // We reconstruct it here instead to avoid double-generation overhead
-        const _iaList = getIaList(projectData);
-        const _pl: (string | (TextRun | string)[])[] = [
-            'Court Fees', 'O/R on Limitation', 'Listing Proforma',
-            'Cover Page of Paper Book', 'Index of Record of Proceedings',
-            'Limitation Report prepared by the Registry', 'Defect List', 'Note Sheet',
-            'Synopsis and List of Dates',
-        ];
-        if (projectData.impugnedOrders && projectData.impugnedOrders.length > 0) {
-            [...projectData.impugnedOrders].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).forEach(order => {
-                const cn = order.court === 'Other' ? order.customCourt : order.court;
-                const od = order.date ? format(new Date(order.date), 'dd.MM.yyyy') : '[date]';
-                _pl.push(`Impugned ${order.type || '[Order Type]'}: True copy of the Impugned ${order.type || '[Order Type]'} dated ${od} passed by the ${cn || '[Court]'} in ${order.caseNumber || '[Case No.]'}`);
+        if (isScWp) {
+            const _iaList = getScWpIaList(projectData);
+            const _pl: (string | (TextRun | string)[])[] = [
+                'Court Fees',
+                'Listing Proforma',
+                'Cover Page of Paper Book',
+                'Index of Record of Proceedings',
+                'Limitation Report prepared by the Registry',
+                'Defect List',
+                'Note Sheet',
+                'Synopsis and List of Dates',
+                'Writ Petition under Article 32 of the Constitution of India, with supporting affidavit',
+            ];
+            const _appendixItems = getActiveAppendixItems(projectData);
+            _appendixItems.forEach((item, index) => {
+                _pl.push([
+                    smartTextRun({ text: appendixLabel(index, _appendixItems.length), bold: true }),
+                    convertToSmartQuotes(`: ${appendixBodyText(item)}`),
+                ]);
             });
+            const _orderedAnnexures = wpAnnexureOrderFromLods(projectData.listOfDates || []);
+            _orderedAnnexures.forEach(({ annex, pNumber }) => {
+                _pl.push(createAnnexureText(pNumber, annex, true));
+            });
+            const _allIaAnn: any[] = [];
+            (projectData.customIas || []).forEach(cia => cia.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: cia.id }))));
+            const _iaAnnMap = new Map<string, number>();
+            let _ac = 1;
+            _allIaAnn.forEach(a => _iaAnnMap.set(a.id, _ac++));
+            _iaList.forEach(ia => {
+                _pl.push([smartTextRun({ text: ia.prefix, bold: true }), convertToSmartQuotes(`: ${ia.title}`)]);
+                _allIaAnn.filter(a => a.iaId === ia.id).forEach(a => { const n = _iaAnnMap.get(a.id); if (n) _pl.push(createIaAnnexureText(n, a, true)); });
+            });
+            _pl.push('Filing Memo', 'Vakalatnama(s)');
+            ciParticularsListForVolume = _pl;
         } else {
-            _pl.push('Impugned [Order Type]: True copy of [Impugned Order Details]');
-        }
-        _pl.push('Special Leave Petition with Certificate and Affidavit');
-        // Same rows as the Index itself — see generateCiDocx.
-        const _appendixItems = getActiveAppendixItems(projectData);
-        _appendixItems.forEach((item, index) => {
-            _pl.push([
-                smartTextRun({ text: appendixLabel(index, _appendixItems.length), bold: true }),
-                convertToSmartQuotes(`: ${appendixBodyText(item)}`),
-            ]);
-        });
-        const _allAnnexures: Annexure[] = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
-        const _nonAd = _allAnnexures.filter(a => !a.isAdditionalDocument);
-        const _ad    = _allAnnexures.filter(a => a.isAdditionalDocument);
-        const _annexMap = new Map<string, number>();
-        let _pc = 1;
-        _nonAd.forEach(a => _annexMap.set(a.id, _pc++));
-        _ad.forEach(a => _annexMap.set(a.id, _pc++));
-        _nonAd.forEach(a => { const n = _annexMap.get(a.id); if (n) _pl.push(createAnnexureText(n, a, true)); });
-        if (_ad.length > 0) {
-            const adIa = _iaList.find(ia => ia.id === 'additionalDocuments');
-            if (adIa) {
-                _pl.push([smartTextRun({ text: adIa.prefix, bold: true }), convertToSmartQuotes(`: ${adIa.title}`)]);
-                _ad.forEach(a => { const n = _annexMap.get(a.id); if (n) _pl.push(createAnnexureText(n, a, true)); });
+            // Temporarily call generateCiDocx without volumeOptions to get the particularsList
+            // We reconstruct it here instead to avoid double-generation overhead
+            const _iaList = getIaList(projectData);
+            const _pl: (string | (TextRun | string)[])[] = [
+                'Court Fees', 'O/R on Limitation', 'Listing Proforma',
+                'Cover Page of Paper Book', 'Index of Record of Proceedings',
+                'Limitation Report prepared by the Registry', 'Defect List', 'Note Sheet',
+                'Synopsis and List of Dates',
+            ];
+            if (projectData.impugnedOrders && projectData.impugnedOrders.length > 0) {
+                [...projectData.impugnedOrders].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).forEach(order => {
+                    const cn = order.court === 'Other' ? order.customCourt : order.court;
+                    const od = order.date ? format(new Date(order.date), 'dd.MM.yyyy') : '[date]';
+                    _pl.push(`Impugned ${order.type || '[Order Type]'}: True copy of the Impugned ${order.type || '[Order Type]'} dated ${od} passed by the ${cn || '[Court]'} in ${order.caseNumber || '[Case No.]'}`);
+                });
+            } else {
+                _pl.push('Impugned [Order Type]: True copy of [Impugned Order Details]');
             }
-        }
-        const _allIaAnn: any[] = [];
-        if (projectData.standardIas?.condonationOfDelay?.active)
-            projectData.standardIas.condonationOfDelay.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: 'condonationOfDelay' })));
-        if (projectData.standardIas?.exemptionFromSurrendering?.active)
-            projectData.standardIas.exemptionFromSurrendering.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: 'exemptionFromSurrendering' })));
-        if (projectData.customIas) projectData.customIas.forEach(cia => cia.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: cia.id }))));
-        const _iaAnnMap = new Map<string, number>();
-        let _ac = 1;
-        _allIaAnn.forEach(a => _iaAnnMap.set(a.id, _ac++));
-        _iaList.filter(ia => ia.id !== 'additionalDocuments').forEach(ia => {
-            _pl.push([smartTextRun({ text: ia.prefix, bold: true }), convertToSmartQuotes(`: ${ia.title}`)]);
-            _allIaAnn.filter(a => a.iaId === ia.id).forEach(a => { const n = _iaAnnMap.get(a.id); if (n) _pl.push(createIaAnnexureText(n, a, true)); });
-            if (ia.id === 'exemptionCertifiedCopy' && projectData.standardIas?.exemptionCertifiedCopy?.hasApplied === 'yes') {
-                const rd = projectData.standardIas.exemptionCertifiedCopy.receiptDate;
-                const dt = rd ? ` dated ${format(new Date(rd), 'dd.MM.yyyy')}` : '';
-                _pl.push([smartTextRun({ text: 'Annexure-A', bold: true }), convertToSmartQuotes(`: True copy of the Receipt of application for certified copy${dt}.`)]);
+            _pl.push('Special Leave Petition with Certificate and Affidavit');
+            // Same rows as the Index itself — see generateCiDocx.
+            const _appendixItems = getActiveAppendixItems(projectData);
+            _appendixItems.forEach((item, index) => {
+                _pl.push([
+                    smartTextRun({ text: appendixLabel(index, _appendixItems.length), bold: true }),
+                    convertToSmartQuotes(`: ${appendixBodyText(item)}`),
+                ]);
+            });
+            const _allAnnexures: Annexure[] = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
+            const _nonAd = _allAnnexures.filter(a => !a.isAdditionalDocument);
+            const _ad    = _allAnnexures.filter(a => a.isAdditionalDocument);
+            const _annexMap = new Map<string, number>();
+            let _pc = 1;
+            _nonAd.forEach(a => _annexMap.set(a.id, _pc++));
+            _ad.forEach(a => _annexMap.set(a.id, _pc++));
+            _nonAd.forEach(a => { const n = _annexMap.get(a.id); if (n) _pl.push(createAnnexureText(n, a, true)); });
+            if (_ad.length > 0) {
+                const adIa = _iaList.find(ia => ia.id === 'additionalDocuments');
+                if (adIa) {
+                    _pl.push([smartTextRun({ text: adIa.prefix, bold: true }), convertToSmartQuotes(`: ${adIa.title}`)]);
+                    _ad.forEach(a => { const n = _annexMap.get(a.id); if (n) _pl.push(createAnnexureText(n, a, true)); });
+                }
             }
-        });
-        if (projectData.caseType === 'Criminal') {
-            if (!optionalDocIds || optionalDocIds.has('custodyCertificate')) _pl.push('Custody Certificate');
-            if (!optionalDocIds || optionalDocIds.has('firDetails'))         _pl.push('FIR Details');
-            if (!optionalDocIds || optionalDocIds.has('proofOfService'))     _pl.push('Proof of Service');
+            const _allIaAnn: any[] = [];
+            if (projectData.standardIas?.condonationOfDelay?.active)
+                projectData.standardIas.condonationOfDelay.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: 'condonationOfDelay' })));
+            if (projectData.standardIas?.exemptionFromSurrendering?.active)
+                projectData.standardIas.exemptionFromSurrendering.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: 'exemptionFromSurrendering' })));
+            if (projectData.customIas) projectData.customIas.forEach(cia => cia.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: cia.id }))));
+            const _iaAnnMap = new Map<string, number>();
+            let _ac = 1;
+            _allIaAnn.forEach(a => _iaAnnMap.set(a.id, _ac++));
+            _iaList.filter(ia => ia.id !== 'additionalDocuments').forEach(ia => {
+                _pl.push([smartTextRun({ text: ia.prefix, bold: true }), convertToSmartQuotes(`: ${ia.title}`)]);
+                _allIaAnn.filter(a => a.iaId === ia.id).forEach(a => { const n = _iaAnnMap.get(a.id); if (n) _pl.push(createIaAnnexureText(n, a, true)); });
+                if (ia.id === 'exemptionCertifiedCopy' && projectData.standardIas?.exemptionCertifiedCopy?.hasApplied === 'yes') {
+                    const rd = projectData.standardIas.exemptionCertifiedCopy.receiptDate;
+                    const dt = rd ? ` dated ${format(new Date(rd), 'dd.MM.yyyy')}` : '';
+                    _pl.push([smartTextRun({ text: 'Annexure-A', bold: true }), convertToSmartQuotes(`: True copy of the Receipt of application for certified copy${dt}.`)]);
+                }
+            });
+            if (projectData.caseType === 'Criminal') {
+                if (!optionalDocIds || optionalDocIds.has('custodyCertificate')) _pl.push('Custody Certificate');
+                if (!optionalDocIds || optionalDocIds.has('firDetails'))         _pl.push('FIR Details');
+                if (!optionalDocIds || optionalDocIds.has('proofOfService'))     _pl.push('Proof of Service');
+            }
+            _pl.push('Memo of Parties', 'Filing Memo', 'Vakalatnama(s)');
+            ciParticularsListForVolume = _pl;
         }
-        _pl.push('Memo of Parties', 'Filing Memo', 'Vakalatnama(s)');
-        ciParticularsListForVolume = _pl;
     }
 
     // ===== PASS 2: Main document processing with page ranges =====
@@ -4338,29 +4485,45 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 switch (meta.id) {
                     case 'ci':
                         // Regenerate CI with calculated page ranges
-                        result = await generateCiDocx(projectData, indexPageRanges, undefined, optionalDocIds);
+                        result = isScWp
+                            ? await generateScWpCiDocx(projectData, indexPageRanges, undefined, optionalDocIds)
+                            : await generateCiDocx(projectData, indexPageRanges, undefined, optionalDocIds);
                         break;
                     case 'or':
                         result = await generateOrDocx(projectData, true);
                         break;
                     case 'cior':
                         // Legacy support - generate CI with page ranges
-                        result = await generateCiDocx(projectData, indexPageRanges, undefined, optionalDocIds);
+                        result = isScWp
+                            ? await generateScWpCiDocx(projectData, indexPageRanges, undefined, optionalDocIds)
+                            : await generateCiDocx(projectData, indexPageRanges, undefined, optionalDocIds);
                         break;
                     case 'refiling': result = await generateRefilingDocx(projectData, true); break;
                     case 'lp': result = await generateLpDocx(projectData, true); break;
                     case 'slod':
                         // Regenerate SLOD with calculated annexure page ranges
-                        result = await generateSlodDocx(projectData, annexurePageRanges);
+                        result = isScWp
+                            ? await generateScWpSlodDocx(projectData, annexurePageRanges)
+                            : await generateSlodDocx(projectData, annexurePageRanges);
                         break;
-                    case 'slp': result = await generateSlpDocx(projectData, true); break;
-                    case 'filingMemo': result = await generateFilingMemoDocx(projectData, true); break;
+                    case 'slp':
+                        result = isScWp
+                            ? await generateScWpPetitionDocx(projectData, true, annexurePageRanges)
+                            : await generateSlpDocx(projectData, true);
+                        break;
+                    case 'filingMemo':
+                        result = isScWp
+                            ? await generateScWpFilingMemoDocx(projectData, true)
+                            : await generateFilingMemoDocx(projectData, true);
+                        break;
                     case 'advocateChecklist': result = await generateAdvocateChecklistDocx(projectData, true); break;
                     default:
                         if (isAppendixComponentId(meta.id)) {
                             result = await generateAppendixDocx(projectData, appendixItemIdFromComponentId(meta.id));
                         } else if (iaIdentifier && !meta.id.startsWith('ia_affidavit_')) {
-                            result = await generateIaDocx(projectData, iaIdentifier, undefined, annexurePageRanges, true);
+                            result = isScWp
+                                ? await generateScWpIaDocx(projectData, iaIdentifier, undefined, annexurePageRanges, true)
+                                : await generateIaDocx(projectData, iaIdentifier, undefined, annexurePageRanges, true);
                         }
                         break;
                 }
@@ -4387,8 +4550,9 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                     alphabeticalNumberingStarted = true;
                 }
                 
-                // Check if this is the first Impugned Order to switch to numeric numbering
-                if (meta.id.startsWith('impugnedOrder_') && !numericNumberingStarted) {
+                // Check if this is the first Impugned Order (or slp in SC WP) to switch to numeric numbering
+                const isNumericStart = isScWp ? meta.id === 'slp' : meta.id.startsWith('impugnedOrder_');
+                if (isNumericStart && !numericNumberingStarted) {
                     numericNumberingStarted = true;
                     alphabeticalNumberingStarted = false; // Stop alphabetical numbering
                     currentNumericPage = 1;
@@ -4562,8 +4726,8 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                             endPageNum = Math.max(1, docPageCounts.get('lp')?.pageCount ?? 2);
                             isAPrefixed = true;
                         } else if (meta.id === 'slod') {
-                            // Synopsis and List of Dates: Use Index S.No. 9 range (B-X)
-                            const synopsisRange = indexPageRanges.get(9);
+                            // Synopsis and List of Dates: Use Index S.No. 8 (SC WP) or 9 (SLP) range (B-X)
+                            const synopsisRange = indexPageRanges.get(isScWp ? 8 : 9);
                             if (synopsisRange) {
                                 const parsed = parsePageRange(synopsisRange);
                                 if (parsed) {
@@ -4750,11 +4914,11 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         };
 
         // Determine the PDF page index of the first numeric page
-        // (everything before the first impugned order in mergedPdf in volume mode)
+        // (everything before the first impugned order/Writ Petition in mergedPdf in volume mode)
         let preNumericPageCount = 0;
         for (const meta of fileMetas) {
             if (meta.id === 'ci') continue;
-            if (meta.id.startsWith('impugnedOrder_')) break;
+            if (isScWp ? meta.id === 'slp' : meta.id.startsWith('impugnedOrder_')) break;
             const info = docPageCounts.get(meta.id);
             if (info) preNumericPageCount += info.pageCount;
         }
@@ -4800,7 +4964,9 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             const { start, end } = volumeBoundaries[v - 1];
 
             // Generate CI for this volume
-            const ciResult = await generateCiDocx(projectData, indexPageRanges, { ...voBase, volumeNum: v }, optionalDocIds);
+            const ciResult = isScWp
+                ? await generateScWpCiDocx(projectData, indexPageRanges, { ...voBase, volumeNum: v }, optionalDocIds)
+                : await generateCiDocx(projectData, indexPageRanges, { ...voBase, volumeNum: v }, optionalDocIds);
             if (!ciResult.success || !ciResult.docx) {
                 return { success: false, message: `Failed to generate CI for Volume ${v}` };
             }

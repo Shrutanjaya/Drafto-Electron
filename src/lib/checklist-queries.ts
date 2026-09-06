@@ -31,12 +31,19 @@ export const checklistQueries: { name: string; label: string; options: Checklist
 // Point 1 names the petition by its type, which differs between a civil SLP —
 // "SLP (C)" — and a criminal one — "SLP (Crl.)". Everything else in the
 // checklist is common to both, so only that one label is swapped.
-export const getChecklistQueries = (caseType?: "Civil" | "Criminal") =>
-    caseType === "Criminal"
-        ? checklistQueries.map((q) =>
-              q.name === "q1_form28" ? { ...q, label: q.label.replace("SLP (C)", "SLP (Crl.)") } : q
-          )
-        : checklistQueries;
+export const getChecklistQueries = (caseType?: "Civil" | "Criminal", courtType?: string) => {
+    const isScWp = courtType === "WritPetitionSC";
+    return checklistQueries.map((q) => {
+        let modified = q;
+        if (caseType === "Criminal" && q.name === "q1_form28") {
+            modified = { ...modified, label: modified.label.replace("SLP (C)", "SLP (Crl.)") };
+        }
+        if (isScWp && (q.name === "q1_form28" || q.name === "q3_papersArranged")) {
+            modified = { ...modified, options: ["Yes", "No", "NA"] };
+        }
+        return modified;
+    });
+};
 
 // The attestation the advocate ticks at the top of the checklist before filing.
 export const CHECKLIST_DECLARATION =

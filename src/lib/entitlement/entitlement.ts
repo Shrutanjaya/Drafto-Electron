@@ -56,7 +56,7 @@ export const FORUM_LABEL: Record<Forum, string> = {
 };
 
 /** Project court types the app can draft. Mirrors DraftoProject['courtType']. */
-export type CourtType = 'SLP' | 'WritPetitionDHC' | 'OriginalApplicationCAT';
+export type CourtType = 'SLP' | 'WritPetitionSC' | 'WritPetitionDHC' | 'OriginalApplicationCAT';
 
 /**
  * Which forum a document type belongs to. Document types are grouped by forum
@@ -65,6 +65,7 @@ export type CourtType = 'SLP' | 'WritPetitionDHC' | 'OriginalApplicationCAT';
  */
 const FORUM_OF: Record<CourtType, Forum> = {
   SLP: 'SC',
+  WritPetitionSC: 'SC',
   WritPetitionDHC: 'HC-DEL',
   OriginalApplicationCAT: 'CAT',
 };

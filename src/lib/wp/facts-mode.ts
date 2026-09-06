@@ -107,10 +107,11 @@ export function resolveFactsHtml(project: DraftoProject, prefix: string = "P"): 
     // left alone — unwrapping it would run them together.
     let html = unwrapLoneParagraph(row.event || "");
     if (!html && annexes.length === 0) continue;
+    const pageRangeText = project.courtType === "WritPetitionSC" ? "(pp.___ to ___)" : undefined;
     for (const annex of annexes) {
       const entry = pMap.get(annex.id);
       if (!entry) continue;
-      html = `${html} ${factsAnnexureSentenceHtml(entry.pNumber, annex, prefix)}`.trim();
+      html = `${html} ${factsAnnexureSentenceHtml(entry.pNumber, annex, prefix, pageRangeText)}`.trim();
     }
     if (html) items.push(html);
   }

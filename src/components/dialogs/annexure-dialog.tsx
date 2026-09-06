@@ -175,19 +175,14 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap, rowsN
   const courtType = useWatch({ control: form.control, name: "courtType" }) as string | undefined;
   const isWp = courtType === "WritPetitionDHC";
   const isOa = courtType === "OriginalApplicationCAT";
-  // HC (writ) and CAT (OA) both use the Impugned-Order + Colly controls and the
-  // "A-/P-" prefix, NOT the SC "Additional Document" checkbox.
+  const isScWp = courtType === "WritPetitionSC";
+  // HC (writ), CAT (OA), and SC (writ) use the Impugned-Order checkbox.
+  // Colly is Delhi HC only; AD is SLP only.
   const isIoDoctype = isWp || isOa;
   const annexPrefix = isOa ? "A" : "P";
-  // The IO checkbox is available on every HC writ and CAT annexure.
-  //
-  // On the writ it used to appear only once "This writ petition has Impugned
-  // Order(s)" had been ticked in Preliminary, which hid it from anyone who had
-  // not found that toggle — and worse, an annexure already marked as an
-  // impugned order kept sorting to P-1 with the checkbox hidden, so the marking
-  // could neither be seen nor undone. The ordering never consulted that toggle,
-  // only the annexure's own mark, so the gate protected nothing.
-  const showIoCheckbox = isIoDoctype;
+  const showIoCheckbox = isIoDoctype || isScWp;
+  const showAdCheckbox = !isIoDoctype && !isScWp;
+  const showCollyCheckbox = isWp;
 
   // Controlled open state so Find & Replace can pop this dialog open to reveal a
   // matching annexure field. Each List-of-Dates row has its own AnnexureDialog;
@@ -424,7 +419,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap, rowsN
                               )}
                           />
                           
-                          {!isIoDoctype && (
+                          {showAdCheckbox && (
                           <FormField
                               control={form.control}
                               name={`${rowsName}.${lodIndex}.annexures.${index}.isAdditionalDocument`}
@@ -468,7 +463,7 @@ export function AnnexureDialog({ lodIndex, children, annexureNumberingMap, rowsN
                           />
                           )}
 
-                          {isIoDoctype && (
+                          {showCollyCheckbox && (
                           <FormField
                               control={form.control}
                               name={`${rowsName}.${lodIndex}.annexures.${index}.isColly`}
