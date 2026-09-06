@@ -20,6 +20,22 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      # The installer filenames and the auto-update feeds (latest.yml /
+      # latest-mac.yml) take their version from package.json, NOT from the tag.
+      # If package.json is stale when a tag is pushed, everything is built under
+      # the PREVIOUS version number and uploaded into that version's draft
+      # release, overwriting it — with a green build and no warning. That is
+      # exactly what happened on v2.0.11. Fail in seconds instead.
+      - name: Check the tag matches package.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          echo "tag=$TAG  package.json=$PKG"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag v$TAG does not match package.json version $PKG. Bump package.json first (RELEASE-PROCESS.md step 1), then re-tag."
+            exit 1
+          fi
+
       - name: Install npm dependencies
         run: npm ci
 
@@ -140,6 +156,18 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+
+      # Same guard as the Mac job — see the comment there for why this matters.
+      - name: Check the tag matches package.json
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME -replace '^v', ''
+          $pkg = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          Write-Host "tag=$tag  package.json=$pkg"
+          if ($tag -ne $pkg) {
+            Write-Host "::error::Tag v$tag does not match package.json version $pkg. Bump package.json first (RELEASE-PROCESS.md step 1), then re-tag."
+            exit 1
+          }
 
       - name: Install npm dependencies
         run: npm ci
