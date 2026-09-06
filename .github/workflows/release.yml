@@ -23,8 +23,40 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # LibreOffice is downloaded straight from The Document Foundation rather
+      # than through Homebrew. The cask pins a point release, and the mirror
+      # DELETES a point release as soon as the next one lands — so the build
+      # broke on a 404 for a version nobody chose, and could only be fixed by
+      # waiting for Homebrew to catch up. This asks the mirror which versions
+      # exist right now and takes the newest, so the build breaks only when we
+      # decide to change version. Set LIBREOFFICE_VERSION to pin one.
       - name: Install LibreOffice
-        run: brew install --cask libreoffice
+        run: |
+          set -euo pipefail
+          VER="${LIBREOFFICE_VERSION:-}"
+          if [ -z "$VER" ]; then
+            VER=$(curl -sSfL https://download.documentfoundation.org/libreoffice/stable/ \
+              | grep -oE '[0-9]+\.[0-9]+\.[0-9]+/' | tr -d '/' | sort -V | tail -1)
+          fi
+          [ -n "$VER" ] || { echo "Could not work out a LibreOffice version"; exit 1; }
+          DMG="LibreOffice_${VER}_MacOS_aarch64.dmg"
+          URL="https://download.documentfoundation.org/libreoffice/stable/${VER}/mac/aarch64/${DMG}"
+          echo "Installing LibreOffice $VER from $URL"
+          for attempt in 1 2 3; do
+            if curl -fSL --retry 3 --retry-delay 10 -o "$RUNNER_TEMP/$DMG" "$URL"; then break; fi
+            echo "download attempt $attempt failed"
+            [ "$attempt" = 3 ] && exit 1
+            sleep 20
+          done
+          MOUNT=$(mktemp -d)
+          hdiutil attach -nobrowse -quiet -mountpoint "$MOUNT" "$RUNNER_TEMP/$DMG"
+          # ditto, not cp: LibreOffice.app is a bundle of symlinks and nested
+          # frameworks that a plain copy corrupts (see beforePack.js).
+          ditto "$MOUNT/LibreOffice.app" /Applications/LibreOffice.app
+          hdiutil detach "$MOUNT" -quiet
+          rm -f "$RUNNER_TEMP/$DMG"
+          test -x /Applications/LibreOffice.app/Contents/MacOS/soffice
+          echo "LibreOffice $VER installed"
 
       - name: Import Developer ID certificate
         env:
@@ -115,26 +147,46 @@ jobs:
       - name: Install Tesseract OCR
         run: choco install tesseract --no-progress -y
 
+      # Downloaded from The Document Foundation rather than through Chocolatey,
+      # for the reason given on the Mac job: the packaged version is pinned, and
+      # the mirror deletes a point release as soon as the next one lands, so the
+      # build failed on a file nobody had chosen. The retry is kept — the
+      # mirror's redirector does also refuse connections now and then.
       - name: Install LibreOffice (bundled as PDF-conversion fallback)
-        # The Document Foundation's download redirector intermittently refuses
-        # connections from the runners ("Unable to connect to the remote
-        # server"), which sank the whole v2.0.0 Windows build even though the
-        # file was there. Retry before giving up, as the Mac DMG step already
-        # does for its own flaky hdiutil.
         shell: pwsh
         run: |
-          for ($i = 1; $i -le 3; $i++) {
-            if ($i -eq 1) {
-              choco install libreoffice-fresh --no-progress -y
-            } else {
-              choco install libreoffice-fresh --no-progress -y --force
-            }
-            if ($LASTEXITCODE -eq 0) { exit 0 }
-            Write-Host "LibreOffice install attempt $i failed; retrying in 30s"
-            Start-Sleep -Seconds 30
+          $ErrorActionPreference = 'Stop'
+          $ver = $env:LIBREOFFICE_VERSION
+          if (-not $ver) {
+            $listing = (Invoke-WebRequest -UseBasicParsing 'https://download.documentfoundation.org/libreoffice/stable/').Content
+            $ver = [regex]::Matches($listing, '(\d+\.\d+\.\d+)/') |
+              ForEach-Object { $_.Groups[1].Value } |
+              Sort-Object { [version]$_ } -Unique |
+              Select-Object -Last 1
           }
-          Write-Host "LibreOffice install failed after 3 attempts"
-          exit 1
+          if (-not $ver) { Write-Host 'Could not work out a LibreOffice version'; exit 1 }
+          $msi = "LibreOffice_${ver}_Win_x86-64.msi"
+          $url = "https://download.documentfoundation.org/libreoffice/stable/$ver/win/x86_64/$msi"
+          $out = Join-Path $env:RUNNER_TEMP $msi
+          Write-Host "Installing LibreOffice $ver from $url"
+          for ($i = 1; $i -le 3; $i++) {
+            try {
+              Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $out
+              break
+            } catch {
+              Write-Host "download attempt $i failed: $($_.Exception.Message)"
+              if ($i -eq 3) { exit 1 }
+              Start-Sleep -Seconds 30
+            }
+          }
+          $p = Start-Process msiexec.exe -ArgumentList "/i `"$out`" /qn /norestart" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Host "msiexec exited $($p.ExitCode)"; exit 1 }
+          Remove-Item $out -Force
+          if (-not (Test-Path 'C:\Program Files\LibreOffice\program\soffice.exe')) {
+            Write-Host 'LibreOffice did not install where the packager expects it'
+            exit 1
+          }
+          Write-Host "LibreOffice $ver installed"
 
       - name: Bundle Python dependencies
         run: .\bundle-deps-win.ps1
