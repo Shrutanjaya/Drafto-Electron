@@ -1,6 +1,6 @@
 {
   "name": "drafto-slp",
-  "version": "2.0.13",
+  "version": "2.0.14",
   "private": true,
   "author": "Quindoph Legal Solutions Pvt. Ltd.",
   "description": "DraftoSLP – Supreme Court petition drafting tool",
@@ -159,14 +159,38 @@
       "fileAssociations": [
         {
           "ext": "drafto",
-          "name": "Drafto Project",
-          "description": "Drafto Project File",
+          "name": "Drafto SLP Project",
+          "description": "Drafto Supreme Court SLP File",
+          "icon": "build/icon.ico"
+        },
+        {
+          "ext": "scappeal",
+          "name": "Drafto Statutory Appeal",
+          "description": "Drafto Supreme Court Statutory Appeal File",
+          "icon": "build/icon.ico"
+        },
+        {
+          "ext": "scwp",
+          "name": "Drafto SC Writ Petition",
+          "description": "Drafto Supreme Court Writ Petition File",
+          "icon": "build/icon.ico"
+        },
+        {
+          "ext": "scpil",
+          "name": "Drafto SC PIL Writ Petition",
+          "description": "Drafto Supreme Court PIL File",
           "icon": "build/icon.ico"
         },
         {
           "ext": "dhcwp",
-          "name": "Drafto Writ Petition",
+          "name": "Drafto Delhi HC Writ Petition",
           "description": "Drafto Delhi HC Writ Petition File",
+          "icon": "build/icon.ico"
+        },
+        {
+          "ext": "catoa",
+          "name": "Drafto CAT Original Application",
+          "description": "Drafto CAT Original Application File",
           "icon": "build/icon.ico"
         }
       ]
@@ -235,7 +259,11 @@
             "CFBundleTypeName": "Drafto Project",
             "CFBundleTypeExtensions": [
               "drafto",
-              "dhcwp"
+              "scappeal",
+              "scwp",
+              "scpil",
+              "dhcwp",
+              "catoa"
             ],
             "CFBundleTypeRole": "Editor"
           }

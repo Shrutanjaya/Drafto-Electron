@@ -14,9 +14,9 @@ const { splitDocuments } = require("./ipc/pdf-split");
 const isDev = !app.isPackaged;
 
 // ── Project file extensions ───────────────────────────────────────────────────
-// .drafto = SLP (Supreme Court); .dhcwp = Delhi HC writ petition. Both are JSON
-// project files; recognising both lets either type be opened/listed.
-const PROJECT_EXTS = [".drafto", ".dhcwp"];
+// .drafto = SLP; .scappeal = Statutory Appeal; .scwp = SC Writ Petition;
+// .scpil = SC PIL; .dhcwp = Delhi HC Writ Petition; .catoa = CAT OA.
+const PROJECT_EXTS = [".drafto", ".scappeal", ".scwp", ".scpil", ".dhcwp", ".catoa"];
 const isProjectFile = (f) => typeof f === "string" && PROJECT_EXTS.some((e) => f.toLowerCase().endsWith(e));
 const stripProjectExt = (f) => {
   for (const e of PROJECT_EXTS) {
@@ -1189,7 +1189,8 @@ ipcMain.handle("delete-drafto-file", (_event, filePath) => {
 
 ipcMain.handle("save-project", (_event, { petitionerName, content, extension }) => {
   const dir = projectsDir();
-  const ext = extension === "dhcwp" ? "dhcwp" : "drafto";
+  const allowedExts = ["drafto", "scappeal", "scwp", "scpil", "dhcwp", "catoa"];
+  const ext = allowedExts.includes(extension) ? extension : "drafto";
   // This only ever creates a project — once one exists the app saves to its
   // path instead. So a name already in use belongs to a different matter, and
   // writing over it would lose that matter. Take the next free name instead.
@@ -1306,7 +1307,10 @@ ipcMain.handle("load-project-from-path", (_event, filePath) => {
 ipcMain.handle("open-drafto-file-dialog", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ["openFile"],
-    filters: [{ name: "Drafto Project", extensions: ["drafto", "dhcwp"] }],
+    filters: [
+      { name: "Drafto Projects", extensions: ["drafto", "scappeal", "scwp", "scpil", "dhcwp", "catoa"] },
+      { name: "All Files", extensions: ["*"] },
+    ],
   });
   return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
 });

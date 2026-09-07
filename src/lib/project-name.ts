@@ -9,7 +9,7 @@
 /** Strip the project extension from a file name. */
 export function stemOf(fileNameOrPath: string): string {
   const base = fileNameOrPath.split(/[\\/]/).pop() || "";
-  return base.replace(/\.(drafto|dhcwp|scwp)$/i, "");
+  return base.replace(/\.(drafto|scappeal|scwp|scpil|dhcwp|catoa)$/i, "");
 }
 
 // Windows cannot hold a file called CON, PRN, AUX, NUL, COM1-9 or LPT1-9.

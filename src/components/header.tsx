@@ -15,6 +15,7 @@ import {
   Loader2,
   History,
   ChevronDown,
+  ArrowRightLeft,
 } from "lucide-react";
 import { saveAs } from "file-saver";
 
@@ -40,6 +41,7 @@ import { draftoProjectSchema } from "@/lib/schema";
 import { PdfGenerationDialog } from "./dialogs/pdf-generation-dialog";
 import { ImportChangesDialog } from "./dialogs/import-changes-dialog";
 import { LoadProjectDialog } from "./dialogs/load-project-dialog";
+import { ConvertProjectDialog } from "./dialogs/convert-project-dialog";
 import { getRecentProjects, pushRecentProject, removeRecentProject, type RecentProject } from "@/lib/recent-projects";
 import { ModeSelectDialog } from "./dialogs/mode-select-dialog";
 import { generateWpIndex, generateWpNoticeOfMotion, generateWpUrgencyApplication, generateWpMemoOfParties, generateWpSynopsisAndLod, generateWpPetition, generateWpVakalatnama, generateWpCms } from "@/lib/wp/wp-actions";
@@ -66,7 +68,12 @@ import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
 import { newBlankProject } from "@/lib/project-defaults";
 import { stemOf, cleanProjectName } from "@/lib/project-name";
 import { getIaList } from "@/lib/ia-list-utils";
-import { isScWpFamily } from "@/lib/court-family";
+import {
+  isScWpFamily,
+  convertProjectCourtType,
+  getDocumentTypeOption,
+  type ProjectCourtType,
+} from "@/lib/court-family";
 import { getActiveAppendixItems } from "@/lib/appendix";
 import { markFileAvailable, markFileUnavailable } from "@/lib/file-availability";
 import { restoreFileFromPath } from "@/lib/utils/pick-file";
@@ -122,12 +129,13 @@ export function getProjectFileName(data: { petitioners?: Array<{ name?: string }
   return 'Untitled';
 }
 
-// Project-file extension by document type. A Delhi HC writ petition saves as
-// .dhcwp and an SC writ petition saves as .scwp so they never overwrite an SLP (.drafto)
-// for the same parties — e.g. during autosave, since the filename is derived from the party names.
+// Project-file extension by document type.
 export function projectExtensionFor(data: { courtType?: string }): string {
+  if (data.courtType === "Appeal") return "scappeal";
+  if (data.courtType === "WritPetitionPIL") return "scpil";
+  if (data.courtType === "WritPetitionSC") return "scwp";
   if (data.courtType === "WritPetitionDHC") return "dhcwp";
-  if (isScWpFamily(data.courtType)) return "scwp";
+  if (data.courtType === "OriginalApplicationCAT") return "catoa";
   return "drafto";
 }
 
@@ -260,6 +268,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     draftOptions.reduce((acc, opt) => ({ ...acc, [opt.id]: false }), {} as DraftSelection)
   );
   const [showLoadDialog, setShowLoadDialog] = useState(false);
+  const [showConvertDialog, setShowConvertDialog] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
   // ── The project's name ────────────────────────────────────────────────────
@@ -922,6 +931,44 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       toast({ title: "New Project", description: `A new blank ${label} project has been created.` });
     }
   };
+
+  const handleConvertProject = (targetCourtType: ProjectCourtType) => {
+    try {
+      const currentData = form.getValues();
+      const currentType = currentData.courtType ?? "SLP";
+      const converted = convertProjectCourtType(currentData, targetCourtType);
+
+      const prevExt = projectExtensionFor({ courtType: currentType });
+      const nextExt = projectExtensionFor({ courtType: targetCourtType });
+
+      // If switching file extension (e.g. .drafto <-> .scwp), clear currentFilePath
+      // and delete lock file so the user saves cleanly under the new extension.
+      if (prevExt !== nextExt && currentFilePath) {
+        if (window.electron?.deleteLockFile) {
+          window.electron.deleteLockFile(currentFilePath).catch(() => {});
+        }
+        setCurrentFilePath(null);
+        toast({
+          title: `Project converted to ${getDocumentTypeOption(targetCourtType).label}`,
+          description: `Format changed from .${prevExt} to .${nextExt}. Please Save your project to create the new file.`,
+        });
+      } else {
+        toast({
+          title: `Project converted to ${getDocumentTypeOption(targetCourtType).label}`,
+          description: "All entered dates, annexures, and case details have been preserved.",
+        });
+      }
+
+      form.reset(converted);
+    } catch (err) {
+      console.error("Project conversion error:", err);
+      toast({
+        variant: "destructive",
+        title: "Conversion Failed",
+        description: String(err),
+      });
+    }
+  };
   
   // Paper-book generation requires an active subscription. The SLP paper-book
   // checks this inside its own submit handler; the HC and CAT paper-books are
@@ -1362,6 +1409,10 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
               }
             }}><FolderOpen className="mr-2" />Load Project</DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => setShowConvertDialog(true)}>
+              <ArrowRightLeft className="mr-2" />Convert Document Type…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             {currentFilePath && (
               <DropdownMenuItem disabled className="text-xs text-muted-foreground max-w-[280px] truncate">
                 📂 {currentFilePath.split(/[\\/]/).pop()}
@@ -1567,13 +1618,19 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         type="file"
         ref={fileInputRef}
         onChange={handleLoad}
-        accept=".drafto,.dhcwp,.scwp"
+        accept=".drafto,.scappeal,.scwp,.scpil,.dhcwp,.catoa"
         className="hidden"
       />
       <LoadProjectDialog
         open={showLoadDialog}
         onOpenChange={setShowLoadDialog}
         onLoadFromPath={handleLoadFromPath}
+      />
+      <ConvertProjectDialog
+        open={showConvertDialog}
+        onOpenChange={setShowConvertDialog}
+        currentCourtType={courtType}
+        onConvert={handleConvertProject}
       />
       <ModeSelectDialog open={modeDialog !== null} onSelect={applyDraftMode} />
     </header>
