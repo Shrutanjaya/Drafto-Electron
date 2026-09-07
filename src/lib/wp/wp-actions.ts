@@ -18,7 +18,7 @@ import {
   TextRun,
 } from "docx";
 import { format } from "date-fns";
-import { getPartyHeader, smartTextRun, convertToSmartQuotes } from "@/lib/docx-helpers";
+import { getPartyHeader, smartTextRun, convertToSmartQuotes, isLodRowNonEmpty } from "@/lib/docx-helpers";
 import { parseHtml } from "@/lib/html-to-docx";
 import { groundsSequence, getGroundsHeadingStyle, groundsHeadingRuns, groundsHeadingHang } from "@/lib/grounds-headings";
 import type { DraftoProject, Annexure } from "@/lib/schema";
@@ -175,8 +175,8 @@ function listItemRuns(reference: string, runs: (TextRun | string)[], before = 12
 // Rich-text auto-numbered list items: each HTML item's paragraphs are bound to
 // `reference` via parseHtml's defaultNumbering hook (so formatting survives and
 // raw tags never leak). Nested numbering defs are collected into `collect`.
-function htmlListItems(reference: string, items: string[], collect: any[]): Paragraph[] {
-  const out: Paragraph[] = [];
+function htmlListItems(reference: string, items: string[], collect: any[]): (Paragraph | Table)[] {
+  const out: (Paragraph | Table)[] = [];
   for (const html of items) {
     const parsed = parseHtml(html || "", undefined, { reference, level: 0 });
     if (parsed.numbering.length) collect.push(...parsed.numbering);
@@ -209,11 +209,11 @@ function groundsBlocks(
   style: EnumStyle,
   nb: { styled: (style: EnumStyle, start?: number) => string },
   numbering: any[],
-): Paragraph[] {
+): (Paragraph | Table)[] {
   const headingStyle = getGroundsHeadingStyle(project);
   const entries = groundsSequence(project.grounds, headingStyle);
   const hang = groundsHeadingHang(entries);
-  const out: Paragraph[] = [];
+  const out: (Paragraph | Table)[] = [];
   let reference = nb.styled(style);
   let restartPending = false;
 
@@ -338,7 +338,10 @@ export async function generateWpSynopsisAndLod(project: DraftoProject) {
   const synopsis = parseHtml(project.synopsis || "");
   numbering.push(...synopsis.numbering);
 
-  const lodRows = (project.listOfDates || []).map(lod => {
+  const validLods = (project.listOfDates || []).filter(isLodRowNonEmpty);
+  const effectiveLods = validLods.length > 0 ? validLods : (project.listOfDates?.length ? [project.listOfDates[0]] : []);
+
+  const lodRows = effectiveLods.map(lod => {
     const ev = parseHtml(lod.event || "", tableSpacing);
     numbering.push(...ev.numbering);
     return new TableRow({ children: [
@@ -673,7 +676,7 @@ interface CmSpec {
 function activeCms(project: DraftoProject): CmSpec[] {
   const cms: CmSpec[] = [];
   const c = project.wp.cms;
-  const mid = (arr: { particulars: string }[] | undefined) => (arr || []).map(b => b.particulars).filter(htmlHasText);
+  const mid = (arr: Array<{ particulars?: string }> | undefined) => (arr || []).map(b => b.particulars || "").filter(htmlHasText);
 
   // The Stay application is generated when it is switched on. It used to need a
   // separate "this writ has impugned orders" flag as well, which could be left

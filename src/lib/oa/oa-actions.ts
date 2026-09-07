@@ -9,7 +9,7 @@ import {
   Packer, Document, Header, Footer, Paragraph, PageBreak, AlignmentType,
   Table, TableRow, TableCell, WidthType, VerticalAlign,
 } from "docx";
-import { getPartyHeader, smartTextRun } from "@/lib/docx-helpers";
+import { getPartyHeader, smartTextRun, isLodRowNonEmpty } from "@/lib/docx-helpers";
 import { parseHtml } from "@/lib/html-to-docx";
 import { groundsSequence, getGroundsHeadingStyle, groundsHeadingRuns, groundsHeadingHang } from "@/lib/grounds-headings";
 import type { DraftoProject } from "@/lib/schema";
@@ -169,8 +169,8 @@ function oaPara(mainRef: string, heading: string, bodyHtml: string, numbering: a
 function listItem(reference: string, text: string, before = 60): Paragraph {
   return new Paragraph({ numbering: { reference, level: 0 }, spacing: { before }, children: [smartTextRun(text)] });
 }
-function htmlListItems(reference: string, items: string[], collect: any[]): Paragraph[] {
-  const out: Paragraph[] = [];
+function htmlListItems(reference: string, items: string[], collect: any[]): (Paragraph | Table)[] {
+  const out: (Paragraph | Table)[] = [];
   for (const html of items) {
     const parsed = parseHtml(html || "", undefined, { reference, level: 0 }, OA_LIST_GEOM);
     if (parsed.numbering.length) collect.push(...parsed.numbering);
@@ -187,14 +187,14 @@ function htmlListItems(reference: string, items: string[], collect: any[]): Para
 // headings whether or not Word would have restarted. The heading itself carries
 // its number as literal text (never a Word list), so it cannot collide with any
 // other numbering in the document, and sits one notch left of the ground text.
-function groundsBlocks(project: DraftoProject, style: OaStyle, numbering: any[]): Paragraph[] {
+function groundsBlocks(project: DraftoProject, style: OaStyle, numbering: any[]): (Paragraph | Table)[] {
   const headingStyle = getGroundsHeadingStyle(project);
   const entries = groundsSequence(project.grounds, headingStyle);
   // The number keeps the grounds' label column; the gap after it widens only if
   // a heading number needs the room.
   const anchor = SUB_LEFT - SUB_HANG;
   const hang = groundsHeadingHang(entries);
-  const out: Paragraph[] = [];
+  const out: (Paragraph | Table)[] = [];
   const newGroundsRef = (start = 1) => {
     const r = newRef();
     numbering.push(listDef(r, style, 5, start));
@@ -533,7 +533,7 @@ function buildMaChildren(project: DraftoProject, ma: OaMa, numbering: any[], opt
   // Every MA paragraph is one item of a single auto-numbered decimal list, built
   // as HTML so inline formatting (bold / italics / highlight) survives.
   const bodyRef = newRef(); numbering.push(decimalDef(bodyRef));
-  const maPara = (innerHtml: string): Paragraph[] => {
+  const maPara = (innerHtml: string): (Paragraph | Table)[] => {
     const parsed = parseHtml(`<p>${innerHtml}</p>`, { before: 120 }, { reference: bodyRef, level: 0 }, OA_LIST_GEOM);
     if (parsed.numbering.length) numbering.push(...parsed.numbering);
     return parsed.paragraphs;
@@ -612,7 +612,9 @@ function buildOaMemo(project: DraftoProject): Child[] {
 // ── Synopsis & List of Dates ─────────────────────────────────────────────────
 function buildOaSynopsisAndLod(project: DraftoProject, numbering: any[]): Child[] {
   const synopsis = parseHtml(project.synopsis || ""); numbering.push(...synopsis.numbering);
-  const lodRows = (project.listOfDates || []).map((lod) => { const ev = parseHtml(lod.event || "", tableSpacing); numbering.push(...ev.numbering); return new TableRow({ children: [
+  const validLods = (project.listOfDates || []).filter(isLodRowNonEmpty);
+  const effectiveLods = validLods.length > 0 ? validLods : (project.listOfDates?.length ? [project.listOfDates[0]] : []);
+  const lodRows = effectiveLods.map((lod) => { const ev = parseHtml(lod.event || "", tableSpacing); numbering.push(...ev.numbering); return new TableRow({ children: [
     new TableCell({ children: [new Paragraph({ text: lod.date || "", alignment: AlignmentType.CENTER, spacing: tableSpacing })], width: { size: 20, type: WidthType.PERCENTAGE }, verticalAlign: VerticalAlign.TOP, margins: cellMargins }),
     new TableCell({ children: ev.paragraphs.length ? ev.paragraphs : [new Paragraph("")], width: { size: 80, type: WidthType.PERCENTAGE }, verticalAlign: VerticalAlign.TOP, margins: cellMargins }),
   ] }); });

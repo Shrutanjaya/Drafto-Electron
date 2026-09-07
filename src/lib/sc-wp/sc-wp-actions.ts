@@ -10,9 +10,10 @@ import {
   createFiledByTable,
   createPartiesHeader,
   createWithTable,
+  isLodRowNonEmpty,
 } from "@/lib/docx-helpers";
 import { parseHtml, setDocxExportContext, type ListGeom } from "@/lib/html-to-docx";
-import { cascadeFor, type EnumStyle } from "@/lib/wp/wp-numbering";
+import { cascadeFor, enumLabel, type EnumStyle } from "@/lib/wp/wp-numbering";
 import type { WpNumbering } from "@/lib/wp/wp-settings";
 import {
   annexureRangeText,
@@ -229,7 +230,7 @@ export const createScWpHeader = (caseType: string) => {
         spacing: { line: 240, after: 240 },
         children: [
           smartTextRun({
-            text: "[S.C.R., Order XXXVIII, Rule 1(1)]",
+            text: "[S.C.R., Order XXXVIII Rule 1(1)]",
             size: headerSize,
           }),
         ],
@@ -829,7 +830,10 @@ export async function generateScWpSlodDocx(
   annexurePageRanges?: Map<string, { start: number; end: number }>
 ) {
   let allNumberingConfigs: any[] = [];
-  const lodEventParagraphs = (projectData.listOfDates || []).map(lod => {
+  const validLods = (projectData.listOfDates || []).filter(isLodRowNonEmpty);
+  const effectiveLods = validLods.length > 0 ? validLods : (projectData.listOfDates?.length ? [projectData.listOfDates[0]] : []);
+
+  const lodEventParagraphs = effectiveLods.map(lod => {
     const { paragraphs, numbering } = parseHtml(lod.event || "");
     if (numbering.length > 0) allNumberingConfigs.push(...numbering);
     return { lodId: lod.id, paragraphs };
@@ -842,7 +846,7 @@ export async function generateScWpSlodDocx(
     (v, i, a) => a.findIndex(t => t.reference === v.reference) === i
   );
 
-  const lodTableRows = (projectData.listOfDates || []).map((lod, lodIndex) => {
+  const lodTableRows = effectiveLods.map((lod, lodIndex) => {
     const eventParas = lodEventParagraphs[lodIndex]?.paragraphs || [];
     return new TableRow({
       children: [
@@ -991,7 +995,11 @@ export async function generateScWpPetitionDocx(
     new Paragraph({ indent: { left: 720 }, spacing: { line: 240, after: 0 }, children: [smartTextRun({ text: "The Hon'ble Chief Justice of India", italics: true })] }),
     new Paragraph({ indent: { left: 720 }, spacing: { line: 240, after: 0 }, children: [smartTextRun({ text: "And his Companion Justices of the", italics: true })] }),
     new Paragraph({ indent: { left: 720 }, spacing: { line: 240, after: Math.round(scWpF.afterPt * 20) }, children: [smartTextRun({ text: "Hon'ble Supreme Court of India", italics: true })] }),
-    new Paragraph({ spacing: { line: 240, after: Math.round(scWpF.afterPt * 20) }, children: [smartTextRun({ text: "The Petitioner most respectfully submits that:", bold: true })] }),
+    new Paragraph({
+      style: "Normal",
+      spacing: { line: Math.round(scWpF.lineSpacing * 240), after: Math.round(scWpF.afterPt * 20) },
+      children: [smartTextRun({ text: "The Petitioner most respectfully submits that:", bold: true })],
+    }),
   ];
 
   const scWpLayout = getScWpDraftingPreferences();
@@ -1071,6 +1079,8 @@ export async function generateScWpPetitionDocx(
   ];
 
 
+  const groundsHeadingStyle = getGroundsHeadingStyle(projectData);
+
   // ── PIL: Paras 2-6 ──────────────────────────────────────────────────────
   // A public interest petition must disclose who is bringing it, what public
   // injury it alleges, and that the petitioner has no personal stake. These sit
@@ -1079,61 +1089,147 @@ export async function generateScWpPetitionDocx(
   const pilParagraphs: (Paragraph | Table)[] = [];
   if (isPilDoc) {
     const pilPetitioners = (projectData.petitioners || []).filter(p => (p.name || "").trim() !== "");
-    const pilCell = (text: string, bold = false) => new TableCell({
-      children: [new Paragraph({ children: [smartTextRun({ text, bold, size: pilSize })], spacing: { line: 240, after: 0 } })],
-      margins: defaultCellMargins,
-      verticalAlign: VerticalAlign.CENTER,
+    const effectivePetitioners = pilPetitioners.length > 0 ? pilPetitioners : (projectData.petitioners?.length ? [projectData.petitioners[0]] : [{} as any]);
+    const isMultiple = effectivePetitioners.length > 1;
+
+    const pilItemsForPetitioner = (p: any) => [
+      { label: "Name", value: (p.name || "").trim() || "____" },
+      { label: "Postal Address", value: (p.address || "").trim() || "____" },
+      { label: "Phone Number", value: (p.phone || "").trim() || "____" },
+      { label: "Aadhaar Number", value: (p.aadhaar || "").trim() || "____" },
+      { label: "Occupation", value: (p.occupation || "").trim() || "____" },
+      { label: "Annual Income", value: (p.annualIncome || "").trim() || "____" },
+      { label: "PAN Number", value: (p.pan || "").trim() || "____" },
+      { label: "CIN Number", value: (p.cin || "").trim() || "N/A" },
+      { label: "Email ID", value: (p.email || "").trim() || "____" },
+    ];
+
+    const pilRows: TableRow[] = [];
+    effectivePetitioners.forEach((p: any, pIndex: number) => {
+      if (isMultiple) {
+        pilRows.push(
+          new TableRow({
+            children: [
+              new TableCell({
+                columnSpan: 2,
+                borders: noBorders,
+                children: [
+                  new Paragraph({
+                    style: "Normal",
+                    spacing: { before: pIndex === 0 ? 0 : 240, after: 120 },
+                    indent: { left: 720, hanging: 720 },
+                    children: groundsHeadingRuns(
+                      `${enumLabel(pIndex, "upper-roman")}.`,
+                      `Petitioner No. ${pIndex + 1}${p.name ? `: ${p.name}` : ""}`,
+                      groundsHeadingStyle,
+                    ),
+                  }),
+                ],
+              }),
+            ],
+          })
+        );
+      }
+
+      const items = pilItemsForPetitioner(p);
+      items.forEach((item, fIndex) => {
+        pilRows.push(
+          new TableRow({
+            children: [
+              new TableCell({
+                children: [new Paragraph({ text: `${String.fromCharCode(97 + fIndex)}.`, style: "Normal" })],
+                borders: noBorders,
+                width: { size: 8, type: WidthType.PERCENTAGE },
+              }),
+              new TableCell({
+                children: [
+                  new Paragraph({
+                    style: "Normal",
+                    children: [
+                      smartTextRun({ text: `${item.label}: `, bold: true, size: pilSize }),
+                      smartTextRun({ text: item.value, size: pilSize }),
+                    ],
+                  }),
+                ],
+                borders: noBorders,
+                width: { size: 92, type: WidthType.PERCENTAGE },
+              }),
+            ],
+          })
+        );
+      });
     });
-    const pilHeadings = ["Name", "Postal Address", "Phone Number", "Aadhaar Number", "Occupation", "Annual Income", "PAN Number", "CIN Number", "Email ID"];
+
     const pilParticularsTable = new Table({
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      rows: [
-        new TableRow({ tableHeader: true, children: pilHeadings.map(h => pilCell(h, true)) }),
-        ...(pilPetitioners.length ? pilPetitioners : [{} as any]).map(p => new TableRow({
-          children: [
-            pilCell(p.name || ""),
-            pilCell(p.address || ""),
-            pilCell(p.phone || ""),
-            pilCell(p.aadhaar || ""),
-            pilCell(p.occupation || ""),
-            pilCell(p.annualIncome || ""),
-            pilCell(p.pan || ""),
-            pilCell(p.cin || ""),
-            pilCell(p.email || ""),
-          ],
-        })),
-      ],
+      width: { size: 91.66, type: WidthType.PERCENTAGE },
+      columnWidths: [800, 9200],
+      rows: pilRows,
+      borders: noBorders,
+      indent: { size: 720, type: WidthType.DXA },
     });
 
     const injuryHtml = (projectData.pil?.injuryToPublic || "").replace(/<[^>]+>/g, "").trim();
 
     pilParagraphs.push(
       new Paragraph({
-        children: [smartTextRun({ text: "The particulars of the Petitioners are given below:", size: pilSize })],
+        children: [
+          smartTextRun({
+            text: isMultiple
+              ? "The particulars of the Petitioners are given below:"
+              : "The particulars of the Petitioner are given below:",
+            size: pilSize,
+          }),
+        ],
         numbering: { reference: "scwp-para-2", level: 0 },
       }),
       pilParticularsTable,
       new Paragraph({
-        children: [smartTextRun({ text: `Nature of injury caused or likely to be caused to the public: ${injuryHtml || "____"}.`, size: pilSize })],
+        children: [
+          smartTextRun({ text: "Nature of injury caused or likely to be caused to the public: ", bold: true, size: pilSize }),
+          smartTextRun({ text: injuryHtml ? (injuryHtml.match(/[.!?]$/) ? injuryHtml : `${injuryHtml}.`) : "____.", size: pilSize }),
+        ],
         numbering: { reference: "scwp-para-3", level: 0 },
       }),
       new Paragraph({
-        children: [smartTextRun({ text: "Nature and extent of Personal interest, if any, of the Petitioners:  The Petitioner declares that he has no personal interest in the present matter, and this petition is geared solely towards public interest.", size: pilSize })],
+        children: [
+          smartTextRun({ text: "Nature and extent of Personal interest, if any, of the Petitioners: ", bold: true, size: pilSize }),
+          smartTextRun({
+            text: isMultiple
+              ? "The Petitioners declare that they have no personal interest in the present matter, and this petition is geared solely towards public interest."
+              : "The Petitioner declares that he has no personal interest in the present matter, and this petition is geared solely towards public interest.",
+            size: pilSize,
+          }),
+        ],
         numbering: { reference: "scwp-para-4", level: 0 },
       }),
       new Paragraph({
-        children: [smartTextRun({ text: "Details of Litigation: The Petitioner is not involved in any civil, criminal, or revenue litigation that has or could have a legal connection to the issues addressed in this Public Interest Litigation.", size: pilSize })],
+        children: [
+          smartTextRun({ text: "Details of Litigation: ", bold: true, size: pilSize }),
+          smartTextRun({
+            text: isMultiple
+              ? "The Petitioners are not involved in any civil, criminal, or revenue litigation that has or could have a legal connection to the issues addressed in this Public Interest Litigation."
+              : "The Petitioner is not involved in any civil, criminal, or revenue litigation that has or could have a legal connection to the issues addressed in this Public Interest Litigation.",
+            size: pilSize,
+          }),
+        ],
         numbering: { reference: "scwp-para-5", level: 0 },
       }),
       new Paragraph({
-        children: [smartTextRun({ text: "No personal gain, private motive, or oblique reasons in PIL: The Petitioner declares that he has no personal gain, private motive or oblique reasons in filing this PIL.", size: pilSize })],
+        children: [
+          smartTextRun({ text: "No personal gain, private motive, or oblique reasons in PIL: ", bold: true, size: pilSize }),
+          smartTextRun({
+            text: isMultiple
+              ? "The Petitioners declare that they have no personal gain, private motive or oblique reasons in filing this PIL."
+              : "The Petitioner declares that he has no personal gain, private motive or oblique reasons in filing this PIL.",
+            size: pilSize,
+          }),
+        ],
         numbering: { reference: "scwp-para-6", level: 0 },
       }),
     );
   }
 
   // 7. Para 3: GROUNDS
-  const groundsHeadingStyle = getGroundsHeadingStyle(projectData);
   const groundsEntries = groundsSequence(projectData.grounds, groundsHeadingStyle);
   const groundsHang = groundsHeadingHang(groundsEntries);
 
@@ -1366,7 +1462,7 @@ export async function generateScWpAffidavitsDocx(projectData: DraftoProject) {
       numbering: { reference: "scwp-affidavit-numbering", level: 0 },
     }),
     new Paragraph({
-      text: `I have read and understood the contents of the accompanying Writ Petition including Synopsis and List of Dates from Page B to Page ___ and Writ Petition at Paragraphs 1 to 8, and the contents of all accompanying applications/ IAs. I say that the contents thereof are true and correct to the best of my knowledge and belief.`,
+      text: `I have read and understood the contents of the accompanying ${isPil(projectData.courtType) ? "Writ Petition (PIL)" : "Writ Petition"} including Synopsis and List of Dates from Page B to Page ___ and ${isPil(projectData.courtType) ? "Writ Petition (PIL)" : "Writ Petition"} at Paragraphs 1 to 8, and the contents of all accompanying applications/ IAs. I say that the contents thereof are true and correct to the best of my knowledge and belief.`,
       numbering: { reference: "scwp-affidavit-numbering", level: 0 },
     }),
     new Paragraph({
@@ -1598,8 +1694,10 @@ export async function generateScWpIaDocx(
     return parts;
   };
 
+  const isPilDoc = isPil(projectData.courtType);
+  const wpDocNoun = isPilDoc ? "Writ Petition (PIL)" : "Writ Petition";
   const openingParagraph = new Paragraph({
-    text: convertToSmartQuotes("The accompanying Writ Petition has been filed under Article 32 of the Constitution of India. The contents of the Writ Petition may kindly be treated as part and parcel of this application and are not being repeated herein for the sake of brevity."),
+    text: convertToSmartQuotes(`The accompanying ${wpDocNoun} has been filed under Article 32 of the Constitution of India. The contents of the ${wpDocNoun} may kindly be treated as part and parcel of this application and are not being repeated herein for the sake of brevity.`),
     numbering: nextNumbering(),
   });
 

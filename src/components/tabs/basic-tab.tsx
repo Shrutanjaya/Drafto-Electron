@@ -192,7 +192,7 @@ function ImpugnedOrderSentence({ index }: { index: number }) {
                 </FormItem>
               )}
             />
-            SLP
+            {isAppeal(form.watch("courtType")) ? "Appeal" : "SLP"}
           </>
         ) : "And"} against the Impugned
         <FormField
@@ -494,6 +494,18 @@ export function BasicTab() {
                           </FormItem>
                         )}
                       />
+                      {(() => {
+                        const sel = appealProvisionsFor(caseType).find(p => p.id === appealProvision);
+                        if (!sel) return null;
+                        return (
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground pt-0.5">
+                            <span>Limitation: <strong className="text-foreground">{sel.limitationDays} days</strong> {sel.fromTrigger ? `(${sel.fromTrigger})` : ""}</span>
+                            {sel.maxCondonableDays != null && (
+                              <span>• Max condonable delay: <strong className="text-amber-700 dark:text-amber-400">{sel.maxCondonableDays} days</strong></span>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {/* Only the "Other" choice needs a box to type in; the
                           presets already carry their full wording. */}
                       {appealProvision === APPEAL_PROVISION_OTHER && (

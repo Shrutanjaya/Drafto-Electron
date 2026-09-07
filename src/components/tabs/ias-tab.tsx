@@ -37,6 +37,7 @@ import { annexurePrefix, isAppeal } from "@/lib/court-family";
 import {
   getIaCommonOpening,
   IA_COMMON_CLOSING,
+  getIaCommonClosing,
   IA_PRAYER_LEAD,
   IA_PRAYER_TAIL,
   getIaLeadIn,
@@ -238,7 +239,14 @@ function CustomIaListRow({
 // ─── Main component ───────────────────────────────────────────────────────────
 export function IasTab() {
   const form = useFormContext<DraftoProject>();
-  const { delay } = useCalculatedValues();
+  const {
+    delay,
+    limitationDays,
+    maxCondonableDays,
+    hasOuterLimit,
+    provisionName,
+    isBeyondMaxDelay,
+  } = useCalculatedValues();
 
   const { fields: customIaFields, append: appendCustomIa, remove: removeCustomIa } = useFieldArray({
     control: form.control,
@@ -268,7 +276,10 @@ export function IasTab() {
   const isCriminal = caseType === "Criminal";
   const isAppealProject = isAppeal(iasCourtType);
   // Previews name the document they accompany, matching the generator.
+  const iaDocShort = isAppealProject ? "Appeal" : "SLP";
   const iaDocLong = isAppealProject ? "Appeal" : "Special Leave Petition";
+  const partyNoun = isAppealProject ? "Appellant" : "Petitioner";
+  const commonClosing = getIaCommonClosing(partyNoun);
   const suspensionActive = useWatch({ control: form.control, name: "standardIas.suspensionOfSentence.active" });
 
   // Delay IA is "ready" (green) only once the user has supplied at least one
@@ -405,7 +416,7 @@ export function IasTab() {
   }, [listOfDates, annexureNumberingMap]);
 
   const ccReceiptDateStr = ccReceiptDate ? format(new Date(ccReceiptDate as any), "dd.MM.yyyy") : "";
-  const ccOpts: IaPreviewOpts = { ccApplied: hasAppliedForCC as any, ccReceiptDate: ccReceiptDateStr, ccReason: ccReason as string, io: ioText };
+  const ccOpts: IaPreviewOpts = { ccApplied: hasAppliedForCC as any, ccReceiptDate: ccReceiptDateStr, ccReason: ccReason as string, io: ioText, docNoun: iaDocShort, partyNoun };
 
   return (
     <TooltipProvider>
@@ -485,13 +496,47 @@ export function IasTab() {
               {selectedId === "delay" && (
                 <div className="space-y-3">
                   <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{`Application for condonation of delay of ${delay > 0 ? delay : "__"} days in filing the ${isAppealProject ? "Appeal" : "SLP"}`}</h4>
+
+                  {isAppealProject && (
+                    <div className="rounded-md border p-2.5 text-xs space-y-1.5 bg-muted/40 dark:bg-muted/20">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-foreground">
+                          {provisionName}
+                        </span>
+                        <span className="text-[11px] font-medium text-muted-foreground">
+                          Limitation: {limitationDays} days
+                        </span>
+                      </div>
+                      {hasOuterLimit && (
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          <span className="font-medium text-amber-700 dark:text-amber-400">
+                            Outer Limit:
+                          </span>
+                          <span className="text-muted-foreground">
+                            The maximum delay that can be condoned under this statute is <strong>{maxCondonableDays} days</strong>.
+                          </span>
+                        </div>
+                      )}
+                      {isBeyondMaxDelay && (
+                        <div className="mt-1.5 rounded border border-destructive/50 bg-destructive/10 p-2 text-destructive dark:text-red-400">
+                          <p className="font-semibold flex items-center gap-1">
+                            ⚠️ Delay Exceeds Statutory Outer Limit
+                          </p>
+                          <p className="mt-0.5 text-[11px]">
+                            The calculated delay of <strong>{delay} days</strong> exceeds the maximum condonable delay of <strong>{maxCondonableDays} days</strong> prescribed under this law. Under settled Supreme Court precedent, delay beyond this outer limit cannot be condoned under Section 5 of the Limitation Act.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {delay <= 0 && (
                     <p className="text-xs text-muted-foreground italic">Since there is no delay, this IA won't be included.</p>
                   )}
-                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("condonationOfDelay", { delayDays: delay > 0 ? delay : "__" })]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("condonationOfDelay", { delayDays: delay > 0 ? delay : "__", docNoun: iaDocShort, partyNoun })]} />
                   <IaGroundTable name="standardIas.condonationOfDelay.grounds" />
-                  <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
-                  <StandardPrayerBlock id="condonationOfDelay" num={5} opts={{ delayDays: delay > 0 ? delay : "__", io: ioText, docNoun: isAppealProject ? "Appeal" : "SLP" }} />
+                  <StandardBlock startNum={3} paras={commonClosing} />
+                  <StandardPrayerBlock id="condonationOfDelay" num={5} opts={{ delayDays: delay > 0 ? delay : "__", io: ioText, docNoun: iaDocShort, partyNoun }} />
                 </div>
               )}
 
@@ -562,8 +607,8 @@ export function IasTab() {
                   </div>
                   <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong)]} />
                   <StandardBlock startNum={2} paras={[getIaLeadIn("exemptionCertifiedCopy", ccOpts)]} />
-                  <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
-                  <StandardPrayerBlock id="exemptionCertifiedCopy" num={5} opts={{ io: ioText }} />
+                  <StandardBlock startNum={3} paras={commonClosing} />
+                  <StandardPrayerBlock id="exemptionCertifiedCopy" num={5} opts={{ io: ioText, partyNoun }} />
                 </div>
               )}
 
@@ -583,10 +628,10 @@ export function IasTab() {
                       )}
                     />
                   </div>
-                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("exemptionFromSurrendering", { io: ioText })]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("exemptionFromSurrendering", { io: ioText, docNoun: iaDocShort, partyNoun })]} />
                   <IaGroundTable name="standardIas.exemptionFromSurrendering.grounds" />
-                  <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
-                  <StandardPrayerBlock id="exemptionFromSurrendering" num={5} opts={{ io: ioText }} />
+                  <StandardBlock startNum={3} paras={commonClosing} />
+                  <StandardPrayerBlock id="exemptionFromSurrendering" num={5} opts={{ io: ioText, partyNoun }} />
                 </div>
               )}
 
@@ -606,10 +651,10 @@ export function IasTab() {
                       )}
                     />
                   </div>
-                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("suspensionOfSentence", { io: ioText })]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("suspensionOfSentence", { io: ioText, docNoun: iaDocShort, partyNoun })]} />
                   <IaGroundTable name="standardIas.suspensionOfSentence.grounds" />
-                  <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
-                  <StandardPrayerBlock id="suspensionOfSentence" num={5} opts={{ io: ioText }} />
+                  <StandardBlock startNum={3} paras={commonClosing} />
+                  <StandardPrayerBlock id="suspensionOfSentence" num={5} opts={{ io: ioText, partyNoun }} />
                 </div>
               )}
 
@@ -628,9 +673,9 @@ export function IasTab() {
                       </FormItem>
                     )}
                   />
-                  <StandardBlock startNum={2} paras={[getIaLeadIn("exemptionOfficialTranslation", { annexureList: otReason as string, otUserReason: otUserReason as string })]} />
-                  <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
-                  <StandardPrayerBlock id="exemptionOfficialTranslation" num={5} opts={{ annexureList: otReason as string }} />
+                  <StandardBlock startNum={2} paras={[getIaLeadIn("exemptionOfficialTranslation", { annexureList: otReason as string, otUserReason: otUserReason as string, partyNoun })]} />
+                  <StandardBlock startNum={3} paras={commonClosing} />
+                  <StandardPrayerBlock id="exemptionOfficialTranslation" num={5} opts={{ annexureList: otReason as string, partyNoun }} />
                 </div>
               )}
 
@@ -643,7 +688,7 @@ export function IasTab() {
                       ? `Auto-included because ${adCount} document${adCount !== 1 ? "s are" : " is"} marked as Additional Document(s) in the List of Dates.`
                       : "This IA is included automatically only when an annexure is marked as an Additional Document (AD). None are at present, so it won't be included."}
                   </p>
-                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("additionalDocuments")]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("additionalDocuments", { docNoun: iaDocShort, partyNoun })]} />
                   {/* Live list of additional documents (lettered, gray) — exactly what the docx inserts here. */}
                   <div className="pl-4 space-y-1">
                     {adAnnexureEntries.length > 0 ? (
@@ -657,8 +702,8 @@ export function IasTab() {
                     )}
                   </div>
                   <AamTable name="standardIas.additionalDocumentsGrounds" defaultRows={3} labelMode="numeric" numericStart={3} />
-                  <StandardBlock startNum={3 + adGroundsCount} paras={IA_COMMON_CLOSING} />
-                  <StandardPrayerBlock id="additionalDocuments" num={5 + adGroundsCount} opts={{ adRange }} />
+                  <StandardBlock startNum={3 + adGroundsCount} paras={commonClosing} />
+                  <StandardPrayerBlock id="additionalDocuments" num={5 + adGroundsCount} opts={{ adRange, partyNoun }} />
                 </div>
               )}
 
@@ -684,7 +729,7 @@ export function IasTab() {
                   {/* Para 2: fixed lead sentence + user-fillable text (reproduced verbatim in the docx). */}
                   <div className="space-y-1">
                     <p className={STD_TEXT}>
-                      <span className="font-medium mr-1">2.</span>{CUSTOM_IA_PARA2_LEAD}
+                      <span className="font-medium mr-1">2.</span>The present application is being filed by the {partyNoun}(s)
                     </p>
                     <FormField
                       control={form.control}
@@ -700,7 +745,7 @@ export function IasTab() {
                   </div>
                   <StandardBlock startNum={3} paras={[getIaLeadIn("custom")]} />
                   <IaGroundTable name={`customIas.${index}.grounds`} />
-                  <StandardBlock startNum={4} paras={IA_COMMON_CLOSING} />
+                  <StandardBlock startNum={4} paras={commonClosing} />
                   <StandardBlock startNum={6} paras={[IA_PRAYER_LEAD]} />
                   <AamTable name={`customIas.${index}.prayers`} />
                 </div>

@@ -18,6 +18,7 @@ import { appendixHasContent } from "@/lib/appendix";
 import { DeclarationsDialog, DeclarationsContent } from "@/components/dialogs/declarations-dialog";
 import { InterimReliefDialog, InterimReliefContent } from "@/components/dialogs/interim-relief-dialog";
 import { QuestionsOfLawDialog } from "@/components/dialogs/questions-of-law-dialog";
+import { SectionDialog } from "@/components/custom/section-dialog";
 import { EditorToolbar } from "../custom/editor-toolbar";
 import { EditorProvider } from "@/components/custom/editor-provider";
 import { BadhiyaBox } from "../custom/badhiya-box";
@@ -308,6 +309,18 @@ export function SlpTab() {
     <EditorProvider>
       <div className="flex flex-col h-[calc(100vh-160px)]">
         <div className="flex items-center gap-1 mb-1">
+          {isAppealProject && (
+            <SectionDialog
+              label="Facts"
+              title="Facts"
+              active={factsActive}
+              className="h-8 text-xs font-normal"
+            >
+              <div className="h-[60vh] min-h-[300px]">
+                {factsEditor}
+              </div>
+            </SectionDialog>
+          )}
           <QuestionsOfLawDialog />
           {!isAppealProject && <InterimReliefDialog />}
           {!isAppealProject && <DeclarationsDialog />}

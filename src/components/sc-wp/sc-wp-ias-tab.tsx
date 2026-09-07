@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures";
+import { isPil } from "@/lib/court-family";
 import {
   IA_COMMON_CLOSING,
   IA_PRAYER_LEAD,
@@ -44,7 +45,8 @@ import {
   CUSTOM_IA_PARA2_LEAD,
 } from "@/lib/ia-preview";
 
-const SC_WP_IA_OPENING = "The accompanying Writ Petition has been filed under Article 32 of the Constitution of India. The contents of the Writ Petition may kindly be treated as part and parcel of this application and are not being repeated herein for the sake of brevity.";
+const getScWpIaOpening = (docNoun: string = "Writ Petition") =>
+  `The accompanying ${docNoun} has been filed under Article 32 of the Constitution of India. The contents of the ${docNoun} may kindly be treated as part and parcel of this application and are not being repeated herein for the sake of brevity.`;
 
 const STD_TEXT = "text-xs leading-relaxed text-neutral-500 dark:text-neutral-400";
 
@@ -176,6 +178,9 @@ export function ScWpIasTab() {
   const otActive = useWatch({ control: form.control, name: "standardIas.exemptionOfficialTranslation.active" });
   const otReason = useWatch({ control: form.control, name: "standardIas.exemptionOfficialTranslation.reason" });
   const otUserReason = useWatch({ control: form.control, name: "standardIas.exemptionOfficialTranslation.userReason" });
+  const scWpCourtType = useWatch({ control: form.control, name: "courtType" });
+  const isPilProject = isPil(scWpCourtType);
+  const wpDocNoun = isPilProject ? "Writ Petition (PIL)" : "Writ Petition";
 
   // Auto-sync official translation active and reason based on translated copies in LoD
   useEffect(() => {
@@ -295,7 +300,7 @@ export function ScWpIasTab() {
                     />
                   </div>
 
-                  <StandardBlock startNum={1} paras={[SC_WP_IA_OPENING]} />
+                  <StandardBlock startNum={1} paras={[getScWpIaOpening(wpDocNoun)]} />
 
                   <FormField
                     control={form.control}
@@ -344,7 +349,7 @@ export function ScWpIasTab() {
                       </FormItem>
                     )}
                   />
-                  <StandardBlock startNum={1} paras={[SC_WP_IA_OPENING]} />
+                  <StandardBlock startNum={1} paras={[getScWpIaOpening(wpDocNoun)]} />
                   <div className="space-y-1">
                     <p className={STD_TEXT}>
                       <span className="font-medium mr-1">2.</span>{CUSTOM_IA_PARA2_LEAD}

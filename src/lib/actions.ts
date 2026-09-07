@@ -1,6 +1,6 @@
 
 import { Packer } from "docx";
-import { createSlpHeader, createPartiesHeader, createWithTable, getPartyHeader, createAnnexureText, createIaAnnexureText, createFiledByTable, createIaHeader, base64ToBuffer, convertToSmartQuotes, smartTextRun } from "@/lib/docx-helpers";
+import { createSlpHeader, createPartiesHeader, createWithTable, getPartyHeader, createAnnexureText, createIaAnnexureText, createFiledByTable, createIaHeader, base64ToBuffer, convertToSmartQuotes, smartTextRun, isLodRowNonEmpty } from "@/lib/docx-helpers";
 import type { DraftoProject, Annexure } from "@/lib/schema";
 import { Document, AlignmentType, Paragraph, TextRun, PageBreak, Table, TableCell, TableRow, WidthType, VerticalAlign, Header, Footer, PageNumber, SectionType, ISectionOptions, BorderStyle, CheckBox, FrameAnchorType, HorizontalPositionAlign, VerticalPositionAlign } from "docx";
 import { differenceInDays, format } from "date-fns";
@@ -40,9 +40,10 @@ import {
   applyScWpFactsCascade,
 } from "@/lib/sc-wp/sc-wp-actions";
 import { isScWpFamily, isAppeal, annexurePrefix } from "@/lib/court-family";
-import { appealProvisionText, appealTitle, appealOrderRule } from "@/lib/appeal/appeal-provisions";
+import { appealProvisionText, appealTitle, appealOrderRule, getAppealLimitation } from "@/lib/appeal/appeal-provisions";
 import { resolveFactsHtml } from "@/lib/wp/facts-mode";
 import { transposeLodToFacts, injectAnnexurePageRangesIntoFacts } from "@/lib/wp/wp-facts";
+import { getOfficialCourtName } from "@/lib/court-names";
 
 
 // The fourth argument to createSlpHeader, set only for the statutory appeal.
@@ -58,7 +59,7 @@ const mainDocumentParticular = (projectData: DraftoProject) =>
     : "Special Leave Petition with Certificate and Affidavit";
 
 const appealHeaderArg = (projectData: DraftoProject) =>
-  isAppeal(projectData.courtType) ? { provision: appealProvisionText(projectData) } : undefined;
+  isAppeal(projectData.courtType) ? { provision: appealProvisionText(projectData), provisionId: projectData.appealProvision } : undefined;
 
 const calculateIoText = (projectData: DraftoProject) => {
     if (!projectData.impugnedOrders || projectData.impugnedOrders.length === 0) {
@@ -69,7 +70,7 @@ const calculateIoText = (projectData: DraftoProject) => {
 
     return sortedOrders
       .map(order => {
-        const courtName = order.court === 'Other' ? order.customCourt : order.court;
+        const courtName = getOfficialCourtName(order.court, order.customCourt);
         const orderDate = order.date ? format(new Date(order.date), "dd.MM.yyyy") : '[date]';
         return `the Impugned ${order.type} dated ${orderDate} passed by the ${courtName || '[Court]'} in ${order.caseNumber || '[Case No.]'}`;
       })
@@ -96,7 +97,7 @@ const calculateIoActionText = (projectData: DraftoProject) => {
     const byWhich = sortedOrders.length === 1 ? ', by which ' : ' by which ';
 
     const clauses = sortedOrders.map(order => {
-        const courtName = order.court === 'Other' ? order.customCourt : order.court;
+        const courtName = getOfficialCourtName(order.court, order.customCourt);
         const orderDate = order.date ? format(new Date(order.date), "dd.MM.yyyy") : '[date]';
         const desc = `the Impugned ${order.type} dated ${orderDate} passed by the ${courtName || '[Court]'} in ${order.caseNumber || '[Case No.]'}`;
         const effect = (order.effect || '').trim().replace(/[.;,]+$/, '');
@@ -792,7 +793,13 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
     });
 
     const daysDifference = differenceInDays(new Date(projectData.advocate.filingDate), new Date(latestOrder.date));
-    const calculatedDelay = daysDifference - 90;
+    const lim = getAppealLimitation(
+      projectData.courtType,
+      projectData.caseType,
+      projectData.appeal?.provision,
+      projectData.appeal?.provisionCustom
+    );
+    const calculatedDelay = daysDifference - lim.limitationDays;
     projectData.standardIas.condonationOfDelay.delayDays = Math.max(0, calculatedDelay);
   }
 
@@ -818,7 +825,7 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
       const sortedOrders = [...projectData.impugnedOrders].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
       sortedOrders.forEach(order => {
-          const courtName = order.court === 'Other' ? order.customCourt : order.court;
+          const courtName = getOfficialCourtName(order.court, order.customCourt);
           const orderDate = order.date ? format(new Date(order.date), "dd.MM.yyyy") : '[date]';
           const singleIoText = `the Impugned ${order.type || '[Order Type]'}`;
           particularsList.push(`Impugned ${order.type || '[Order Type]'}: True copy of ${singleIoText} dated ${orderDate} passed by the ${courtName || '[Court]'} in ${order.caseNumber || '[Case No.]'}`);
@@ -1263,14 +1270,17 @@ export async function generateLpDocx(projectData: DraftoProject, includeSignatur
 }
 
 export async function generateSlodDocx(projectData: DraftoProject, annexurePageRanges?: Map<string, {start: number, end: number}>) {
-    const allAnnexures: (Annexure & { lodId: string })[] = (projectData.listOfDates || []).flatMap(lod => (lod.annexures || []).map(a => ({ ...a, lodId: lod.id })));
+    const validLods = (projectData.listOfDates || []).filter(isLodRowNonEmpty);
+    const effectiveLods = validLods.length > 0 ? validLods : (projectData.listOfDates?.length ? [projectData.listOfDates[0]] : []);
+
+    const allAnnexures: (Annexure & { lodId: string })[] = effectiveLods.flatMap(lod => (lod.annexures || []).map(a => ({ ...a, lodId: lod.id })));
     const nonAdAnnexures = allAnnexures.filter(annex => !annex.isAdditionalDocument);
     const annexureNumberingMap = new Map<string, number>();
     let pCounter = 1;
     nonAdAnnexures.forEach(annex => annexureNumberingMap.set(annex.id, pCounter++));
 
     let allNumberingConfigs: any[] = [];
-    const lodEventParagraphs = projectData.listOfDates.map(lod => {
+    const lodEventParagraphs = effectiveLods.map(lod => {
         const { paragraphs, numbering } = parseHtml(lod.event);
         if (numbering.length > 0) {
             allNumberingConfigs.push(...numbering);
@@ -1327,7 +1337,7 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
     };
 
 
-    const lodTableRows = projectData.listOfDates.flatMap((lod, lodIndex) => {
+    const lodTableRows = effectiveLods.flatMap((lod, lodIndex) => {
         // The Appeal states its annexures in the Facts section instead, so its
         // List of Dates carries the events alone — the same split the SC WP
         // tool uses. Everything else about the table is unchanged.
@@ -1555,7 +1565,7 @@ export async function generateSlpDocx(
     if (isCommonOrder) {
         const currentYear = new Date().getFullYear();
         const mainOrder = projectData.impugnedOrders?.[0];
-        const courtName = mainOrder?.court === 'Other' ? mainOrder?.customCourt : mainOrder?.court;
+        const courtName = getOfficialCourtName(mainOrder?.court, mainOrder?.customCourt);
         const orderDate = mainOrder?.date ? format(new Date(mainOrder.date), "dd.MM.yyyy") : '[date]';
 
         // Title block: IN THE SUPREME COURT OF INDIA + jurisdiction (shown once).
@@ -1571,7 +1581,7 @@ export async function generateSlpDocx(
                 ? [
                     centeredTitle("IN THE SUPREME COURT OF INDIA"),
                     centeredTitle(isAppealDoc
-                        ? `[S.C.R., ${appealOrderRule(projectData.caseType)}]`
+                        ? `[S.C.R., ${appealOrderRule(projectData.caseType, projectData.appealProvision)}]`
                         : projectData.caseType === 'Criminal'
                             ? "[S.C.R., Order XXII Rule 2(1)]"
                             : "[S.C.R., Order XXI Rule 3(1)(a)]"),
@@ -2290,6 +2300,8 @@ export async function generateIaDocx(
     // itself an Appeal throughout; an SLP keeps the wording it has always had.
     const iaDocShort = isAppeal(projectData.courtType) ? 'Appeal' : 'SLP';
     const iaDocLong = isAppeal(projectData.courtType) ? 'Appeal' : 'Special Leave Petition';
+    const partyNoun = isAppeal(projectData.courtType) ? 'Appellant' : 'Petitioner';
+    const partyNounPlural = `${partyNoun}(s)`;
 
     // Paragraph 1 of every IA. Built here, ahead of the IA-specific paragraphs
     // below, because the numbering has to be handed out in document order.
@@ -2347,7 +2359,7 @@ export async function generateIaDocx(
                                 new TableCell({
                                     children: [new Paragraph({ text: `${getAlphabeticalLabel(index)}.`, style: "Normal" })],
                                     borders: noBorders, width: { size: 10, type: WidthType.PERCENTAGE },
-                                }),
+                                    }),
                                 new TableCell({ children: paragraphs, borders: noBorders, width: { size: 90, type: WidthType.PERCENTAGE } }),
                             ],
                         });
@@ -2371,18 +2383,18 @@ export async function generateIaDocx(
                 break;
             case "exemptionCertifiedCopy":
                 iaTitle = standardIaList.find(ia => ia.id === iaIdentifier)?.title || iaTitle;
-                customPrayer = `Grant exemption to the Petitioner(s) from filing certified copy of${ioText}; and`;
+                customPrayer = `Grant exemption to the ${partyNounPlural} from filing certified copy of${ioText}; and`;
                 prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
                 
                 let certParaText = `This application seeks exemption from filing certified copy of${ioText}. `;
                 if (projectData.standardIas.exemptionCertifiedCopy.hasApplied === 'yes') {
                     const receiptDate = projectData.standardIas.exemptionCertifiedCopy.receiptDate;
                     const formattedDate = receiptDate ? format(new Date(receiptDate), "dd.MM.yyyy") : '[date]';
-                    certParaText += `It is most respectfully submitted that the Petitioner(s) have applied for a certified copy of${ioText}. Annexure-A is a true copy of the Receipt dated ${formattedDate} reflecting the application for certified copy made by/on behalf of the Petitioner(s). `;
+                    certParaText += `It is most respectfully submitted that the ${partyNounPlural} have applied for a certified copy of${ioText}. Annexure-A is a true copy of the Receipt dated ${formattedDate} reflecting the application for certified copy made by/on behalf of the ${partyNounPlural}. `;
                 } else {
-                    certParaText += `It is most respectfully submitted that the Petitioner(s) have not been able to apply for a certified copy of${ioText}. ${projectData.standardIas.exemptionCertifiedCopy.reasonForNotApplying || ''} `;
+                    certParaText += `It is most respectfully submitted that the ${partyNounPlural} have not been able to apply for a certified copy of${ioText}. ${projectData.standardIas.exemptionCertifiedCopy.reasonForNotApplying || ''} `;
                 }
-                certParaText += "In the circumstances, it is prayed that an exemption from filing the certified copy may be granted. The Petitioner(s) undertake(s) to produce the certified copy as and when made available to the Petitioner(s) and/or directed by this Hon'ble Court.";
+                certParaText += `In the circumstances, it is prayed that an exemption from filing the certified copy may be granted. The ${partyNounPlural} undertake(s) to produce the certified copy as and when made available to the ${partyNounPlural} and/or directed by this Hon'ble Court.`;
                 
                 customTextParagraphs = [new Paragraph({ children: [smartTextRun(certParaText)], numbering: nextNumbering() })];
                 break;
@@ -2407,7 +2419,7 @@ export async function generateIaDocx(
                          adRange = `Annexures ${annexurePrefix(projectData.courtType)}-${first} to ${annexurePrefix(projectData.courtType)}-${last}`;
                      }
                  }
-                 customPrayer = `Permit the Petitioner(s) to place on record the additional document(s) marked as ${adRange}; and`;
+                  customPrayer = `Permit the ${partyNounPlural} to place on record the additional document(s) marked as ${adRange}; and`;
                 prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
                 
                 const createAdAnnexureText = (pNumber: number, annex: Annexure): (TextRun | string)[] => {
@@ -2505,7 +2517,7 @@ export async function generateIaDocx(
                 }
 
                 iaTitle = `Application for exemption from filing Official Translation(s) of ${annexureList}`;
-                customPrayer = `Grant exemption to the Petitioner(s) from filing Official Translation(s) of ${annexureList}; and`;
+                customPrayer = `Grant exemption to the ${partyNounPlural} from filing Official Translation(s) of ${annexureList}; and`;
                 prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
                 const otUserReason = (projectData.standardIas.exemptionOfficialTranslation.userReason || '').trim();
                 const otBody = `This application seeks exemption from filing Official Translation(s) of ${annexureList}. ${otUserReason ? otUserReason + ' ' : ''}It is prayed that in view of the urgency and the facts and circumstances of this case, exemption from filing Official Translation(s) may be granted.`;
@@ -2513,7 +2525,7 @@ export async function generateIaDocx(
                 break;
             case "suspensionOfSentence":
                 iaTitle = standardIaList.find(ia => ia.id === iaIdentifier)?.title || iaTitle;
-                customPrayer = `Suspend the sentence imposed upon the Petitioner by${ioText} and direct the Petitioner to be released on bail during the pendency of the present Appeal; and`;
+                customPrayer = `Suspend the sentence imposed upon the ${partyNoun} by${ioText} and direct the ${partyNoun} to be released on bail during the pendency of the present Appeal; and`;
                 prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
                 const suspensionGrounds = projectData.standardIas.suspensionOfSentence?.grounds || [];
 
@@ -2564,7 +2576,7 @@ export async function generateIaDocx(
 
                 customTextParagraphs = [
                     new Paragraph({
-                        text: `The present application is filed by the Petitioner(s) under S.389 of the Code of Criminal Procedure, 1973 seeking suspension of sentence imposed on them by${ioText}.`,
+                        text: `The present application is filed by the ${partyNounPlural} under S.389 of the Code of Criminal Procedure, 1973 seeking suspension of sentence imposed on them by${ioText}.`,
                         numbering: nextNumbering(),
                     }),
                     suspensionGroundsTable
@@ -2573,7 +2585,7 @@ export async function generateIaDocx(
                 break;
             case "exemptionFromSurrendering":
                 iaTitle = standardIaList.find(ia => ia.id === iaIdentifier)?.title || iaTitle;
-                customPrayer = `Grant exemption to the Petitioner(s) from surrendering pursuant to${ioText}; and`;
+                customPrayer = `Grant exemption to the ${partyNounPlural} from surrendering pursuant to${ioText}; and`;
                 prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
                 const surrenderingGrounds = projectData.standardIas.exemptionFromSurrendering?.grounds || [];
                 
@@ -2694,8 +2706,8 @@ export async function generateIaDocx(
 
             const para2Extra = (customIa.para2 || '').trim();
             const para2Text = para2Extra
-                ? `The present application is being filed by the Petitioner(s) ${para2Extra}`
-                : `The present application is being filed by the Petitioner(s)`;
+                ? `The present application is being filed by the ${partyNounPlural} ${para2Extra}`
+                : `The present application is being filed by the ${partyNounPlural}`;
 
             customTextParagraphs = [
                 new Paragraph({
@@ -2772,8 +2784,8 @@ export async function generateIaDocx(
         sections: [{
             properties: { page: { margin: getSlpMargins() } },
             children: [
-                ...createIaHeader(projectData.caseType),
-                ...createPartiesHeader(petHeader, resHeader),
+                ...createIaHeader(projectData.caseType, projectData.courtType),
+                ...createPartiesHeader(petHeader, resHeader, partyNoun),
                 new Paragraph({
                     alignment: AlignmentType.CENTER,
                     children: [smartTextRun({ text: iaTitle.toUpperCase(), bold: true })]
@@ -2797,7 +2809,7 @@ export async function generateIaDocx(
                 openingParagraph,
                 ...customTextParagraphs,
                  new Paragraph({
-                    text: convertToSmartQuotes("No prejudice would be caused to the Respondent(s) if this application were allowed. On the other hand, irreparable injury would be caused to the Petitioner(s) if the application were not allowed."),
+                    text: convertToSmartQuotes(`No prejudice would be caused to the Respondent(s) if this application were allowed. On the other hand, irreparable injury would be caused to the ${partyNounPlural} if the application were not allowed.`),
                     numbering: nextNumbering(),
                 }),
                 new Paragraph({
@@ -3127,16 +3139,18 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
 
     const presentlyAtPart = deponent.location?.trim() ? `, presently at ${deponent.location.trim()}` : '';
     const deponentIntro = `I, ${deponent.name || '[Name]'}, ${deponent.relationship} ${deponent.fatherName || '[Father/Husband Name]'}, aged ${deponent.age || '__'} years, resident of ${deponent.address || '[Address]'}${presentlyAtPart}, do hereby solemnly state and affirm as under:`;
+    const partyNoun = isAppeal(projectData.courtType) ? 'Appellant' : 'Petitioner';
+    const partyNounPlural = `${partyNoun}(s)`;
 
-    // 1. SLP Affidavit
+    // 1. SLP / Appeal Affidavit
     const slpAffidavitChildren = [
         ...createSlpHeader(caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData)),
         new Paragraph(""),
-        ...createPartiesHeader(petHeader, resHeader),
+        ...createPartiesHeader(petHeader, resHeader, partyNoun),
         new Paragraph({ children: [new TextRun({ text: "AFFIDAVIT", bold: true })], alignment: AlignmentType.CENTER }),
         new Paragraph(deponentIntro),
         new Paragraph({
-            text: `I am the ${deponent.role || '[Role]'} in the present case. As such, I am fully conversant with the facts of the case and hence capable to swear to this Affidavit${petitioners.length > 1 ? " on behalf of myself and the other Petitioner(s) as well" : ""}.`,
+            text: `I am the ${deponent.role || '[Role]'} in the present case. As such, I am fully conversant with the facts of the case and hence capable to swear to this Affidavit${petitioners.length > 1 ? ` on behalf of myself and the other ${partyNounPlural} as well` : ""}.`,
             numbering: { reference: "affidavit-numbering", level: 0 }
         }),
         new Paragraph({
@@ -3159,7 +3173,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
         sections: [{ properties: { page: { margin: getSlpMargins() } }, children: slpAffidavitChildren }]
     });
     docs.push({
-        fileName: `Affidavit-SLP.docx`,
+        fileName: isAppeal(projectData.courtType) ? `Affidavit-Appeal.docx` : `Affidavit-SLP.docx`,
         doc: slpAffidavitDoc
     });
 
@@ -3167,13 +3181,13 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
     const iaList = getIaList(projectData);
     iaList.forEach((ia, index) => {
         const iaAffidavitChildren = [
-            ...createIaHeader(caseType),
+            ...createIaHeader(caseType, projectData.courtType),
             new Paragraph(""),
-            ...createPartiesHeader(petHeader, resHeader),
+            ...createPartiesHeader(petHeader, resHeader, partyNoun),
             new Paragraph({ children: [new TextRun({ text: "AFFIDAVIT", bold: true })], alignment: AlignmentType.CENTER }),
             new Paragraph(deponentIntro),
             new Paragraph({
-                text: `I am the ${deponent.role || '[Role]'} in the present case. As such, I am fully conversant with the facts of the case and hence capable to swear to this Affidavit${petitioners.length > 1 ? " on behalf of myself and the other Petitioner(s) as well" : ""}.`,
+                text: `I am the ${deponent.role || '[Role]'} in the present case. As such, I am fully conversant with the facts of the case and hence capable to swear to this Affidavit${petitioners.length > 1 ? ` on behalf of myself and the other ${partyNounPlural} as well` : ""}.`,
                 numbering: { reference: "affidavit-numbering", level: 0 }
             }),
             new Paragraph({
@@ -3528,7 +3542,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             const orderId = meta.id.substring('impugnedOrder_'.length);
             const order = projectData.impugnedOrders?.find(o => o.id === orderId);
             if (order) {
-                const courtName = order.court === 'Other' ? order.customCourt : order.court;
+                const courtName = getOfficialCourtName(order.court, order.customCourt);
                 const orderDate = order.date ? format(new Date(order.date), "dd.MM.yyyy") : '[date]';
                 const singleIoText = `the Impugned ${order.type || '[Order Type]'}`;
                 return `Impugned ${order.type || '[Order Type]'}: True copy of ${singleIoText} dated ${orderDate} passed by the ${courtName || '[Court]'} in ${order.caseNumber || '[Case No.]'}`;

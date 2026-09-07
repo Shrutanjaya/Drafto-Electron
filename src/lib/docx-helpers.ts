@@ -19,6 +19,15 @@ import type { VaadiTableItem, Annexure } from "./schema";
 import { format } from "date-fns";
 import { parseHtml } from "./html-to-docx";
 import { appealOrderRule, appealTitle } from "./appeal/appeal-provisions";
+import { isAppeal } from "./court-family";
+
+/**
+ * Test whether a List of Dates row has non-blank particulars/event.
+ * Used across all document generators to omit empty rows left in the UI.
+ */
+export function isLodRowNonEmpty(lod?: { event?: string }): boolean {
+  return !!(lod?.event || "").replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim();
+}
 
 /**
  * Converts straight quotes and apostrophes to smart (curly) quotes.
@@ -133,7 +142,7 @@ export const createSlpHeader = (
   // SLP and differs in three places: the rule cited, the document's name, and
   // the closing block, which names the provision the appeal is brought under.
   // Absent, every SLP renders exactly as before.
-  appeal?: { provision: string },
+  appeal?: { provision: string; provisionId?: string },
 ) => {
   const currentYear = new Date().getFullYear();
   const centered = (text: string, extra: Record<string, unknown> = {}) =>
@@ -147,7 +156,7 @@ export const createSlpHeader = (
     ? [
         centered("IN THE SUPREME COURT OF INDIA"),
         centered(appeal
-          ? `[S.C.R., ${appealOrderRule(caseType)}]`
+          ? `[S.C.R., ${appealOrderRule(caseType, appeal.provisionId)}]`
           : caseType === 'Criminal'
             ? "[S.C.R., Order XXII Rule 2(1)]"
             : "[S.C.R., Order XXI Rule 3(1)(a)]"),
@@ -211,9 +220,13 @@ export const createSlpHeader = (
   ];
 };
 
-export const createIaHeader = (caseType: string) => {
+export const createIaHeader = (caseType: string, courtType?: string) => {
   const currentYear = new Date().getFullYear();
   const iaLabel = caseType === 'Criminal' ? 'Crl. M.P. No.' : 'I.A. No.';
+  const isApp = isAppeal(courtType);
+  const parentDocName = isApp
+    ? `${appealTitle(caseType)} No. _______ of ${currentYear}`
+    : `Special Leave Petition (${caseType}) No. _______ of ${currentYear}`;
 
   return [
     new Paragraph({
@@ -249,7 +262,7 @@ export const createIaHeader = (caseType: string) => {
       spacing: { line: 240, after: 240 },
       children: [
         smartTextRun({
-          text: `Special Leave Petition (${caseType}) No. _______ of ${currentYear}`,
+          text: parentDocName,
           bold: true,
           size: 28,
         }),
@@ -258,7 +271,7 @@ export const createIaHeader = (caseType: string) => {
   ];
 };
 
-export const createPartiesHeader = (petHeader: string, resHeader: string) => {
+export const createPartiesHeader = (petHeader: string, resHeader: string, partyNoun: string = "Petitioner") => {
   const noBorders = {
     top: { style: BorderStyle.NONE, size: 0, color: "auto" },
     bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
@@ -275,7 +288,7 @@ export const createPartiesHeader = (petHeader: string, resHeader: string) => {
     }),
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
-      // Right column holds "...Petitioner(s)" / "...Respondent(s)"; widened so the
+      // Right column holds "...Petitioner(s)" / "...Appellant(s)" / "...Respondent(s)"; widened so the
       // label fits on one line even in wider fonts (e.g. Arial) at the constrained
       // size, avoiding a forced break that splits the closing bracket.
       columnWidths: [6300, 3700],
@@ -293,7 +306,7 @@ export const createPartiesHeader = (petHeader: string, resHeader: string) => {
                 alignment: AlignmentType.RIGHT,
                 // Word joiners (U+2060) keep "(s)" from breaking onto a new line
                 // (some renderers split before the ")") so the label stays intact.
-                children: [smartTextRun("...Petitioner⁠(⁠s⁠)")],
+                children: [smartTextRun(`...${partyNoun}⁠(⁠s⁠)`)],
               })],
               borders: noBorders,
               verticalAlign: VerticalAlign.CENTER,

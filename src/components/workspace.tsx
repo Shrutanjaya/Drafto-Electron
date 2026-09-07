@@ -14,7 +14,7 @@ import { OaWorkspace } from "./oa/oa-workspace";
 import { ScWpWorkspace } from "./sc-wp/sc-wp-workspace";
 import { FIND_REVEAL_EVENT, getPendingReveal } from "@/lib/find-reveal";
 import type { DraftoProject } from "@/lib/schema";
-import { isScWpFamily } from "@/lib/court-family";
+import { isScWpFamily, isAppeal } from "@/lib/court-family";
 
 export function Workspace() {
   const [tab, setTab] = useState("slp");
@@ -49,7 +49,7 @@ export function Workspace() {
     <Tabs value={tab} onValueChange={setTab} className="p-1">
       <TabsList className="grid w-full grid-cols-5">
         <TabsTrigger value="basic">Preliminary</TabsTrigger>
-        <TabsTrigger value="slp">Petition</TabsTrigger>
+        <TabsTrigger value="slp">{isAppeal(courtType) ? "Appeal" : "Petition"}</TabsTrigger>
         <TabsTrigger value="ias">Applications</TabsTrigger>
         <TabsTrigger value="proforma">Listing Proforma</TabsTrigger>
         <TabsTrigger value="checklist">Checklist</TabsTrigger>

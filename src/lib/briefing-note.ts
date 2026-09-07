@@ -17,7 +17,7 @@ import {
   AlignmentType,
   BorderStyle,
 } from "docx";
-import { getPartyHeader, smartTextRun, convertToSmartQuotes } from "@/lib/docx-helpers";
+import { getPartyHeader, smartTextRun, convertToSmartQuotes, isLodRowNonEmpty } from "@/lib/docx-helpers";
 import { parseHtml } from "@/lib/html-to-docx";
 import type { DraftoProject } from "@/lib/schema";
 
@@ -85,7 +85,8 @@ export async function generateBriefingNoteDocx(
     children: [headerCell("Date", DATE_PCT), headerCell("Particulars", PARTICULARS_PCT), headerCell("Page Nos.", PAGE_PCT)],
   });
 
-  const bodyRows = (project.listOfDates || []).map((lod) => {
+  const validLods = (project.listOfDates || []).filter(isLodRowNonEmpty);
+  const bodyRows = validLods.map((lod) => {
     // Verbatim particulars (rich text preserved).
     const parsed = parseHtml(lod.event || "", BRIEFING_SPACING);
     if (parsed.numbering.length) numbering.push(...parsed.numbering);
