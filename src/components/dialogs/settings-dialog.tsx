@@ -24,6 +24,8 @@ import { FORUM_LABEL, type Plan, type EntitlementReason } from "@/lib/entitlemen
 import { OA_BENCHES, DEFAULT_OA_BENCH } from "@/lib/oa/oa-benches";
 import { WP_NUMBER_STYLES, DEFAULT_WP_NUMBERING, type WpNumbering, DEFAULT_WP_FILED_BY, type WpFiledBy, type WpFiledByLayoutItem, type WpFiledByCaps, WP_FILED_BY_ITEM_LABELS, normalizeWpFiledByLayout, wpFiledByLines } from "@/lib/wp/wp-settings";
 import type { EnumStyle } from "@/lib/wp/wp-numbering";
+import { getHeadingSettings, saveHeadingSettings, DEFAULT_HEADING_SETTINGS, type HeadingSettings, type HeadingLevelStyle } from "@/lib/heading-settings";
+import { formatHeadingNumber } from "@/lib/heading-smart";
 import { LICENSE_TEXT, TERMS_TEXT } from "@/lib/legal";
 import { cn } from "@/lib/utils";
 
@@ -33,7 +35,7 @@ type TrueCopyPosition = 'left' | 'center';
 /** 'short' = the title block Drafto has always produced; 'sci' = the long form. */
 type SlpHeaderStyle = 'short' | 'sci';
 type AiModel = 'default' | 'haiku' | 'sonnet' | 'opus';
-type SettingsSection = 'interface' | 'customize' | 'save' | 'shortcuts' | 'support' | 'slp' | 'sc-wp' | 'wp' | 'oa';
+type SettingsSection = 'interface' | 'headings' | 'customize' | 'save' | 'shortcuts' | 'support' | 'slp' | 'sc-wp' | 'wp' | 'oa';
 
 // Court tag shown next to each document-type nav item.
 type CourtTag = 'SC' | 'HC' | 'CAT';
@@ -719,6 +721,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   const [showInstallConsent, setShowInstallConsent] = useState(false);
   const [installState, setInstallState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [installLog, setInstallLog] = useState<string[]>([]);
+  const [headingSettings, setHeadingSettings] = useState<HeadingSettings>(getHeadingSettings);
   const [settings, setSettings] = useState<SettingsData>({
     defaultDocxPath: "",
     defaultPdfPath: "",
@@ -1716,6 +1719,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           <div className="w-36 shrink-0 border-r flex flex-col p-2 space-y-0.5 bg-muted/30">
             {/* Common to all court & document types */}
             <SettingsNavRow label="Interface" selected={selectedSection === 'interface'} onClick={() => setSelectedSection('interface')} />
+            <SettingsNavRow label="Headings" selected={selectedSection === 'headings'} onClick={() => setSelectedSection('headings')} />
             <SettingsNavRow label="Mayur (AI)" selected={selectedSection === 'customize'} onClick={() => setSelectedSection('customize')} />
             <SettingsNavRow label="Save Locations" selected={selectedSection === 'save'} onClick={() => setSelectedSection('save')} />
 
@@ -1866,6 +1870,154 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     about="Restore Defaults"
                     text="Resets Mode, Fonts and Sizes to Light, Arial, 16 px (interface) and 12 px (editor). Click Save to keep."
                   />
+                </div>
+              </div>
+            )}
+
+            {/* ── HEADINGS (H1, H2, H3) ── */}
+            {selectedSection === 'headings' && (
+              <div className="space-y-4">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold">Heading Styles (H1, H2, H3)</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Configure the formatting and automatic numbering styles applied when inserting headings in the editor and documents.
+                  </p>
+                </div>
+
+                {(['h1', 'h2', 'h3'] as const).map((levelKey) => {
+                  const levelTitle = levelKey === 'h1' ? 'Heading 1 (H1)' : levelKey === 'h2' ? 'Heading 2 (H2)' : 'Heading 3 (H3)';
+                  const config = headingSettings[levelKey];
+
+                  const updateConfig = (patch: Partial<HeadingLevelStyle>) => {
+                    const updated = {
+                      ...headingSettings,
+                      [levelKey]: { ...config, ...patch },
+                    };
+                    setHeadingSettings(updated);
+                    saveHeadingSettings(updated);
+                  };
+
+                  const samplePrefix = formatHeadingNumber(0, config.numbering);
+                  const sampleText = `${samplePrefix ? `${samplePrefix} ` : ''}Sample Heading Title`;
+
+                  return (
+                    <div key={levelKey} className="rounded-md border p-3 space-y-3 bg-muted/20">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold">{levelTitle}</span>
+                        <span
+                          className={cn(
+                            "text-xs px-2 py-0.5 rounded bg-muted/60 text-foreground",
+                            config.bold && "font-bold",
+                            config.italics && "italic",
+                            config.underline && "underline",
+                            config.allCaps && "uppercase"
+                          )}
+                          style={config.smallCaps ? { fontVariant: 'small-caps' } : undefined}
+                        >
+                          Preview: {sampleText}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Automatic Numbering</Label>
+                          <Select
+                            value={config.numbering}
+                            onValueChange={(val) => updateConfig({ numbering: val as any })}
+                          >
+                            <SelectTrigger className="h-7 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="upper-roman" className="text-xs">I, II, III (Upper Roman)</SelectItem>
+                              <SelectItem value="upper-alpha" className="text-xs">A, B, C (Upper Alphabet)</SelectItem>
+                              <SelectItem value="lower-roman" className="text-xs">i, ii, iii (Lower Roman)</SelectItem>
+                              <SelectItem value="lower-alpha" className="text-xs">a, b, c (Lower Alphabet)</SelectItem>
+                              <SelectItem value="decimal" className="text-xs">1, 2, 3 (Numbers)</SelectItem>
+                              <SelectItem value="none" className="text-xs">None (No numbering)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Formatting</Label>
+                          <div className="flex flex-wrap gap-1">
+                            <button
+                              type="button"
+                              onClick={() => updateConfig({ bold: !config.bold })}
+                              className={cn(
+                                "h-7 min-w-[28px] rounded border px-2 text-xs font-bold transition-colors cursor-pointer",
+                                config.bold ? "border-primary bg-primary text-primary-foreground dark:text-white" : "border-input bg-background hover:bg-accent"
+                              )}
+                              title="Bold"
+                            >
+                              B
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateConfig({ italics: !config.italics })}
+                              className={cn(
+                                "h-7 min-w-[28px] rounded border px-2 text-xs italic font-serif transition-colors cursor-pointer",
+                                config.italics ? "border-primary bg-primary text-primary-foreground dark:text-white" : "border-input bg-background hover:bg-accent"
+                              )}
+                              title="Italics"
+                            >
+                              I
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateConfig({ underline: !config.underline })}
+                              className={cn(
+                                "h-7 min-w-[28px] rounded border px-2 text-xs underline transition-colors cursor-pointer",
+                                config.underline ? "border-primary bg-primary text-primary-foreground dark:text-white" : "border-input bg-background hover:bg-accent"
+                              )}
+                              title="Underline"
+                            >
+                              U
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateConfig({ smallCaps: !config.smallCaps })}
+                              className={cn(
+                                "h-7 min-w-[28px] rounded border px-2 text-xs transition-colors cursor-pointer",
+                                config.smallCaps ? "border-primary bg-primary text-primary-foreground dark:text-white" : "border-input bg-background hover:bg-accent"
+                              )}
+                              style={{ fontVariant: 'small-caps' }}
+                              title="Small Capitals"
+                            >
+                              Aa
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateConfig({ allCaps: !config.allCaps })}
+                              className={cn(
+                                "h-7 min-w-[28px] rounded border px-2 text-xs uppercase transition-colors cursor-pointer",
+                                config.allCaps ? "border-primary bg-primary text-primary-foreground dark:text-white" : "border-input bg-background hover:bg-accent"
+                              )}
+                              title="All Capitals"
+                            >
+                              AA
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="flex justify-end pt-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setHeadingSettings(DEFAULT_HEADING_SETTINGS);
+                      saveHeadingSettings(DEFAULT_HEADING_SETTINGS);
+                    }}
+                  >
+                    Reset Headings to Defaults
+                  </Button>
                 </div>
               </div>
             )}

@@ -1,4 +1,4 @@
-import { Packer, Document, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, VerticalAlign, BorderStyle, ISectionOptions, SectionType, Header, Footer, FrameAnchorType, HorizontalPositionAlign, VerticalPositionAlign, PageBreak } from "docx";
+import { Packer, Document, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, VerticalAlign, BorderStyle, ISectionOptions, SectionType, Header, Footer, FrameAnchorType, HorizontalPositionAlign, VerticalPositionAlign, PageBreak, TabStopType } from "docx";
 import { format } from "date-fns";
 import type { DraftoProject, Annexure, CustomIa } from "@/lib/schema";
 import {
@@ -12,7 +12,7 @@ import {
   createWithTable,
   isLodRowNonEmpty,
 } from "@/lib/docx-helpers";
-import { parseHtml, setDocxExportContext, type ListGeom } from "@/lib/html-to-docx";
+import { parseHtml, setDocxExportContext, buildDocxExportContext, type ListGeom } from "@/lib/html-to-docx";
 import { cascadeFor, enumLabel, type EnumStyle } from "@/lib/wp/wp-numbering";
 import type { WpNumbering } from "@/lib/wp/wp-settings";
 import {
@@ -162,8 +162,8 @@ import {
 export { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures";
 import { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures";
 import { inlineHtml, factsAnnexureSentenceParts, withAnnexureCustomText, injectAnnexurePageRangesIntoFacts, transposeLodToFacts } from "@/lib/wp/wp-facts";
-import { resolveFactsHtml } from "@/lib/wp/facts-mode";
-import { groundsSequence, getGroundsHeadingStyle, groundsHeadingRuns, groundsHeadingHang } from "@/lib/grounds-headings";
+import { resolveFactsHtml, annexureRowsOf } from "@/lib/wp/facts-mode";
+import { groundsSequence, getGroundsHeadingStyle, groundsHeadingRuns, groundsHeadingHang, headingRunProps } from "@/lib/grounds-headings";
 import { isPil } from "@/lib/court-family";
 
 const defaultCellMargins = { top: 100, bottom: 100, left: 150, right: 150 };
@@ -554,7 +554,7 @@ export async function generateScWpCiDocx(
     ]);
   });
 
-  const orderedAnnexures = wpAnnexureOrderFromLods(projectData.listOfDates || []);
+  const orderedAnnexures = wpAnnexureOrderFromLods(annexureRowsOf(projectData));
   orderedAnnexures.forEach(({ annex, pNumber }) => {
     particularsList.push(createAnnexureText(pNumber, annex, true));
   });
@@ -744,8 +744,7 @@ function createRecordOfProceedings(): (Paragraph | Table)[] {
             ...buildScWpMasterIndexTableRows(pl, vo.sNoToVolume, vo.splitSNos, vo.pageRanges || pageRanges, vo.totalVolumes),
           ],
         }),
-        new Paragraph({ children: [new PageBreak()] }),
-        new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: `INDEX – VOLUME ${toRomanNumeral(1)}`, bold: true })] }),
+        new Paragraph({ pageBreakBefore: true, alignment: AlignmentType.CENTER, children: [smartTextRun({ text: `INDEX – VOLUME ${toRomanNumeral(1)}`, bold: true })] }),
       );
     } else {
       indexChildren.push(
@@ -906,6 +905,7 @@ export async function generateScWpPetitionDocx(
   const qSettings = getScWpQuoteSettings();
   const scWpF = getScWpOutputFormatting();
   setDocxExportContext({
+    ...buildDocxExportContext(projectData),
     quoteSingleSpacing: qSettings.quoteLineSpacing === "single",
     quoteItalics: qSettings.quoteItalics,
     outputFontSizePt: scWpF.sizePt,
@@ -1038,7 +1038,7 @@ export async function generateScWpPetitionDocx(
   allNumberingConfigs.push(...para1Result.numbering);
 
   // IO annexure sentences for Impugned Orders
-  const ioAnnexures = wpAnnexureOrderFromLods(projectData.listOfDates || []).filter(e => e.annex.isImpugnedOrder);
+  const ioAnnexures = wpAnnexureOrderFromLods(annexureRowsOf(projectData)).filter(e => e.annex.isImpugnedOrder);
   const ioSentenceRuns: TextRun[] = ioAnnexures.flatMap((e, i) => {
     const pr = annexurePageRanges?.get(e.annex.id);
     const prText = pr
@@ -1231,53 +1231,58 @@ export async function generateScWpPetitionDocx(
 
   // 7. Para 3: GROUNDS
   const groundsEntries = groundsSequence(projectData.grounds, groundsHeadingStyle);
-  const groundsHang = groundsHeadingHang(groundsEntries);
 
-  const groundsRows = groundsEntries.map(entry => {
+  const groundsElements: (Paragraph | Table)[] = [];
+  let currentGroundTableRows: TableRow[] = [];
+
+  const flushGroundsTable = () => {
+    if (currentGroundTableRows.length > 0) {
+      groundsElements.push(new Table({
+        width: { size: 91.66, type: WidthType.PERCENTAGE },
+        columnWidths: [800, 9200],
+        rows: currentGroundTableRows,
+        borders: noBorders,
+        indent: { size: 720, type: WidthType.DXA },
+      }));
+      currentGroundTableRows = [];
+    }
+  };
+
+  for (const entry of groundsEntries) {
     if (entry.kind === "heading") {
-      return new TableRow({
+      flushGroundsTable();
+      groundsElements.push(new Paragraph({
+        style: "Normal",
+        alignment: AlignmentType.JUSTIFIED,
+        indent: { left: 720, hanging: 360 },
+        tabStops: [{ type: TabStopType.LEFT, position: 720 }],
+        spacing: { before: 200, after: 120 },
+        children: groundsHeadingRuns(entry.label, entry.text, groundsHeadingStyle),
+      }));
+    } else {
+      const { paragraphs, numbering } = parseHtml(entry.row.particulars || "");
+      if (numbering.length > 0) allNumberingConfigs.push(...numbering);
+      currentGroundTableRows.push(new TableRow({
         children: [
           new TableCell({
-            columnSpan: 2,
+            children: [new Paragraph({ text: `${getAlphabeticalLabel(entry.ordinal)}.`, style: "Normal" })],
             borders: noBorders,
-            children: [new Paragraph({
-              style: "Normal",
-              indent: { left: groundsHang, hanging: groundsHang },
-              children: groundsHeadingRuns(entry.label, entry.text, groundsHeadingStyle),
-            })],
+            width: { size: 8, type: WidthType.PERCENTAGE },
+          }),
+          new TableCell({
+            children: paragraphs,
+            borders: noBorders,
+            width: { size: 92, type: WidthType.PERCENTAGE },
           }),
         ],
-      });
+      }));
     }
-    const { paragraphs, numbering } = parseHtml(entry.row.particulars || "");
-    if (numbering.length > 0) allNumberingConfigs.push(...numbering);
-    return new TableRow({
-      children: [
-        new TableCell({
-          children: [new Paragraph({ text: `${getAlphabeticalLabel(entry.ordinal)}.`, style: "Normal" })],
-          borders: noBorders,
-          width: { size: 8, type: WidthType.PERCENTAGE },
-        }),
-        new TableCell({
-          children: paragraphs,
-          borders: noBorders,
-          width: { size: 92, type: WidthType.PERCENTAGE },
-        }),
-      ],
-    });
-  });
-
-  const groundsTable = new Table({
-    width: { size: 91.66, type: WidthType.PERCENTAGE },
-    columnWidths: [800, 9200],
-    rows: groundsRows,
-    borders: noBorders,
-    indent: { size: 720, type: WidthType.DXA },
-  });
+  }
+  flushGroundsTable();
 
   const groundsParagraphs: (Paragraph | Table)[] = [
     ...headingWithText("GROUNDS:", "This Writ Petition is being filed on the following grounds taken without prejudice against each other:", paraRef(3)),
-    groundsTable,
+    ...groundsElements,
   ];
 
   // 8. Paras 4–7: boilerplate
@@ -1431,7 +1436,7 @@ export async function generateScWpAffidavitsDocx(projectData: DraftoProject) {
   const { deponent, petitioners, caseType } = projectData;
   const petHeader = getPartyHeader(projectData.petitioners);
   const resHeader = getPartyHeader(projectData.respondents);
-  const orderedAnnexures = wpAnnexureOrderFromLods(projectData.listOfDates || []);
+  const orderedAnnexures = wpAnnexureOrderFromLods(annexureRowsOf(projectData));
   const lastPNumber = orderedAnnexures.length;
 
   const docs = [];
@@ -1542,7 +1547,7 @@ export async function generateScWpFilingMemoDocx(projectData: DraftoProject, inc
   const petHeader = getPartyHeader(projectData.petitioners);
   const resHeader = getPartyHeader(projectData.respondents);
   const iaList = getScWpIaList(projectData);
-  const orderedAnnexures = wpAnnexureOrderFromLods(projectData.listOfDates || []);
+  const orderedAnnexures = wpAnnexureOrderFromLods(annexureRowsOf(projectData));
   const lastAnnexureNumber = orderedAnnexures.length;
 
   const memoRows = [
@@ -1624,6 +1629,7 @@ export async function generateScWpIaDocx(
   const qSettings = getScWpQuoteSettings();
   const scWpF = getScWpOutputFormatting();
   setDocxExportContext({
+    ...buildDocxExportContext(projectData),
     quoteSingleSpacing: qSettings.quoteLineSpacing === "single",
     quoteItalics: qSettings.quoteItalics,
     outputFontSizePt: scWpF.sizePt,
@@ -1703,7 +1709,7 @@ export async function generateScWpIaDocx(
 
   if (iaIdentifier === "exemptionOfficialTranslation") {
     iaTitle = "Application for exemption from filing official translation";
-    const orderedAnnexures = wpAnnexureOrderFromLods(projectData.listOfDates || []);
+    const orderedAnnexures = wpAnnexureOrderFromLods(annexureRowsOf(projectData));
     const translatedAnnexures = orderedAnnexures
       .filter(e => e.annex.copyType === "translated copy" || e.annex.copyType === "true and translated copy")
       .map(e => `P-${e.pNumber}`);
@@ -1887,7 +1893,6 @@ export async function generateScWpIaDocx(
           alignment: AlignmentType.RIGHT,
           children: [smartTextRun({ text: "And for this act of kindness, the humble Petitioner(s) shall ever pray.", italics: true })],
         }),
-        new Paragraph(""),
         ...createFiledByTable(advocate?.filingDate as any, advocate?.aorName || "[AoR Name]", { includeSignature, isScWp: true }),
       ],
     }],

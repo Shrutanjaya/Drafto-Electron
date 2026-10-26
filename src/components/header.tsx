@@ -16,6 +16,8 @@ import {
   History,
   ChevronDown,
   ArrowRightLeft,
+  GitFork,
+  FileUp,
 } from "lucide-react";
 import { saveAs } from "file-saver";
 
@@ -42,6 +44,8 @@ import { PdfGenerationDialog } from "./dialogs/pdf-generation-dialog";
 import { ImportChangesDialog } from "./dialogs/import-changes-dialog";
 import { LoadProjectDialog } from "./dialogs/load-project-dialog";
 import { ConvertProjectDialog } from "./dialogs/convert-project-dialog";
+import { ForkProjectDialog } from "./dialogs/fork-project-dialog";
+import { ImportProjectDataDialog } from "./dialogs/import-project-data-dialog";
 import { getRecentProjects, pushRecentProject, removeRecentProject, type RecentProject } from "@/lib/recent-projects";
 import { ModeSelectDialog } from "./dialogs/mode-select-dialog";
 import { generateWpIndex, generateWpNoticeOfMotion, generateWpUrgencyApplication, generateWpMemoOfParties, generateWpSynopsisAndLod, generateWpPetition, generateWpVakalatnama, generateWpCms } from "@/lib/wp/wp-actions";
@@ -72,7 +76,10 @@ import {
   isScWpFamily,
   convertProjectCourtType,
   getDocumentTypeOption,
+  forkProjectToCourt,
+  importProjectData,
   type ProjectCourtType,
+  type ImportDataOptions,
 } from "@/lib/court-family";
 import { getActiveAppendixItems } from "@/lib/appendix";
 import { markFileAvailable, markFileUnavailable } from "@/lib/file-availability";
@@ -269,6 +276,8 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   );
   const [showLoadDialog, setShowLoadDialog] = useState(false);
   const [showConvertDialog, setShowConvertDialog] = useState(false);
+  const [showForkDialog, setShowForkDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
   // ── The project's name ────────────────────────────────────────────────────
@@ -289,6 +298,11 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     const onChange = () => setRecentProjects(getRecentProjects());
     window.addEventListener("drafto-recent-projects-changed", onChange);
     return () => window.removeEventListener("drafto-recent-projects-changed", onChange);
+  }, []);
+  useEffect(() => {
+    const handleOpenImport = () => setShowImportDialog(true);
+    window.addEventListener("drafto-open-import-dialog", handleOpenImport);
+    return () => window.removeEventListener("drafto-open-import-dialog", handleOpenImport);
   }, []);
   // Any project opened/saved to a real path becomes the most-recent entry.
   useEffect(() => {
@@ -412,6 +426,38 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         for (let k = 0; k < (annex.collyDocuments ?? []).length; k++) {
           const cp = getPath(annex.collyDocuments[k].file);
           if (cp) cloned.listOfDates[i].annexures[j].collyDocuments[k].filePath = cp;
+        }
+      }
+    }
+
+    // wp.factsRows annexures
+    for (let i = 0; i < (data.wp?.factsRows ?? []).length; i++) {
+      for (let j = 0; j < (data.wp.factsRows[i].annexures ?? []).length; j++) {
+        const annex = data.wp.factsRows[i].annexures[j];
+        const p = getPath(annex.file);
+        if (p && cloned.wp?.factsRows?.[i]?.annexures?.[j]) cloned.wp.factsRows[i].annexures[j].filePath = p;
+        const tp = getPath(annex.typedOrTranslatedFile);
+        if (tp && cloned.wp?.factsRows?.[i]?.annexures?.[j]) cloned.wp.factsRows[i].annexures[j].typedOrTranslatedFilePath = tp;
+        for (let k = 0; k < (annex.collyDocuments ?? []).length; k++) {
+          const cp = getPath(annex.collyDocuments[k].file);
+          if (cp && cloned.wp?.factsRows?.[i]?.annexures?.[j]?.collyDocuments?.[k])
+            cloned.wp.factsRows[i].annexures[j].collyDocuments[k].filePath = cp;
+        }
+      }
+    }
+
+    // oa.factsRows annexures
+    for (let i = 0; i < (data.oa?.factsRows ?? []).length; i++) {
+      for (let j = 0; j < (data.oa.factsRows[i].annexures ?? []).length; j++) {
+        const annex = data.oa.factsRows[i].annexures[j];
+        const p = getPath(annex.file);
+        if (p && cloned.oa?.factsRows?.[i]?.annexures?.[j]) cloned.oa.factsRows[i].annexures[j].filePath = p;
+        const tp = getPath(annex.typedOrTranslatedFile);
+        if (tp && cloned.oa?.factsRows?.[i]?.annexures?.[j]) cloned.oa.factsRows[i].annexures[j].typedOrTranslatedFilePath = tp;
+        for (let k = 0; k < (annex.collyDocuments ?? []).length; k++) {
+          const cp = getPath(annex.collyDocuments[k].file);
+          if (cp && cloned.oa?.factsRows?.[i]?.annexures?.[j]?.collyDocuments?.[k])
+            cloned.oa.factsRows[i].annexures[j].collyDocuments[k].filePath = cp;
         }
       }
     }
@@ -824,6 +870,38 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       }
     }
 
+    // wp.factsRows annexures
+    for (let li = 0; li < (data.wp?.factsRows ?? []).length; li++) {
+      for (let ai = 0; ai < (data.wp.factsRows[li].annexures ?? []).length; ai++) {
+        const annex = data.wp.factsRows[li].annexures[ai];
+        if (annex.filePath && !(annex.file instanceof File))
+          annex.file = await tryRestore(annex.filePath, `wp.factsRows[${li}].annex[${ai}].file`);
+        if (needsTypedOrTranslated(annex.copyType) && annex.typedOrTranslatedFilePath && !(annex.typedOrTranslatedFile instanceof File))
+          annex.typedOrTranslatedFile = await tryRestore(annex.typedOrTranslatedFilePath, `wp.factsRows[${li}].annex[${ai}].typedOrTranslatedFile`);
+        for (let ci = 0; ci < (annex.collyDocuments ?? []).length; ci++) {
+          const cd = annex.collyDocuments[ci];
+          if (cd.filePath && !(cd.file instanceof File))
+            cd.file = await tryRestore(cd.filePath, `wp.factsRows[${li}].annex[${ai}].colly[${ci}].file`);
+        }
+      }
+    }
+
+    // oa.factsRows annexures
+    for (let li = 0; li < (data.oa?.factsRows ?? []).length; li++) {
+      for (let ai = 0; ai < (data.oa.factsRows[li].annexures ?? []).length; ai++) {
+        const annex = data.oa.factsRows[li].annexures[ai];
+        if (annex.filePath && !(annex.file instanceof File))
+          annex.file = await tryRestore(annex.filePath, `oa.factsRows[${li}].annex[${ai}].file`);
+        if (needsTypedOrTranslated(annex.copyType) && annex.typedOrTranslatedFilePath && !(annex.typedOrTranslatedFile instanceof File))
+          annex.typedOrTranslatedFile = await tryRestore(annex.typedOrTranslatedFilePath, `oa.factsRows[${li}].annex[${ai}].typedOrTranslatedFile`);
+        for (let ci = 0; ci < (annex.collyDocuments ?? []).length; ci++) {
+          const cd = annex.collyDocuments[ci];
+          if (cd.filePath && !(cd.file instanceof File))
+            cd.file = await tryRestore(cd.filePath, `oa.factsRows[${li}].annex[${ai}].colly[${ci}].file`);
+        }
+      }
+    }
+
     // WP filing uploads
     for (const k of ['courtFee', 'proofOfService', 'signedAffidavit', 'signedVakalatnama'] as const) {
       const u = data.wp?.uploads?.[k];
@@ -965,6 +1043,51 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       toast({
         variant: "destructive",
         title: "Conversion Failed",
+        description: String(err),
+      });
+    }
+  };
+
+  const handleForkProject = (targetCourtType: ProjectCourtType) => {
+    try {
+      const currentData = form.getValues();
+      const forked = forkProjectToCourt(currentData, targetCourtType);
+      // Clean up lock file for the original project if any so the user doesn't stay locked to it
+      if (currentFilePath && window.electron?.deleteLockFile) {
+        window.electron.deleteLockFile(currentFilePath).catch(() => {});
+      }
+      setCurrentFilePath(null);
+      setNameOverride(null);
+      form.reset(forked);
+      const targetOpt = getDocumentTypeOption(targetCourtType);
+      toast({
+        title: `Forked to ${targetOpt.label}`,
+        description: `Created a fresh draft for ${targetOpt.forumName}. Click 'Save Project' to save this new draft to your chosen path.`,
+      });
+    } catch (err) {
+      console.error("Fork project error:", err);
+      toast({
+        variant: "destructive",
+        title: "Fork Failed",
+        description: String(err),
+      });
+    }
+  };
+
+  const handleImportData = (sourceProject: DraftoProject, options: ImportDataOptions) => {
+    try {
+      const currentData = form.getValues();
+      const merged = importProjectData(currentData, sourceProject, options);
+      form.reset(merged);
+      toast({
+        title: "Import Successful",
+        description: "Selected project data merged gracefully into your active draft.",
+      });
+    } catch (err) {
+      console.error("Import data error:", err);
+      toast({
+        variant: "destructive",
+        title: "Import Failed",
         description: String(err),
       });
     }
@@ -1217,61 +1340,66 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       }
       
       let result;
-      switch (type) {
-        case 'ci':
-            result = isScWpDoc ? await generateScWpCiDocx(data) : await generateCiDocx(data);
-            break;
-        case 'or':
-            result = await generateOrDocx(data);
-            break;
-        case 'cior':
-            // Legacy: Generate both CI and OR as one file
-            result = isScWpDoc ? await generateScWpCiDocx(data) : await generateCiorDocx(data);
-            break;
-        case 'advocateChecklist':
-            result = await generateAdvocateChecklistDocx(data);
-            break;
-        case 'lp':
-            result = await generateLpDocx(data);
-            break;
-        case 'slod':
-            result = isScWpDoc ? await generateScWpSlodDocx(data) : await generateSlodDocx(data);
-            break;
-        case 'slp':
-            result = isScWpDoc ? await generateScWpPetitionDocx(data) : await generateSlpDocx(data);
-            break;
-        case 'appendix':
-            // Only typed-out Appendix documents can be exported as a DOCX;
-            // uploaded PDFs go straight into the paper-book.
-            if (getActiveAppendixItems(data).some(i => i.useManual && (i.manualEntry || '').trim())) {
-                result = await generateAppendixDocx(data);
-            } else {
-                toast({ variant: "destructive", title: "Export Skipped", description: "There is no typed-out Appendix to export." });
-                return;
-            }
-            break;
-        case 'filingMemo':
-            result = isScWpDoc ? await generateScWpFilingMemoDocx(data) : await generateFilingMemoDocx(data);
-            break;
-        case 'vakalatnama':
-            result = await generateVakalatnamaDocx(data);
-            break;
-        case 'ia':
-            if (iaDetails) {
-                result = isScWpDoc
-                  ? await generateScWpIaDocx(data, iaDetails.identifier, iaDetails.customText)
-                  : await generateIaDocx(data, iaDetails.identifier, iaDetails.customText);
-            }
-            break;
-        default:
-            toast({ variant: "destructive", title: "Export Failed", description: "Invalid document type." });
-            return;
-      }
+      try {
+        switch (type) {
+          case 'ci':
+              result = isScWpDoc ? await generateScWpCiDocx(data) : await generateCiDocx(data);
+              break;
+          case 'or':
+              result = await generateOrDocx(data);
+              break;
+          case 'cior':
+              // Legacy: Generate both CI and OR as one file
+              result = isScWpDoc ? await generateScWpCiDocx(data) : await generateCiorDocx(data);
+              break;
+          case 'advocateChecklist':
+              result = await generateAdvocateChecklistDocx(data);
+              break;
+          case 'lp':
+              result = await generateLpDocx(data);
+              break;
+          case 'slod':
+              result = isScWpDoc ? await generateScWpSlodDocx(data) : await generateSlodDocx(data);
+              break;
+          case 'slp':
+              result = isScWpDoc ? await generateScWpPetitionDocx(data) : await generateSlpDocx(data);
+              break;
+          case 'appendix':
+              // Only typed-out Appendix documents can be exported as a DOCX;
+              // uploaded PDFs go straight into the paper-book.
+              if (getActiveAppendixItems(data).some(i => i.useManual && (i.manualEntry || '').trim())) {
+                  result = await generateAppendixDocx(data);
+              } else {
+                  toast({ variant: "destructive", title: "Export Skipped", description: "There is no typed-out Appendix to export." });
+                  return;
+              }
+              break;
+          case 'filingMemo':
+              result = isScWpDoc ? await generateScWpFilingMemoDocx(data) : await generateFilingMemoDocx(data);
+              break;
+          case 'vakalatnama':
+              result = await generateVakalatnamaDocx(data);
+              break;
+          case 'ia':
+              if (iaDetails) {
+                  result = isScWpDoc
+                    ? await generateScWpIaDocx(data, iaDetails.identifier, iaDetails.customText)
+                    : await generateIaDocx(data, iaDetails.identifier, iaDetails.customText);
+              }
+              break;
+          default:
+              toast({ variant: "destructive", title: "Export Failed", description: "Invalid document type." });
+              return;
+        }
 
-      if (result && result.success && result.docx) {
-        await downloadDocx(result.docx, result.fileName, intoFolder);
-      } else if (result && !result.success) {
-        toast({ variant: "destructive", title: "Export Failed", description: result.message || "Could not generate DOCX file." });
+        if (result && result.success && result.docx) {
+          await downloadDocx(result.docx, result.fileName, intoFolder);
+        } else if (result && !result.success) {
+          toast({ variant: "destructive", title: "Export Failed", description: result.message || "Could not generate DOCX file." });
+        }
+      } catch (err: any) {
+        console.error(`Export failed for ${type}:`, err);
+        toast({ variant: "destructive", title: "Export Failed", description: err?.message || String(err) });
       }
   };
 
@@ -1412,6 +1540,12 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
             <DropdownMenuItem onSelect={() => setShowConvertDialog(true)}>
               <ArrowRightLeft className="mr-2" />Convert Document Type…
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setShowForkDialog(true)}>
+              <GitFork className="mr-2 h-4 w-4" />Fork to New Draft (Different Court)…
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setShowImportDialog(true)}>
+              <FileUp className="mr-2 h-4 w-4" />Import Data from Project…
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             {currentFilePath && (
               <DropdownMenuItem disabled className="text-xs text-muted-foreground max-w-[280px] truncate">
@@ -1538,7 +1672,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
             );
           }
           return courtType === "WritPetitionDHC" ? (
-            <WpPdfGenerationDialog onGenerate={handleGenerateWpPdf} isPending={isPending}>
+            <WpPdfGenerationDialog>
               <Button variant="ghost" size="icon" title="Generate Writ Petition Paperbook (PDF)" disabled={isPending}>
                 {pdfButtonInner}
               </Button>
@@ -1631,6 +1765,18 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         onOpenChange={setShowConvertDialog}
         currentCourtType={courtType}
         onConvert={handleConvertProject}
+      />
+      <ForkProjectDialog
+        open={showForkDialog}
+        onOpenChange={setShowForkDialog}
+        currentProject={form.getValues()}
+        onFork={handleForkProject}
+      />
+      <ImportProjectDataDialog
+        open={showImportDialog}
+        onOpenChange={setShowImportDialog}
+        currentTargetProject={form.getValues()}
+        onImport={handleImportData}
       />
       <ModeSelectDialog open={modeDialog !== null} onSelect={applyDraftMode} />
     </header>

@@ -24,9 +24,8 @@ import { SectionDialog } from "@/components/custom/section-dialog";
 import { OaApplications } from "@/components/oa/oa-applications";
 import type { DraftoProject } from "@/lib/schema";
 import { getSettings } from "@/components/dialogs/settings-dialog";
+import { FactsSection } from "@/components/custom/facts-section";
 import { oaBench } from "@/lib/oa/oa-benches";
-import { transposeLodToFacts, transposableLodIds, lodFingerprint, appendNewLodRowsToFacts } from "@/lib/wp/wp-facts";
-import { separateFactsMode, factsRowsFromLod } from "@/lib/wp/facts-mode";
 import { oaMaSchema } from "@/lib/schema";
 
 const OA_RESIDUARY = "Pass such other/further orders as this Hon’ble Tribunal may deem fit and proper in the facts and circumstances of the case.";
@@ -108,6 +107,8 @@ export function OaWorkspace() {
   const lod = useWatch({ control: form.control, name: "listOfDates" });
   const reliefs = useWatch({ control: form.control, name: "oa.reliefs" });
   const facts = useWatch({ control: form.control, name: "oa.facts" });
+  const factsRowsWatch = useWatch({ control: form.control, name: "oa.factsRows" as any });
+  const annexureMode = useWatch({ control: form.control, name: "oa.annexureMode" as any }) || "lod";
   const grounds = useWatch({ control: form.control, name: "grounds" });
   const jurPosted = useWatch({ control: form.control, name: "oa.jurisdictionPosted" });
   const jurCause = useWatch({ control: form.control, name: "oa.jurisdictionCause" });
@@ -119,7 +120,7 @@ export function OaWorkspace() {
   const petitioners = useWatch({ control: form.control, name: "petitioners" });
 
   // ── Applications (MAs / PT) ─────────────────────────────────────────────────
-  const applicantCount = (petitioners || []).filter((p: any) => p?.name?.trim()).length;
+  const applicantCount = (petitioners || []).filter((p: any) => String(p?.name ?? "").trim()).length;
   const needsDelay = limitation === "delay" || limitation === "abundantCaution";
   const needsJoinder = applicantCount > 1;
   const needsPt = !jurPosted && !jurCause;
@@ -143,62 +144,19 @@ export function OaWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsDelay, needsJoinder, needsPt, limitation]);
 
-
-
-  const hasAam = (rows: any[]) => rows?.some((r: any) => r.particulars?.trim()) ?? false;
-  const hasLoD = (rows: any[]) => rows?.some((r: any) => r.date?.trim() || r.event?.trim()) ?? false;
+  const hasAam = (rows: any[]) => Array.isArray(rows) && rows.some((r: any) => String(r?.particulars ?? "").trim().length > 0);
+  const hasLoD = (rows: any[]) => Array.isArray(rows) && rows.some((r: any) => String(r?.date ?? "").trim().length > 0 || String(r?.event ?? "").trim().length > 0);
 
   const active: Record<OaSection, boolean> = {
-    synopsis: !!synopsis?.trim(),
+    synopsis: !!String(synopsis ?? "").trim(),
     listOfDates: hasLoD(lod),
     reliefs: hasAam(reliefs),
-    facts: !!facts?.trim(),
+    facts: (factsRowsWatch || []).length > 0 || !!String(facts ?? "").trim(),
     grounds: hasAam(grounds),
     jurisdiction: !!jurPosted || !!jurCause || limitation !== "noDelay",
     interim: !!interimNil || hasAam(interimReliefs),
-    other: !!postalOrders?.trim(),
+    other: !!String(postalOrders ?? "").trim(),
   };
-
-  // Which way this project works — chosen once in Settings.
-  const separateFacts = separateFactsMode(form.getValues());
-
-  // Separate-Facts mode: build the Facts rows from the List of Dates.
-  const handleGenerateFactsRows = () => {
-    const proj = form.getValues();
-    const existing = (proj.oa.factsRows || []).some((r: any) => (r.event || "").trim() || (r.annexures || []).length);
-    if (existing && !window.confirm("Replace the Facts table with a fresh transposition from the List of Dates?")) return;
-    form.setValue("oa.factsRows", factsRowsFromLod(proj) as any, { shouldDirty: true });
-  };
-
-  // Facts generation from the List of Dates (with annexure sentences).
-  const generatingFacts = useRef(false);
-  const handleGenerateFacts = () => {
-    const proj = form.getValues();
-    if (proj.oa.factsEdited && (proj.oa.facts || "").trim()) {
-      if (!window.confirm("Replace the current (edited) Facts with a fresh transposition from the List of Dates?")) return;
-    }
-    generatingFacts.current = true;
-    form.setValue("oa.facts", transposeLodToFacts(proj, "A"), { shouldDirty: true });
-    form.setValue("oa.factsEdited", false);
-    form.setValue("oa.factsLodIds", transposableLodIds(proj));
-    form.setValue("oa.factsLodFingerprint", lodFingerprint(proj));
-  };
-  const handleAppendNewRows = () => {
-    const proj = form.getValues();
-    const { html, appendedIds } = appendNewLodRowsToFacts(proj, proj.oa.facts || "", proj.oa.factsLodIds || [], "A");
-    if (appendedIds.length === 0) return;
-    generatingFacts.current = true;
-    form.setValue("oa.facts", html, { shouldDirty: true });
-    form.setValue("oa.factsLodIds", [...(proj.oa.factsLodIds || []), ...appendedIds]);
-    form.setValue("oa.factsLodFingerprint", lodFingerprint(proj));
-  };
-  const factsLodIds = useWatch({ control: form.control, name: "oa.factsLodIds" });
-  const newLodRowCount = useMemo(() => {
-    const done = new Set(factsLodIds || []);
-    return transposableLodIds(form.getValues()).filter((id) => !done.has(id)).length;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lod, factsLodIds]);
-
 
   // ── Section editors ─────────────────────────────────────────────────────────
   const synopsisEditor = (
@@ -211,12 +169,7 @@ export function OaWorkspace() {
 
   const lodEditor = (
     <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">
-        {separateFacts
-          ? "Dates and particulars only — a concise chronology. The annexures live on the Facts table."
-          : "Attach annexures to the relevant rows, as in an SLP. The Facts section (Para 4) is generated from these rows, with their annexure sentences."}
-      </p>
-      <LoDTable hideAnnexures={separateFacts} />
+      <LoDTable hideAnnexures={annexureMode === "facts"} />
     </div>
   );
 
@@ -234,47 +187,14 @@ export function OaWorkspace() {
     </div>
   );
 
-  const factsEditor = separateFacts ? (
-    <div className="flex h-full flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          Para 4 — one row per sub-paragraph, with the annexures attached here. The List of Dates stays as your concise chronology.
-        </p>
-        <div className="flex shrink-0 items-center gap-1">
-          <StylePicker name="oa.numbering.facts" options={subparaStyles(4)} />
-          <Button type="button" size="sm" variant="secondary" onClick={handleGenerateFactsRows}>
-            <Sparkles className="mr-1 h-3.5 w-3.5" />Generate from List of Dates
-          </Button>
-        </div>
-      </div>
-      <LoDTable name="oa.factsRows" hideDate />
-    </div>
-  ) : (
-    <div className="flex h-full flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">Para 4 — transposed from the List of Dates (with annexure sentences). Editing locks it against regeneration.</p>
-        <div className="flex shrink-0 items-center gap-1">
-          <StylePicker name="oa.numbering.facts" options={subparaStyles(4)} />
-          {!!facts?.trim() && newLodRowCount > 0 && (
-            <Button type="button" size="sm" variant="outline" onClick={handleAppendNewRows}>
-              <ListPlus className="mr-1 h-3.5 w-3.5" />Append {newLodRowCount} new row{newLodRowCount === 1 ? "" : "s"}
-            </Button>
-          )}
-          <Button type="button" size="sm" variant="secondary" onClick={handleGenerateFacts}>
-            <Sparkles className="mr-1 h-3.5 w-3.5" />Generate from List of Dates
-          </Button>
-        </div>
-      </div>
-      <FormField control={form.control} name="oa.facts" render={({ field }) => (
-        <FormItem className="flex flex-grow flex-col"><FormControl>
-          <BadhiyaBox value={field.value} onChange={(v: string) => {
-            field.onChange(v);
-            if (generatingFacts.current) generatingFacts.current = false;
-            else form.setValue("oa.factsEdited", true);
-          }} path={field.name} />
-        </FormControl></FormItem>
-      )} />
-    </div>
+  const factsEditor = (
+    <FactsSection
+      factsPath="oa.factsRows"
+      annexureModePath="oa.annexureMode"
+      storedFactsPath="oa.facts"
+      subtitle="Para 4 — one row per sub-paragraph, with the annexures attached here or in the List of Dates."
+      headerExtra={<StylePicker name="oa.numbering.facts" options={subparaStyles(4)} />}
+    />
   );
 
   const groundsEditor = (

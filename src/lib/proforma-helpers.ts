@@ -1,6 +1,6 @@
 
 import type { DraftoProject } from "@/lib/schema";
-import { Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType } from "docx";
+import { Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType, TableLayoutType } from "docx";
 import { createFiledByTable } from "./docx-helpers";
 import { format } from "date-fns";
 import { isScWpFamily } from "@/lib/court-family";
@@ -43,11 +43,13 @@ const createCheckboxRow = (label: string, value: string, isChecked: boolean) => 
                 ],
                 borders: noBorders,
                 margins: lpCellMargins,
+                width: { size: 38, type: WidthType.PERCENTAGE },
             }),
             new TableCell({
                 children: [new Paragraph({ children: [new TextRun(value)], style: "Normal" })],
                 borders: noBorders,
                 margins: lpCellMargins,
+                width: { size: 62, type: WidthType.PERCENTAGE },
             }),
         ],
     });
@@ -67,11 +69,39 @@ const createLabelValueRow = (label: string, value: string) => {
                 ],
                 borders: noBorders,
                 margins: lpCellMargins,
+                width: { size: 38, type: WidthType.PERCENTAGE },
             }),
             new TableCell({
                 children: [new Paragraph({ children: [new TextRun(value)], style: "Normal" })],
                 borders: noBorders,
                 margins: lpCellMargins,
+                width: { size: 62, type: WidthType.PERCENTAGE },
+            }),
+        ],
+    });
+};
+
+const createNumberedRow = (sNo: string, label: string, value: string | Paragraph) => {
+    return new TableRow({
+        cantSplit: true,
+        children: [
+            new TableCell({
+                children: [para(sNo)],
+                borders: noBorders,
+                margins: lpCellMargins,
+                width: { size: 5, type: WidthType.PERCENTAGE },
+            }),
+            new TableCell({
+                children: [para(label)],
+                borders: noBorders,
+                margins: lpCellMargins,
+                width: { size: 35, type: WidthType.PERCENTAGE },
+            }),
+            new TableCell({
+                children: [typeof value === 'string' ? para(value) : value],
+                borders: noBorders,
+                margins: lpCellMargins,
+                width: { size: 60, type: WidthType.PERCENTAGE },
             }),
         ],
     });
@@ -191,6 +221,7 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
         }),
         new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
+            layout: TableLayoutType.FIXED,
             columnWidths: [3800, 6200],
             borders: noBorders,
             rows: [
@@ -210,130 +241,40 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
             ],
         }),
 
+        new Paragraph({
+            text: "",
+            style: "Normal",
+            spacing: { before: 40, after: 40 },
+        }),
+
         // Numbered List (Items 1 to 6)
         new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
+            layout: TableLayoutType.FIXED,
             columnWidths: [500, 3500, 6000],
             borders: noBorders,
             rows: [
-                new TableRow({
-                    cantSplit: true,
+                createNumberedRow("1.", "Nature of matter:", new Paragraph({
                     children: [
-                        new TableCell({ children: [para("1.")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para("Nature of matter:")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({
-                            children: [
-                                new Paragraph({
-                                    children: [
-                                        caseType === 'Civil' ? tick() : empty(),
-                                        new TextRun(" Civil   "),
-                                        caseType === 'Criminal' ? tick() : empty(),
-                                        new TextRun(" Criminal"),
-                                    ],
-                                    style: "Normal",
-                                }),
-                            ],
-                            borders: noBorders,
-                            margins: lpCellMargins,
-                        }),
+                        caseType === 'Civil' ? tick() : empty(),
+                        new TextRun(" Civil   "),
+                        caseType === 'Criminal' ? tick() : empty(),
+                        new TextRun(" Criminal"),
                     ],
-                }),
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({ children: [para("2.")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para("(a) Petitioner/appellant No.1:")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para(petitioners[0]?.name || '')], borders: noBorders, margins: lpCellMargins }),
-                    ],
-                }),
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({ children: [para("")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para("(b) e-mail ID:")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para(proforma.general.petitionerEmail || '')], borders: noBorders, margins: lpCellMargins }),
-                    ],
-                }),
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({ children: [para("")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para("(c) Mobile phone number:")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para(proforma.general.petitionerPhone || '')], borders: noBorders, margins: lpCellMargins }),
-                    ],
-                }),
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({ children: [para("3.")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para("(a) Respondent No. 1:")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para(respondents[0]?.name || '')], borders: noBorders, margins: lpCellMargins }),
-                    ],
-                }),
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({ children: [para("")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para("(b) e-mail ID:")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para(proforma.general.respondentEmail || '')], borders: noBorders, margins: lpCellMargins }),
-                    ],
-                }),
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({ children: [para("")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para("(c) Mobile phone number:")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para(proforma.general.respondentPhone || '')], borders: noBorders, margins: lpCellMargins }),
-                    ],
-                }),
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({ children: [para("4.")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para("(a) Main category classification:")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para(proforma.general.mainCategory || '')], borders: noBorders, margins: lpCellMargins }),
-                    ],
-                }),
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({ children: [para("")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para("(b) Sub classification:")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para(proforma.general.subCategory || '')], borders: noBorders, margins: lpCellMargins }),
-                    ],
-                }),
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({ children: [para("")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para("(c) Special Category:")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para(proforma.general.specialCategory || '')], borders: noBorders, margins: lpCellMargins }),
-                    ],
-                }),
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({ children: [para("5.")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para("Not to be listed before:")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para(proforma.general.notToListBefore || '')], borders: noBorders, margins: lpCellMargins }),
-                    ],
-                }),
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({ children: [para("6.")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para("(a) Similar disposed of matter with citation, if any, & case details:")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para(proforma.general.similarDisposed || '')], borders: noBorders, margins: lpCellMargins }),
-                    ],
-                }),
-                new TableRow({
-                    cantSplit: true,
-                    children: [
-                        new TableCell({ children: [para("")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para("(b) Similar pending matter with case details:")], borders: noBorders, margins: lpCellMargins }),
-                        new TableCell({ children: [para(proforma.general.similarPending || '')], borders: noBorders, margins: lpCellMargins }),
-                    ],
-                }),
+                    style: "Normal",
+                })),
+                createNumberedRow("2.", "(a) Petitioner/appellant No.1:", petitioners[0]?.name || ''),
+                createNumberedRow("", "(b) e-mail ID:", proforma.general.petitionerEmail || ''),
+                createNumberedRow("", "(c) Mobile phone number:", proforma.general.petitionerPhone || ''),
+                createNumberedRow("3.", "(a) Respondent No. 1:", respondents[0]?.name || ''),
+                createNumberedRow("", "(b) e-mail ID:", proforma.general.respondentEmail || ''),
+                createNumberedRow("", "(c) Mobile phone number:", proforma.general.respondentPhone || ''),
+                createNumberedRow("4.", "(a) Main category classification:", proforma.general.mainCategory || ''),
+                createNumberedRow("", "(b) Sub classification:", proforma.general.subCategory || ''),
+                createNumberedRow("", "(c) Special Category:", proforma.general.specialCategory || ''),
+                createNumberedRow("5.", "Not to be listed before:", proforma.general.notToListBefore || ''),
+                createNumberedRow("6.", "(a) Similar disposed of matter with citation, if any, & case details:", proforma.general.similarDisposed || ''),
+                createNumberedRow("", "(b) Similar pending matter with case details:", proforma.general.similarPending || ''),
             ],
         }),
 
@@ -346,6 +287,7 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
         }),
         new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
+            layout: TableLayoutType.FIXED,
             columnWidths: [3800, 6200],
             borders: noBorders,
             rows: [
@@ -356,6 +298,7 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
                             children: [para("(a) Whether accused/convict has surrendered:")],
                             borders: noBorders,
                             margins: lpCellMargins,
+                            width: { size: 38, type: WidthType.PERCENTAGE },
                         }),
                         new TableCell({
                             children: [
@@ -369,6 +312,7 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
                             ],
                             borders: noBorders,
                             margins: lpCellMargins,
+                            width: { size: 62, type: WidthType.PERCENTAGE },
                         }),
                     ],
                 }),
@@ -383,11 +327,13 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
                             children: [para("(f) Whether any earlier case between the same parties is filed:")],
                             borders: noBorders,
                             margins: lpCellMargins,
+                            width: { size: 38, type: WidthType.PERCENTAGE },
                         }),
                         new TableCell({
                             children: [para(proforma.specialCategories.earlierCaseSameParties || '')],
                             borders: noBorders,
                             margins: lpCellMargins,
+                            width: { size: 62, type: WidthType.PERCENTAGE },
                         }),
                     ],
                 }),
@@ -405,6 +351,7 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
         }),
         new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
+            layout: TableLayoutType.FIXED,
             columnWidths: [3800, 6200],
             borders: noBorders,
             rows: [
@@ -438,6 +385,7 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
         }),
         new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
+            layout: TableLayoutType.FIXED,
             columnWidths: [5000, 5000],
             borders: noBorders,
             rows: [
@@ -456,6 +404,7 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
                             ],
                             borders: noBorders,
                             margins: lpCellMargins,
+                            width: { size: 50, type: WidthType.PERCENTAGE },
                         }),
                         new TableCell({
                             children: [
@@ -469,6 +418,7 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
                             ],
                             borders: noBorders,
                             margins: lpCellMargins,
+                            width: { size: 50, type: WidthType.PERCENTAGE },
                         }),
                     ],
                 }),
@@ -487,6 +437,7 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
                             ],
                             borders: noBorders,
                             margins: lpCellMargins,
+                            width: { size: 50, type: WidthType.PERCENTAGE },
                         }),
                         new TableCell({
                             children: [
@@ -500,6 +451,7 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
                             ],
                             borders: noBorders,
                             margins: lpCellMargins,
+                            width: { size: 50, type: WidthType.PERCENTAGE },
                         }),
                     ],
                 }),
@@ -518,6 +470,7 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
                             ],
                             borders: noBorders,
                             margins: lpCellMargins,
+                            width: { size: 50, type: WidthType.PERCENTAGE },
                         }),
                         new TableCell({
                             children: [
@@ -531,6 +484,7 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
                             ],
                             borders: noBorders,
                             margins: lpCellMargins,
+                            width: { size: 50, type: WidthType.PERCENTAGE },
                         }),
                     ],
                 }),
@@ -561,10 +515,16 @@ export const createListingProforma = (data: DraftoProject, includeSignature = fa
         }),
     ];
 
-    // The AoR signature goes here as it does on every other signed page; the
-    // Listing Proforma was the one document that never asked for it.
+    // Space before the AoR Table
     const isScWp = isScWpFamily(data.courtType);
-    content.push(...createFiledByTable(advocate.filingDate, advocate.aorName || "[AoR Name]", { includeSignature, isScWp }));
+    content.push(
+        new Paragraph({
+            text: "",
+            style: "Normal",
+            spacing: { before: 140, after: 100 },
+        }),
+        ...createFiledByTable(advocate.filingDate, advocate.aorName || "[AoR Name]", { includeSignature, isScWp })
+    );
     
     content.push(
       new Paragraph({

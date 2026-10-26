@@ -19,13 +19,15 @@ import {
 } from "docx";
 import { format } from "date-fns";
 import { getPartyHeader, smartTextRun, convertToSmartQuotes, isLodRowNonEmpty } from "@/lib/docx-helpers";
-import { parseHtml } from "@/lib/html-to-docx";
+import { parseHtml, setDocxExportContext, buildDocxExportContext } from "@/lib/html-to-docx";
 import { groundsSequence, getGroundsHeadingStyle, groundsHeadingRuns, groundsHeadingHang } from "@/lib/grounds-headings";
 import type { DraftoProject, Annexure } from "@/lib/schema";
+import JSZip from "jszip";
 import {
   createWpHeader,
   createWpPartiesHeader,
   createWpFiledBy,
+  wpAdvocate,
   createSalutation,
   getWpStyles,
   getWpMargins,
@@ -35,7 +37,7 @@ import {
 import { cascadeFor, enumLabel, type EnumStyle } from "./wp-numbering";
 import { wpAnnexureOrder, annexLabel, cmAnnexureOrder, cmAnnexLabel, cmAnnexBodySentence, cmAnnexIndexText, type CmAnnexEntry } from "./wp-annexures";
 import { resolveFactsHtml } from "./facts-mode";
-import { factsAnnexureSentenceParts, withAnnexureCustomText, inlineHtml } from "./wp-facts";
+import { factsAnnexureSentenceParts, factsAnnexureSentenceHtml, withAnnexureCustomText, inlineHtml } from "./wp-facts";
 import { getWpNumbering, getWpOutputFormatting, getWpVakFormatting, getWpFiledBy } from "./wp-settings";
 import { vakalatnamaOpening, vakalatnamaAuthorities, vakalatnamaPartyLabel, VAKALATNAMA_FEES_LINE } from "@/lib/vakalatnama";
 
@@ -82,7 +84,20 @@ function wpDoc(children: (Paragraph | Table)[], numbering?: any[], opts?: { vak?
 }
 
 async function pack(doc: Document, fileName: string) {
-  const docx = await Packer.toBase64String(doc);
+  const b64 = await Packer.toBase64String(doc);
+  let docx = b64;
+  try {
+    const zip = await JSZip.loadAsync(b64, { base64: true });
+    const numFile = zip.file("word/numbering.xml");
+    if (numFile) {
+      const numXml = await numFile.async("text");
+      const cleaned = numXml.replace(/<w:startOverride [^>]*\/>/g, "");
+      zip.file("word/numbering.xml", cleaned);
+      docx = await zip.generateAsync({ type: "base64" });
+    }
+  } catch {
+    docx = b64;
+  }
   return { success: true as const, docx, fileName };
 }
 
@@ -131,8 +146,8 @@ function appendSentencesToHtml(html: string, sentences: string[]): string {
 // (aa, bb, cc) — beyond the first cycle they roll over per Word's own scheme.
 
 // Top-level decimal list ("1.", "2.", …).
-function decimalDef(reference: string) {
-  return { reference, levels: [{ level: 0, format: "decimal", text: "%1.", alignment: AlignmentType.START, style: { paragraph: { indent: { left: 480, hanging: 480 } } } }] };
+function decimalDef(reference: string, start = 1) {
+  return { reference, levels: [{ level: 0, format: "decimal", text: "%1.", alignment: AlignmentType.START, ...(start !== 1 ? { start } : {}), style: { paragraph: { indent: { left: 480, hanging: 480 } } } }] };
 }
 
 // Sub-list whose first level uses the configured section style; deeper levels
@@ -149,7 +164,7 @@ function numberer() {
   let seq = 0;
   return {
     defs,
-    decimal() { const r = `wpn-d-${seq++}`; defs.push(decimalDef(r)); return r; },
+    decimal(start = 1) { const r = `wpn-d-${seq++}`; defs.push(decimalDef(r, start)); return r; },
     styled(style: EnumStyle, start = 1) { const r = `wpn-s-${seq++}`; defs.push(styleDef(r, style, start)); return r; },
   };
 }
@@ -226,6 +241,7 @@ function groundsBlocks(
       // number sitting out to its left.
       out.push(new Paragraph({
         style: "Normal",
+        alignment: AlignmentType.JUSTIFIED,
         indent: { left: hang, hanging: hang },
         children: groundsHeadingRuns(entry.label, entry.text, headingStyle),
       }));
@@ -334,6 +350,7 @@ function centeredBoldCell(text: string): Paragraph {
 // so the LoD here is date/event only.
 
 export async function generateWpSynopsisAndLod(project: DraftoProject) {
+  setDocxExportContext(buildDocxExportContext(project));
   const numbering: any[] = [];
   const synopsis = parseHtml(project.synopsis || "");
   numbering.push(...synopsis.numbering);
@@ -391,6 +408,7 @@ function reliefItems(project: DraftoProject): string[] {
 // ── Writ Petition (body + affidavit) ────────────────────────────────────────
 
 export async function generateWpPetition(project: DraftoProject, opts?: { includeAffidavit?: boolean; includeSignature?: boolean }) {
+  setDocxExportContext(buildDocxExportContext(project));
   const includeAffidavit = opts?.includeAffidavit ?? true;
   const includeSignature = opts?.includeSignature ?? false;
   const { petHeader, resHeader } = partyHeaders(project);
@@ -401,7 +419,11 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
   const nb = numberer();
   const numbering = nb.defs;
 
-  const mainRef = nb.decimal();              // top-level 1.–8.
+  const para1Ref = nb.decimal(1);      // 1. Intro
+  const factsRef = nb.decimal(2);      // 2. FACTS
+  const groundsRef = nb.decimal(3);    // 3. GROUNDS
+  const boilerplateRef = nb.decimal(4);// 4-7. Jurisdiction, Alternate Remedy, etc.
+  const prayersParaRef = nb.decimal(8);// 8. PRAYERS
   const reliefsTopRef = nb.styled(num.prayers);
   const prayersRef = nb.styled(num.prayers);
 
@@ -409,24 +431,20 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
   // "… and: [a] …; [b] …" — the letters inline (matching the configured
   // prayers style) and the user's own punctuation preserved untouched
   // (including the final full stop after the residuary prayer).
-  const para1Html = `<p>This Writ Petition is filed praying that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and: ${reliefs
-    .map((h, i) => `[${enumLabel(i, num.prayers)}] ${inlineHtml(h)}`)
-    .join(" ")}</p>`;
-  const para1 = parseHtml(para1Html, { before: 120 }, { reference: mainRef, level: 0 });
-  numbering.push(...para1.numbering);
-
   // Para 1 ends with an annexure sentence for each document marked as an
   // Impugned Order ("Annexure P-1 is a true copy of … dated …."), the
-  // "Annexure P-N" label in bold.
-  const ioSentenceRuns: TextRun[] = wpAnnexureOrder(project)
+  // "Annexure P-N" label in bold. Kept in the same paragraph so list numbering
+  // is continuous and never breaks across engines (Word & LibreOffice/PDF).
+  const ioAnnexureHtml = wpAnnexureOrder(project)
     .filter(e => e.annex.isImpugnedOrder)
-    .flatMap((e, i) => {
-      const { label, rest } = factsAnnexureSentenceParts(e.pNumber, e.annex);
-      return [
-        smartTextRun({ text: `${i > 0 ? " " : ""}${label}`, bold: true }),
-        smartTextRun(rest),
-      ];
-    });
+    .map(e => factsAnnexureSentenceHtml(e.pNumber, e.annex))
+    .join(" ");
+
+  const para1Html = `<p>This Writ Petition is filed praying that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and: ${reliefs
+    .map((h, i) => `[${enumLabel(i, num.prayers)}] ${inlineHtml(h)}`)
+    .join(" ")}${ioAnnexureHtml ? ` ${ioAnnexureHtml}` : ""}</p>`;
+  const para1 = parseHtml(para1Html, { before: 120 }, { reference: para1Ref, level: 0 });
+  numbering.push(...para1.numbering);
 
   const facts = parseHtml(resolveFactsHtml(project) || "");
   applyFactsCascade(facts.numbering, num.facts);
@@ -446,23 +464,19 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
     // 1. Intro — the prayers verbatim inline (all of them, residuary included),
     // then the impugned order/document annexure sentence(s).
     ...para1.paragraphs,
-    ...(ioSentenceRuns.length ? [new Paragraph({
-      indent: { left: 480 }, // continuation of para 1 (aligns with its text)
-      children: ioSentenceRuns,
-    })] : []),
     // 2. Facts
-    listItemRuns(mainRef, [smartTextRun({ text: "FACTS", bold: true }), ": The facts and circumstances giving rise to this writ petition are as under:"]),
+    listItemRuns(factsRef, [smartTextRun({ text: "FACTS", bold: true }), ": The facts and circumstances giving rise to this writ petition are as under:"]),
     ...(facts.paragraphs.length ? facts.paragraphs : [new Paragraph({ children: [smartTextRun("[Facts — generated from the List of Dates.]")] })]),
     // 3. Grounds
-    listItemRuns(mainRef, [smartTextRun({ text: "GROUNDS", bold: true }), ": This writ petition is filed on the following grounds which are taken in addition and without prejudice to each other:"]),
+    listItemRuns(groundsRef, [smartTextRun({ text: "GROUNDS", bold: true }), ": This writ petition is filed on the following grounds which are taken in addition and without prejudice to each other:"]),
     ...groundsParagraphs,
     // 4–7 boilerplate
-    listItem(mainRef, "This Hon’ble Court has the necessary jurisdiction to entertain this Writ Petition as the Respondents are situated within, and the cause of action has arisen within, the territorial jurisdiction of this Hon’ble Court.", { before: 120 }),
-    listItem(mainRef, "The Petitioner has no other equally efficacious alternate remedy available to approach this Hon’ble Court.", { before: 120 }),
-    listItem(mainRef, "The Petitioner has not filed any other Writ Petition or proceeding before the Hon’ble Supreme Court or before this Hon’ble Court or any other Court seeking the same or similar relief.", { before: 120 }),
-    listItem(mainRef, "The Petitioner craves leave of this Hon’ble Court to produce additional documents and/or affidavits and to add, alter or amend this Writ Petition at a later stage of the proceedings, if required.", { before: 120 }),
+    listItem(boilerplateRef, "This Hon’ble Court has the necessary jurisdiction to entertain this Writ Petition as the Respondents are situated within, and the cause of action has arisen within, the territorial jurisdiction of this Hon’ble Court.", { before: 120 }),
+    listItem(boilerplateRef, "The Petitioner has no other equally efficacious alternate remedy available to approach this Hon’ble Court.", { before: 120 }),
+    listItem(boilerplateRef, "The Petitioner has not filed any other Writ Petition or proceeding before the Hon’ble Supreme Court or before this Hon’ble Court or any other Court seeking the same or similar relief.", { before: 120 }),
+    listItem(boilerplateRef, "The Petitioner craves leave of this Hon’ble Court to produce additional documents and/or affidavits and to add, alter or amend this Writ Petition at a later stage of the proceedings, if required.", { before: 120 }),
     // 8. Prayers
-    listItemRuns(mainRef, [smartTextRun({ text: "PRAYERS:", bold: true }), " In view of the foregoing submissions, it is respectfully prayed that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and:"]),
+    listItemRuns(prayersParaRef, [smartTextRun({ text: "PRAYERS:", bold: true }), " In view of the foregoing submissions, it is respectfully prayed that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and:"]),
     ...htmlListItems(prayersRef, reliefs, numbering),
     // The petition body's Filed-by block is the ONLY one that shows "Drawn on".
     ...createWpFiledBy(project, { includeSignature, showDrawnOn: true }),
@@ -474,7 +488,8 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
     ] : []),
   ];
 
-  return pack(wpDoc(children, numbering), "WP-Petition.docx");
+  const uniqueNumbering = numbering.filter((v, i, a) => a.findIndex(t => t.reference === v.reference) === i);
+  return pack(wpDoc(children, uniqueNumbering), "WP-Petition.docx");
 }
 
 // Standalone petition affidavit (used by the PDF path so an uploaded signed
@@ -571,12 +586,7 @@ function buildAffidavitChildren(
 
 export async function generateWpVakalatnama(project: DraftoProject) {
   const { petHeader, resHeader } = partyHeaders(project);
-  // Fall back to the WP defaults in Settings so the vakalatnama is never left
-  // with a blank advocate.
-  const advRaw = project.wp.advocate;
-  const adv = (advRaw?.name?.trim() || advRaw?.firm?.trim() || advRaw?.address?.trim())
-    ? advRaw
-    : { ...advRaw, ...getWpFiledBy() };
+  const adv = wpAdvocate(project);
   const advName = [adv.name, adv.firm].filter(Boolean).join(", ") || "[Advocate]";
 
   // All petitioners execute the vakalatnama (each gets a signature slot below);
@@ -824,7 +834,7 @@ export async function generateWpSingleCm(project: DraftoProject, cmIndex: number
 // safety net for missing/duplicated entries.
 export function wpFrontMatterOrder(project: DraftoProject): ("notice" | "urgency" | "memo")[] {
   const all: ("notice" | "urgency" | "memo")[] = ["notice", "urgency", "memo"];
-  const chosen = (project.wp.frontMatterOrder || []).filter((k, i, a) => all.includes(k) && a.indexOf(k) === i);
+  const chosen = (project?.wp?.frontMatterOrder || []).filter((k, i, a) => all.includes(k) && a.indexOf(k) === i);
   return [...chosen, ...all.filter(k => !chosen.includes(k))];
 }
 
@@ -838,7 +848,7 @@ export function wpIndexItems(project: DraftoProject): { key: string; runs: (Text
   const items: { key: string; runs: (TextRun | string)[] }[] = [
     ...wpFrontMatterOrder(project).map(k => ({ key: k, runs: [smartTextRun(frontLabels[k])] })),
     { key: "slod", runs: [smartTextRun("Synopsis and List of Dates")] },
-    { key: "petition", runs: [smartTextRun(`Writ Petition under Article ${project.wp.articleBasis} of the Constitution of India, with affidavit.`)] },
+    { key: "petition", runs: [smartTextRun(`Writ Petition under Article ${project?.wp?.articleBasis || "226"} of the Constitution of India, with affidavit.`)] },
   ];
   wpAnnexureOrder(project).forEach(({ annex, pNumber }) => items.push({ key: `annex:${annex.id}`, runs: annexIndexRuns(pNumber, annex) }));
   activeCms(project).forEach((cm, i) => {

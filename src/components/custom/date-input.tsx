@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { format, isValid } from "date-fns";
 import { Calendar as CalendarIcon } from "lucide-react";
 
@@ -15,13 +15,20 @@ import {
 } from "@/components/ui/popover";
 
 interface DateInputProps {
-  value: Date;
+  value?: Date | string | null;
   onChange: (date?: Date) => void;
   disabled?: boolean;
 }
 
 export function DateInput({ value, onChange, disabled }: DateInputProps) {
   const [isOpen, setIsOpen] = useState(false);
+
+  const dateObj = useMemo(() => {
+    if (!value) return undefined;
+    if (value instanceof Date) return isValid(value) ? value : undefined;
+    const parsed = new Date(value);
+    return isValid(parsed) ? parsed : undefined;
+  }, [value]);
 
   const handleDateSelect = (date?: Date) => {
     onChange(date);
@@ -35,18 +42,18 @@ export function DateInput({ value, onChange, disabled }: DateInputProps) {
           variant={"outline"}
           className={cn(
             "w-[150px] justify-start text-left font-normal h-7 px-2 text-xs",
-            !value && "text-muted-foreground"
+            !dateObj && "text-muted-foreground"
           )}
           disabled={disabled}
         >
           <CalendarIcon className="mr-2 h-3.5 w-3.5" />
-          {value && isValid(value) ? format(value, "dd.MM.yyyy") : <span>Pick a date</span>}
+          {dateObj ? format(dateObj, "dd.MM.yyyy") : <span>Pick a date</span>}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
         <Calendar
           mode="single"
-          selected={value}
+          selected={dateObj}
           onSelect={handleDateSelect}
           initialFocus
         />

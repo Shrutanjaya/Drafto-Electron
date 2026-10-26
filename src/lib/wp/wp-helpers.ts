@@ -19,7 +19,7 @@ import {
 import { format } from "date-fns";
 import { smartTextRun } from "@/lib/docx-helpers";
 import type { DraftoProject } from "@/lib/schema";
-import { getWpFiledBySignature, getWpMarginsIn, getWpOutputFormatting, getWpFiledByLeftPct, getWpFiledByLayout, wpFiledByLines, type WpFiledByLayoutItem } from "./wp-settings";
+import { getWpFiledBySignature, getWpMarginsIn, getWpOutputFormatting, getWpFiledByLeftPct, getWpFiledByLayout, wpFiledByLines, getWpFiledBy, type WpFiledByLayoutItem } from "./wp-settings";
 
 export const NO_BORDERS = {
   top: { style: BorderStyle.NONE, size: 0, color: "auto" },
@@ -171,6 +171,19 @@ export function createWpPartiesHeader(petHeader: string, resHeader: string, o?: 
 // details. Left-aligned, single line spacing.
 const filedByCellMargins = { top: 0, bottom: 0, left: 0, right: 115 };
 
+export function wpAdvocate(project: DraftoProject): DraftoProject["wp"]["advocate"] {
+  const fb = getWpFiledBy();
+  const raw = project?.wp?.advocate;
+  return {
+    name: raw?.name?.trim() || fb.name || "",
+    firm: raw?.firm?.trim() || fb.firm || "",
+    address: raw?.address?.trim() || fb.address || "",
+    enrolmentNo: raw?.enrolmentNo?.trim() || fb.enrolmentNo || "",
+    email: raw?.email?.trim() || fb.email || "",
+    phone: raw?.phone?.trim() || fb.phone || "",
+  };
+}
+
 export function createWpFiledBy(
   project: DraftoProject,
   opts?: {
@@ -184,9 +197,9 @@ export function createWpFiledBy(
     signature?: { data: Uint8Array; widthPx: number; heightPx: number } | null;
   },
 ): (Paragraph | Table)[] {
-  // Advocate data defaults to the WP block; other document types (e.g. the CAT
-  // OA, whose Filed-by is identical to the WP one) pass their own advocate.
-  const adv = opts?.advocate ?? project.wp.advocate;
+  // Advocate data defaults to the WP block (merged with Settings defaults);
+  // other document types (e.g. the CAT OA) pass their own advocate.
+  const adv = opts?.advocate ?? wpAdvocate(project);
   const filingDate = project.advocate.filingDate ? format(new Date(project.advocate.filingDate), "dd.MM.yyyy") : "__.__.____";
   const place = project.advocate.filingPlace || "New Delhi";
   const single = { line: 240, before: 0, after: 0 };
@@ -201,18 +214,18 @@ export function createWpFiledBy(
   const EMU_PER_PX = 9525;   // 914400 EMU/in ÷ 96 px/in
   const EMU_PER_PT = 12700;  // 914400 EMU/in ÷ 72 pt/in
   const SIGNATURE_OVERLAP_PT = 6; // signature dips this many pt into the name line
-  // The right cell starts after the configured left-column share of the content
-  // width (both Settings → Writ Petition); the image is anchored there so it
-  // sits over the left-aligned advocate name.
+  // In docx tables, horizontalPosition relativeFrom COLUMN measures offset from the
+  // left boundary of the table cell containing the anchor paragraph. Therefore, an offset
+  // of 0 places the signature flush with the left boundary of the right cell, directly above
+  // the advocate's name.
   const leftPct = opts?.leftPct ?? getWpFiledByLeftPct();
-  const RIGHT_CELL_OFFSET_EMU = Math.round((leftPct / 100) * (wpContentWidthTwips() / 1440) * 914400);
   const signatureRuns = signature
     ? [
         new ImageRun({
           data: signature.data,
           transformation: { width: signature.widthPx, height: signature.heightPx },
           floating: {
-            horizontalPosition: { relative: HorizontalPositionRelativeFrom.COLUMN, offset: RIGHT_CELL_OFFSET_EMU },
+            horizontalPosition: { relative: HorizontalPositionRelativeFrom.COLUMN, offset: 0 },
             verticalPosition: { relative: VerticalPositionRelativeFrom.PARAGRAPH, offset: -(signature.heightPx * EMU_PER_PX - SIGNATURE_OVERLAP_PT * EMU_PER_PT) },
             behindDocument: true,
             allowOverlap: true,
@@ -270,8 +283,20 @@ export function createWpFiledBy(
       rows: [
         new TableRow({
           children: [
-            new TableCell({ children: leftCell, borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP, margins: filedByCellMargins }),
-            new TableCell({ children: rightCell, borders: NO_BORDERS, verticalAlign: VerticalAlign.TOP, margins: filedByCellMargins }),
+            new TableCell({
+              children: leftCell,
+              borders: NO_BORDERS,
+              verticalAlign: VerticalAlign.TOP,
+              margins: filedByCellMargins,
+              width: { size: leftPct, type: WidthType.PERCENTAGE },
+            }),
+            new TableCell({
+              children: rightCell,
+              borders: NO_BORDERS,
+              verticalAlign: VerticalAlign.TOP,
+              margins: filedByCellMargins,
+              width: { size: 100 - leftPct, type: WidthType.PERCENTAGE },
+            }),
           ],
         }),
       ],

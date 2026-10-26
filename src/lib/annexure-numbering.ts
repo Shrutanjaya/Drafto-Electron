@@ -20,13 +20,17 @@ export interface AnnexureRow {
 
 export function annexureNumbering(rows: AnnexureRow[], courtType?: string): Map<string, number> {
   if (courtType === "WritPetitionDHC" || courtType === "OriginalApplicationCAT" || isScWpFamily(courtType)) {
-    return new Map<string, number>(wpAnnexureOrderFromLods(rows || []).map(e => [e.annex.id, e.pNumber]));
+    return new Map<string, number>(
+      wpAnnexureOrderFromLods(rows || [])
+        .filter(e => e?.annex?.id)
+        .map(e => [e.annex.id, e.pNumber])
+    );
   }
 
-  const all: Annexure[] = (rows || []).flatMap(row => row?.annexures || []);
+  const all: Annexure[] = (rows || []).flatMap(row => row?.annexures || []).filter(Boolean);
   const map = new Map<string, number>();
   let counter = 1;
-  all.filter(annex => !annex.isAdditionalDocument).forEach(annex => map.set(annex.id, counter++));
-  all.filter(annex => annex.isAdditionalDocument).forEach(annex => map.set(annex.id, counter++));
+  all.filter(annex => annex && !annex.isAdditionalDocument).forEach(annex => annex.id && map.set(annex.id, counter++));
+  all.filter(annex => annex && annex.isAdditionalDocument).forEach(annex => annex.id && map.set(annex.id, counter++));
   return map;
 }

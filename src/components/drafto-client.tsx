@@ -17,6 +17,7 @@ import { EntitlementProvider, useEntitlement, useCanDraft } from "@/providers/en
 import type { CourtType } from "@/lib/entitlement/entitlement";
 import { EarlyBirdOfferDialog } from "@/components/dialogs/early-bird-offer-dialog";
 import { EntitlementBanner } from "@/components/custom/entitlement-banner";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { ReadOnlyLock } from "@/components/custom/read-only-lock";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
 import { useToast } from "@/hooks/use-toast";
@@ -79,7 +80,9 @@ function DraftoClientInner() {
                 HC interfaces while still allowing reading, selecting, scrolling,
                 and tab/section navigation. Nothing is disabled or blurred. */}
             <ReadOnlyLock active={readOnly}>
-              <Workspace />
+              <ErrorBoundary fallbackTitle="Error in Workspace">
+                <Workspace />
+              </ErrorBoundary>
             </ReadOnlyLock>
           </main>
         </Card>

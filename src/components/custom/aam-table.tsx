@@ -26,6 +26,7 @@ import {
   DEFAULT_GROUNDS_HEADING_STYLE,
   HEADING_STYLE_OPTIONS,
   headingLabelFor,
+  getGroundsHeadingStyle,
   type GroundsHeadingStyle,
   type GroundsRow,
 } from "@/lib/grounds-headings"
@@ -121,10 +122,8 @@ const ClientSideDnd = ({ children }: { children: React.ReactNode }) => {
 // uncluttered). Tucked into a popover so it costs one small button on screen.
 function HeadingStyleControl() {
   const form = useFormContext<DraftoProject>();
-  const style = {
-    ...DEFAULT_GROUNDS_HEADING_STYLE,
-    ...((useWatch({ control: form.control, name: "groundsHeadingStyle" as any }) || {}) as Partial<GroundsHeadingStyle>),
-  } as GroundsHeadingStyle;
+  const watched = useWatch({ control: form.control, name: "groundsHeadingStyle" as any });
+  const style = getGroundsHeadingStyle(watched ? { groundsHeadingStyle: watched } : form.getValues());
 
   const set = (patch: Partial<GroundsHeadingStyle>) =>
     form.setValue("groundsHeadingStyle" as any, { ...style, ...patch } as any, { shouldDirty: true });
@@ -243,10 +242,8 @@ function AamTableInner({ name, defaultRows = 10, disabled = false, labelMode = "
     [fields, headingRowIndexes, headingTexts],
   );
 
-  const headingStyle = {
-    ...DEFAULT_GROUNDS_HEADING_STYLE,
-    ...((useWatch({ control: form.control, name: "groundsHeadingStyle" as any }) || {}) as Partial<GroundsHeadingStyle>),
-  } as GroundsHeadingStyle;
+  const watchedGroundsHeadingStyle = useWatch({ control: form.control, name: "groundsHeadingStyle" as any });
+  const headingStyle = getGroundsHeadingStyle(watchedGroundsHeadingStyle ? { groundsHeadingStyle: watchedGroundsHeadingStyle } : form.getValues());
 
   const insertHeadingAt = (index: number) => {
     const id = `item_${Date.now()}`;
@@ -367,7 +364,7 @@ function AamTableInner({ name, defaultRows = 10, disabled = false, labelMode = "
                                       placeholder="Heading"
                                       style={headingStyle.smallCaps ? { fontVariant: "small-caps" } : undefined}
                                       className={cn(
-                                        "h-7 border-dashed bg-muted/40 text-xs tracking-wide",
+                                        "h-7 border-dashed bg-muted/40 text-xs tracking-wide text-justify",
                                         headingStyle.bold && "font-semibold",
                                         headingStyle.italics && "italic",
                                         headingStyle.underline && "underline",

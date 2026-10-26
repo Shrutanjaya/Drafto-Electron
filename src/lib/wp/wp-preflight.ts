@@ -46,8 +46,8 @@ export function wpPreflight(project: DraftoProject): WpPreflightIssue[] {
   const warn = (message: string, target?: string) => issues.push({ severity: "warning", message, target });
 
   // ── Parties ──
-  if (!project.petitioners?.some(p => p.name?.trim())) err("No Petitioner name has been entered (Preliminary → Parties).", "parties");
-  if (!project.respondents?.some(r => r.name?.trim())) err("No Respondent name has been entered (Preliminary → Parties).", "parties");
+  if (!project.petitioners?.some(p => String(p?.name ?? "").trim())) err("No Petitioner name has been entered (Preliminary → Parties).", "parties");
+  if (!project.respondents?.some(r => String(r?.name ?? "").trim())) err("No Respondent name has been entered (Preliminary → Parties).", "parties");
 
   // ── Petition body ──
   const reliefs = (project.wp.reliefs || []).filter(r => htmlHasText(r.particulars));
@@ -55,7 +55,7 @@ export function wpPreflight(project: DraftoProject): WpPreflightIssue[] {
   // (including the quash relief, if any) must be entered by the user.
   if (reliefs.length <= 1) err("No reliefs have been entered (Petition → Reliefs) — only the residuary prayer would print.", "petition");
   if (!htmlHasText(project.synopsis)) warn("The Synopsis is empty.", "synopsis");
-  if (!(project.listOfDates || []).some(l => l.date?.trim() || htmlHasText(l.event))) warn("The List of Dates is empty.", "synopsis");
+  if (!(project.listOfDates || []).some(l => String(l?.date ?? "").trim() || htmlHasText(l.event))) warn("The List of Dates is empty.", "synopsis");
   if (!(project.grounds || []).some(g => htmlHasText(g.particulars))) err("No Grounds have been entered — the GROUNDS section would be empty.", "petition");
 
   if (!htmlHasText(project.wp.facts)) {

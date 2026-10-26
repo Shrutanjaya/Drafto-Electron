@@ -184,7 +184,7 @@ export async function generateOaPdf(
       const bytes = await fileBytes(up?.file, up?.filePath);
       const src = bytes ? await pdfFromBytes(bytes) : null;
       if (src) items.push({ key, title, pdf: src, paginated: true });
-      else items.push({ key, title, pdf: null, paginated: true, phantomPages: 1 }); // physically inserted at filing
+      else { const blank = await PDFDocument.create(); blank.addPage(); items.push({ key, title, pdf: blank, paginated: true }); } // 1-page blank placeholder
     }
 
     // ── PASS 2: merge, tracking printed page numbers and stamp targets ──

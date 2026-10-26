@@ -5,6 +5,7 @@ import { AuthProvider } from "@/providers/auth-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { DevSimPanel } from "@/components/dev/dev-sim-panel";
+import { ErrorBoundary } from "@/components/error-boundary";
 import "./globals.css";
 
 // Lazy-load heavy pages to keep startup fast
@@ -23,7 +24,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Route path="/" element={
           <ProtectedRoute requireAuth>
             <main className="w-full px-2 py-4">
-              <React.Suspense fallback={null}><DraftoClient /></React.Suspense>
+              <ErrorBoundary fallbackTitle="Drafto encountered an unexpected error">
+                <React.Suspense fallback={null}><DraftoClient /></React.Suspense>
+              </ErrorBoundary>
             </main>
           </ProtectedRoute>
         } />

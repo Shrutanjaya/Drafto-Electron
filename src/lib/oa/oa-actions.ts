@@ -5,6 +5,7 @@
 // authority letters, per-applicant last pages, index — and a combined
 // "everything" document.
 
+import JSZip from "jszip";
 import {
   Packer, Document, Header, Footer, Paragraph, PageBreak, AlignmentType,
   Table, TableRow, TableCell, WidthType, VerticalAlign,
@@ -69,7 +70,21 @@ function oaDoc(children: Child[], numbering?: any[], opts?: { vak?: boolean }) {
   });
 }
 async function pack(doc: Document, fileName: string) {
-  return { success: true as const, docx: await Packer.toBase64String(doc), fileName };
+  const b64 = await Packer.toBase64String(doc);
+  let docx = b64;
+  try {
+    const zip = await JSZip.loadAsync(b64, { base64: true });
+    const numFile = zip.file("word/numbering.xml");
+    if (numFile) {
+      const numXml = await numFile.async("text");
+      const cleaned = numXml.replace(/<w:startOverride [^>]*\/>/g, "");
+      zip.file("word/numbering.xml", cleaned);
+      docx = await zip.generateAsync({ type: "base64" });
+    }
+  } catch {
+    docx = b64;
+  }
+  return { success: true as const, docx, fileName };
 }
 // Split a rich-text ordered list into its top-level <li> items (depth-aware, so
 // nested lists inside an item stay with that item). Anything that isn't a list
@@ -212,6 +227,7 @@ function groundsBlocks(project: DraftoProject, style: OaStyle, numbering: any[])
       // every line of a heading that wraps.
       out.push(new Paragraph({
         style: "Normal",
+        alignment: AlignmentType.JUSTIFIED,
         indent: { left: anchor + hang, hanging: hang },
         children: groundsHeadingRuns(entry.label, entry.text, headingStyle),
       }));

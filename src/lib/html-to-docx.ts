@@ -27,6 +27,8 @@ let exportQuoteItalics = true;
 // sub-paragraphs differently from the other two: its Facts are authored as a
 // list, and without this they sat at a different indent from its Grounds, which
 // are numbered by the generator.
+import { getHeadingSettings, type HeadingSettings } from "./heading-settings";
+
 export interface ListGeom { base: number; step: number; itemLeft?: number; itemStep?: number; itemHanging?: number }
 const DEFAULT_LIST_GEOM: ListGeom = { base: 360, step: 360, itemLeft: 720, itemStep: 360, itemHanging: 360 };
 let quoteListGeom: ListGeom = DEFAULT_LIST_GEOM;
@@ -37,11 +39,43 @@ export interface DocxExportContext {
   outputFontSizePt?: number;
   outputLineSpacing?: number;
   outputParaAfterPt?: number;
+  headingSettings?: HeadingSettings;
+  annexureLabelMap?: Map<string, string>;
+}
+
+import type { DraftoProject } from "@/lib/schema";
+import { annexureRowsOf } from "@/lib/wp/facts-mode";
+import { annexPrefixFor } from "@/lib/annex-prefix";
+import { annexureNumbering } from "@/lib/annexure-numbering";
+
+export function buildDocxExportContext(project: Partial<DraftoProject>): DocxExportContext {
+  const map = new Map<string, string>();
+  const activeRows = annexureRowsOf(project as DraftoProject);
+  const courtType = project.courtType || "SLP";
+  const prefix = annexPrefixFor(courtType);
+  const numMap = annexureNumbering(activeRows, courtType);
+
+  activeRows.forEach((r: any) => {
+    (r.annexures || []).forEach((a: any) => {
+      const num = numMap.get(a.id);
+      if (num !== undefined) {
+        map.set(a.id, `Annexure ${prefix}-${num}`);
+      }
+    });
+  });
+
+  return {
+    annexureLabelMap: map,
+    headingSettings: getHeadingSettings(),
+  };
 }
 
 let activeExportContext: DocxExportContext | null = null;
 
 export function setDocxExportContext(ctx: DocxExportContext | null) {
+  if (ctx && !ctx.headingSettings) {
+    ctx.headingSettings = getHeadingSettings();
+  }
   activeExportContext = ctx;
 }
 // Output formatting (mirrors Settings → Customize → Output Text Formatting), read
@@ -168,7 +202,7 @@ function htmlToTree(html: string): (SimpleNode | string)[] {
 }
 
 // Process the tree to create docx paragraphs and numbering configs
-function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: number }, listLevel = 0, inBlockquote = false, olRef?: string, spacing?: ParagraphSpacing, defaultNumbering?: { reference: string; level: number }, exportHighlight = false, blockIndent?: { left: number }): ParseResult {
+function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: number }, listLevel = 0, inBlockquote = false, olRef?: string, spacing?: ParagraphSpacing, defaultNumbering?: { reference: string; level: number; claimed?: boolean }, exportHighlight = false, blockIndent?: { left: number }): ParseResult {
     const result: ParseResult = { paragraphs: [], numbering: [] };
 
     // Buffer consecutive inline/string nodes so that loose inline content — e.g.
@@ -199,9 +233,13 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
             alignment: AlignmentType.JUSTIFIED,
         };
         if (inBlockquote) props.indent = { left: 720, right: 720 };
+        else if (defaultNumbering?.claimed && !props.indent) props.indent = { left: blockIndent?.left ?? 720 };
         if (spacing) props.spacing = spacing;
         if (followsTable) props.spacing = { ...(props.spacing ?? {}), before: TABLE_GAP_BEFORE_TWIPS };
-        if (defaultNumbering) props.numbering = defaultNumbering;
+        if (defaultNumbering && !defaultNumbering.claimed) {
+            props.numbering = { reference: defaultNumbering.reference, level: defaultNumbering.level };
+            defaultNumbering.claimed = true;
+        }
         result.paragraphs.push(new Paragraph(props));
         inlineBuffer = [];
     };
@@ -458,6 +496,47 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 }
                 result.paragraphs.push(new Paragraph(paragraphProps));
                 break;
+            case 'h1':
+            case 'h2':
+            case 'h3':
+            case 'h4':
+            case 'h5':
+            case 'h6': {
+                let hAlign: AlignmentType = AlignmentType.JUSTIFIED;
+                if (node.attributes.style?.includes('text-align: left')) hAlign = AlignmentType.LEFT;
+                if (node.attributes.style?.includes('text-align: center')) hAlign = AlignmentType.CENTER;
+                if (node.attributes.style?.includes('text-align: right')) hAlign = AlignmentType.RIGHT;
+                if (node.attributes.style?.includes('text-align: justify')) hAlign = AlignmentType.JUSTIFIED;
+
+                const hPlainText = extractPlainText(node.children);
+                const hConverted = convertToSmartQuotes(hPlainText);
+
+                const levelNum = parseInt(node.tagName.substring(1), 10) || 1;
+                const hKey = (levelNum <= 3 ? `h${levelNum}` : 'h3') as 'h1' | 'h2' | 'h3';
+                const currentHeadingSettings = activeExportContext?.headingSettings || getHeadingSettings();
+                const hConfig = currentHeadingSettings[hKey];
+
+                const baseHStyle: any = {
+                    bold: hConfig.bold,
+                    italics: hConfig.italics,
+                    ...(hConfig.underline ? { underline: { type: UnderlineType.SINGLE } } : {}),
+                    ...(hConfig.smallCaps ? { smallCaps: true } : {}),
+                    ...(hConfig.allCaps ? { allCaps: true } : {}),
+                };
+
+                const hParagraphProps: any = {
+                    children: processInline(node.children, baseHStyle, hConverted, 0, exportHighlight).runs,
+                    alignment: hAlign,
+                    style: "Normal",
+                    keepWithNext: true,
+                    spacing: {
+                        before: 240,
+                        after: 120,
+                    },
+                };
+                result.paragraphs.push(new Paragraph(hParagraphProps));
+                break;
+            }
             case 'blockquote': {
                 // A quoted block is rendered as: the entire block wrapped in a
                 // single pair of smart quotes, fully italicised, with an optional
@@ -757,6 +836,14 @@ function processInline(nodes: (SimpleNode | string)[], currentStyle = {}, fullTe
             runs.push(new TextRun({ text: convertedText, ...currentStyle }));
             currentOffset += length;
         } else if (typeof node === 'object' && node.tagName) {
+            if (node.attributes['data-type'] === 'annexure-badge' || node.attributes['data-annexure-id'] || node.tagName === 'annexure-badge') {
+                const annexId = node.attributes['data-annexure-id'];
+                const dynamicLabel = annexId && activeExportContext?.annexureLabelMap?.get(annexId);
+                const badgeText = dynamicLabel || node.attributes['data-fallback-label'] || extractPlainText(node.children) || 'Annexure';
+                runs.push(new TextRun({ text: badgeText, ...currentStyle, bold: true }));
+                currentOffset += extractPlainText(node.children).length;
+                return;
+            }
             let style = { ...currentStyle };
             switch (node.tagName) {
                 case 'strong':

@@ -141,6 +141,8 @@ export const lodTableItemSchema = z.object({
   date: z.string().default(""),
   event: z.string().default(""), // 'event' is the 'Particulars' field
   annexures: z.array(annexureSchema).default([]),
+  isHeading: z.boolean().default(false),
+  heading: z.string().default(""),
 });
 
 export const impugnedOrderSchema = z.object({
@@ -284,6 +286,14 @@ export const draftoProjectSchema = z.object({
   // How headings inside the Grounds are numbered and formatted. One choice for
   // the whole section, shared by all three tools (they share `grounds`).
   groundsHeadingStyle: z.object({
+    numbering: z.enum(["upper-roman", "lower-roman", "upper-alpha", "lower-alpha", "decimal"]).default("upper-roman"),
+    bold: z.boolean().default(true),
+    italics: z.boolean().default(false),
+    underline: z.boolean().default(false),
+    smallCaps: z.boolean().default(false),
+    allCaps: z.boolean().default(false),
+  }).default({}),
+  factsHeadingStyle: z.object({
     numbering: z.enum(["upper-roman", "lower-roman", "upper-alpha", "lower-alpha", "decimal"]).default("upper-roman"),
     bold: z.boolean().default(true),
     italics: z.boolean().default(false),
@@ -475,6 +485,7 @@ export const draftoProjectSchema = z.object({
     // List of Dates — the date column simply is not shown — so the table, the
     // annexure dialog and the annexure numbering all work unchanged.
     factsRows: z.array(lodTableItemSchema).default([]),
+    annexureMode: z.enum(["lod", "facts"]).default("lod"),
     factsEdited: z.boolean().default(false),
     factsLodIds: z.array(z.string()).default([]),
     factsLodFingerprint: z.string().default(""),
@@ -552,6 +563,7 @@ export const draftoProjectSchema = z.object({
     // List of Dates — the date column simply is not shown — so the table, the
     // annexure dialog and the annexure numbering all work unchanged.
     factsRows: z.array(lodTableItemSchema).default([]),
+    annexureMode: z.enum(["lod", "facts"]).default("lod"),
     factsEdited: z.boolean().default(false),
     // Transposition bookkeeping: LoD row ids already carried into Facts (drives
     // the append-only "add new rows" action) and a fingerprint of the LoD at the

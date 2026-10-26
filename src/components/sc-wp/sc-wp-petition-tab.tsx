@@ -22,7 +22,7 @@ import { SectionDialog } from "@/components/custom/section-dialog";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 import { Columns2, LayoutList, Sparkles, ListPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { transposeLodToFacts, transposableLodIds, lodFingerprint, appendNewLodRowsToFacts } from "@/lib/wp/wp-facts";
+import { FactsSection } from "@/components/custom/facts-section";
 import { isPil } from "@/lib/court-family";
 
 type ScWpPetitionSection = 'synopsis' | 'listOfDates' | 'reliefs' | 'facts' | 'grounds' | 'appendix';
@@ -106,29 +106,8 @@ export function ScWpPetitionTab() {
     }
   }, [form]);
 
-  // Facts generation logic
-  const generatingFacts = useRef(false);
-  const handleGenerateFacts = () => {
-    const proj = { ...form.getValues(), courtType: "WritPetitionSC" as const };
-    if (proj.wp?.factsEdited && (proj.wp?.facts || "").trim()) {
-      if (!window.confirm("Replace the current (edited) Facts with a fresh transposition from the List of Dates?")) return;
-    }
-    generatingFacts.current = true;
-    form.setValue("wp.facts", transposeLodToFacts(proj, "P"), { shouldDirty: true });
-    form.setValue("wp.factsEdited", false);
-    form.setValue("wp.factsLodIds", transposableLodIds(proj));
-    form.setValue("wp.factsLodFingerprint", lodFingerprint(proj));
-  };
-
-  const handleAppendNewRows = () => {
-    const proj = { ...form.getValues(), courtType: "WritPetitionSC" as const };
-    const { html, appendedIds } = appendNewLodRowsToFacts(proj, proj.wp?.facts || "", proj.wp?.factsLodIds || [], "P");
-    if (appendedIds.length === 0) return;
-    generatingFacts.current = true;
-    form.setValue("wp.facts", html, { shouldDirty: true });
-    form.setValue("wp.factsLodIds", [...(proj.wp?.factsLodIds || []), ...appendedIds]);
-    form.setValue("wp.factsLodFingerprint", lodFingerprint(proj));
-  };
+  const annexureMode = useWatch({ control: form.control, name: 'wp.annexureMode' as any }) || 'lod';
+  const factsRowsWatch = useWatch({ control: form.control, name: 'wp.factsRows' as any });
 
   // View mode + sticky section
   const [viewMode, setViewMode] = useStickyState<'splitter' | 'navigation'>('sc-wp-petition-tab-view', getSettings().slpTabView ?? 'splitter');
@@ -147,23 +126,16 @@ export function ScWpPetitionTab() {
   const appendixItems = useWatch({ control: form.control, name: 'appendixItems' });
   const factsLodIds = useWatch({ control: form.control, name: 'wp.factsLodIds' });
 
-  const hasAamRow = (rows: any[]) => rows?.some((r: any) => r.particulars?.trim()) ?? false;
-  const hasLoDRow = (rows: any[]) => rows?.some((r: any) => r.date?.trim() || r.event?.trim()) ?? false;
+  const hasAamRow = (rows: any[]) => Array.isArray(rows) && rows.some((r: any) => String(r?.particulars ?? "").trim().length > 0);
+  const hasLoDRow = (rows: any[]) => Array.isArray(rows) && rows.some((r: any) => String(r?.date ?? "").trim().length > 0 || String(r?.event ?? "").trim().length > 0);
 
-  const synopsisActive = !!synopsis?.trim();
+  const synopsisActive = !!String(synopsis ?? "").trim();
   const lodActive = hasLoDRow(lod);
   const reliefsActive = hasAamRow(reliefs);
-  const factsActive = !!facts?.trim();
+  const factsActive = (factsRowsWatch || []).length > 0 || !!String(facts ?? "").trim();
   const groundsActive = hasAamRow(grounds);
   const appendixRows = (appendixItems ?? []) as any[];
   const appendixActive = !wantsAppendix || (appendixRows.length > 0 && appendixRows.every(appendixHasContent));
-
-  const newLodRowCount = useMemo(() => {
-    const done = new Set(factsLodIds || []);
-    const proj = { ...form.getValues(), courtType: "WritPetitionSC" as const };
-    return transposableLodIds(proj).filter(id => !done.has(id)).length;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lod, factsLodIds]);
 
   // Section Editors
   const synopsisEditor = (
@@ -186,7 +158,7 @@ export function ScWpPetitionTab() {
         Chronology of events with attached annexures. In Writ Petitions, annexure sentences appear only in the Facts section, while Impugned Orders (marked IO) appear in Paragraph 1.
       </p>
       <div className="flex-grow overflow-auto">
-        <LoDTable />
+        <LoDTable hideAnnexures={annexureMode === "facts"} />
       </div>
     </div>
   );
@@ -219,47 +191,10 @@ export function ScWpPetitionTab() {
           )}
         />
       )}
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          Transposed from the List of Dates (with annexure sentences). Editing locks it against auto-regeneration.
-        </p>
-        <div className="flex shrink-0 items-center gap-1">
-          {!!facts?.trim() && newLodRowCount > 0 && (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              title="Add paragraphs for List-of-Dates rows added after the last generation, without touching your edits"
-              onClick={handleAppendNewRows}
-            >
-              <ListPlus className="mr-1 h-3.5 w-3.5" />
-              Append {newLodRowCount} new row{newLodRowCount === 1 ? "" : "s"}
-            </Button>
-          )}
-          <Button type="button" size="sm" variant="secondary" onClick={handleGenerateFacts}>
-            <Sparkles className="mr-1 h-3.5 w-3.5" />
-            Generate from List of Dates
-          </Button>
-        </div>
-      </div>
-      <FormField
-        control={form.control}
-        name="wp.facts"
-        render={({ field }) => (
-          <FormItem className="flex h-full flex-col flex-grow">
-            <FormControl>
-              <BadhiyaBox
-                value={field.value}
-                onChange={(v) => {
-                  field.onChange(v);
-                  if (!generatingFacts.current) form.setValue("wp.factsEdited", true);
-                  generatingFacts.current = false;
-                }}
-                path={field.name}
-              />
-            </FormControl>
-          </FormItem>
-        )}
+      <FactsSection
+        factsPath="wp.factsRows"
+        annexureModePath="wp.annexureMode"
+        storedFactsPath="wp.facts"
       />
     </div>
   );

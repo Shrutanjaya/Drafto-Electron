@@ -26,6 +26,7 @@ import { ProportionalTable as Table, hydrateTableColWidths } from './table-propo
 import TableRow from '@tiptap/extension-table-row'
 import TableHeader from '@tiptap/extension-table-header'
 import TableCell from '@tiptap/extension-table-cell'
+import { AnnexureBadge } from './annexure-badge-node'
 
 
 interface BadhiyaBoxProps {
@@ -407,6 +408,7 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
       TabHandler,
       QuoteCue,
       ListEditingKeys,
+      AnnexureBadge,
     ],
     content: hydrateTableColWidths(value),
     onUpdate: ({ editor }) => {

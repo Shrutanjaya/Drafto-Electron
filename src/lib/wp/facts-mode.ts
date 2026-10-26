@@ -1,46 +1,40 @@
-// ── Facts mode (HC and CAT) ──────────────────────────────────────────────────
-// Two ways of working, chosen once in Settings per document type.
+// ── Facts mode & engine (HC, CAT, SC WP, Statutory Appeal) ────────────────
 //
-// "Reproduce the List of Dates in the Facts" (the default, and how Drafto has
-// always worked): one annexure-bearing List of Dates, and the Facts are a
-// transposition of it — "On <date>, <event>" plus the annexure sentences.
-//
-// Separate Facts (the alternative): a concise List of Dates carrying only dates
-// and particulars, and a Facts table of its own — the same table as the List of
-// Dates minus the date column, annexures and all. The List of Dates section of
-// the document comes from the first; the Facts paragraphs and EVERY annexure
-// (including the Index) come from the second.
-//
-// One module decides which, so the choice lands in exactly three places: where
-// annexures come from, where the Facts text comes from, and what the workspace
-// draws.
+// 1. Facts are always stored and edited as a row-by-row table (`factsRows`),
+//    never as a giant monolithic BadhiyaBox.
+// 2. The user can choose whether to mark annexures in the List of Dates or in
+//    the Facts table (`annexureMode: "lod" | "facts"`).
+// 3. "Populate from List of Dates" transposes LoD rows into Facts rows
+//    ("On <date>, <event>" + lowercasing rule).
+// 4. `resolveFactsHtml` resolves the Facts table into clean HTML `<ol><li>...</li></ol>`
+//    with annexure sentences properly nested INSIDE the paragraph block so DOCX
+//    and PDF exports preserve the full sentence with zero truncation.
 
 import type { Annexure, DraftoProject } from "@/lib/schema";
 import { factsAnnexureSentenceHtml } from "./wp-facts";
 import { wpAnnexureOrderFromLods } from "./wp-annexures";
 import { isScWpFamily } from "@/lib/court-family";
+import { getFactsHeadingStyle, headingLabelFor } from "@/lib/grounds-headings";
 
 type LodRow = DraftoProject["listOfDates"][number];
 
-/** Read the per-document-type setting. Defaults to the historical behaviour. */
-function factsFromLodSetting(courtType: string | undefined): boolean {
-  if (typeof window === "undefined") return true;
-  try {
-    const raw = window.localStorage.getItem("drafto-settings");
-    if (!raw) return true;
-    const s = JSON.parse(raw);
-    if (courtType === "OriginalApplicationCAT") return s.oaFactsFromLod ?? true;
-    if (courtType === "WritPetitionDHC") return s.wpFactsFromLod ?? true;
-    return true;
-  } catch {
-    return true;
+/** Where annexures are currently marked: "lod" (List of Dates) or "facts" (Facts table). */
+export function annexureModeOf(project: DraftoProject): "lod" | "facts" {
+  if (project?.courtType === "OriginalApplicationCAT") {
+    return (project as any).oa?.annexureMode || "lod";
   }
+  return (project as any).wp?.annexureMode || "lod";
+}
+
+/** Form field path for the annexure mode switch. */
+export function annexureModePath(courtType: string | undefined): string {
+  return courtType === "OriginalApplicationCAT" ? "oa.annexureMode" : "wp.annexureMode";
 }
 
 /** The Facts table rows for this project, whichever document type it is. */
 export function factsRowsOf(project: DraftoProject): LodRow[] {
   const rows =
-    project.courtType === "OriginalApplicationCAT"
+    project?.courtType === "OriginalApplicationCAT"
       ? (project as any).oa?.factsRows
       : (project as any).wp?.factsRows;
   return Array.isArray(rows) ? rows : [];
@@ -51,107 +45,224 @@ export function factsRowsPath(courtType: string | undefined): string {
   return courtType === "OriginalApplicationCAT" ? "oa.factsRows" : "wp.factsRows";
 }
 
+/** Where legacy monolithic facts live in the form. */
+export function legacyFactsPath(courtType: string | undefined): string {
+  return courtType === "OriginalApplicationCAT" ? "oa.facts" : "wp.facts";
+}
+
 /**
- * True when this project keeps its Facts separate from the List of Dates.
- *
- * Only ever true for the HC and CAT tools — the SLP has no Facts section — and
- * only when the user has turned the Settings option off.
+ * Kept for backward compatibility. In the new architecture, Facts is always a table.
+ * Returns true if annexures are marked in Facts, or if factsRows has entries.
  */
 export function separateFactsMode(project: DraftoProject): boolean {
-  const ct = project?.courtType;
-  if (ct !== "WritPetitionDHC" && ct !== "OriginalApplicationCAT") return false;
-  return !factsFromLodSetting(ct);
+  if (!project) return false;
+  return annexureModeOf(project) === "facts" || factsRowsOf(project).length > 0;
 }
 
 /**
- * The rows that carry the annexures.
- *
- * In separate-Facts mode that is the Facts table. The fallback matters: a
- * project drafted before the switch still has its annexures on the List of
- * Dates, and must keep generating correctly until they are moved across.
+ * The rows that carry the authoritative annexures.
+ * If annexureMode is "facts", returns factsRows.
+ * Otherwise returns listOfDates.
  */
 export function annexureRowsOf(project: DraftoProject): LodRow[] {
-  if (!separateFactsMode(project)) return project.listOfDates || [];
-  const facts = factsRowsOf(project);
-  const hasAnnexures = facts.some((r) => (r.annexures || []).length > 0);
-  if (hasAnnexures) return facts;
-  // Nothing on the Facts table yet — fall back so an existing project is not
-  // silently stripped of its annexures the moment the setting is flipped.
-  const lodHasAnnexures = (project.listOfDates || []).some((r) => (r.annexures || []).length > 0);
-  return lodHasAnnexures ? project.listOfDates || [] : facts;
+  if (!project) return [];
+  const mode = annexureModeOf(project);
+  if (mode === "facts") {
+    const facts = factsRowsOf(project);
+    if (facts.length > 0) return facts;
+  }
+  return project.listOfDates || [];
 }
 
 /**
- * The Facts section as HTML — the shape both generators already consume, so
- * neither the WP nor the OA document layer needs to know this mode exists.
- *
- * In separate-Facts mode each table row becomes one <li>, with its annexure
- * sentences appended exactly as the transposition does. The impugned order's
- * own sentence is left out: it prints in Para 1, not in the Facts.
+ * Safely inserts an annexure sentence inside the closing tag of the last block
+ * (typically `</p>`). If no block tag is present, wraps the whole block in `<p>`.
+ * This prevents Word DOCX and PDF engines from dropping trailing inline runs.
+ */
+export function appendSentenceToHtml(html: string, sentence: string): string {
+  if (!sentence) return html;
+  const h = (html || "").trim();
+  if (!h) return `<p>${sentence}</p>`;
+  const m = h.match(/^([\s\S]*)(<\/(?:p|div|h[1-6])>\s*)$/i);
+  if (m) return `${m[1]} ${sentence}${m[2]}`;
+  if (/<\/(?:table|ol|ul|blockquote)>\s*$/i.test(h)) return `${h}<p>${sentence}</p>`;
+  return `<p>${h} ${sentence}</p>`;
+}
+
+/**
+ * The Facts section as HTML — the shape document generators consume.
+ * Each table row becomes one <li>, with its annexure sentences appended
+ * inside the paragraph block. The impugned order's sentence is left out
+ * (it belongs in Para 1 / Impugned Order section).
  */
 export function resolveFactsHtml(project: DraftoProject, prefix: string = "P"): string {
   const stored =
-    project.courtType === "OriginalApplicationCAT"
+    project?.courtType === "OriginalApplicationCAT"
       ? (project as any).oa?.facts || ""
       : (project as any).wp?.facts || "";
-  if (!separateFactsMode(project)) return stored;
 
   const rows = factsRowsOf(project);
-  if (rows.length === 0) return stored; // nothing typed yet — keep what is there
+  if (rows.length === 0) return stored;
 
+  const mode = annexureModeOf(project);
   const pMap = new Map(wpAnnexureOrderFromLods(annexureRowsOf(project)).map((e) => [e.annex.id, e]));
+  const lodMap = new Map((project.listOfDates || []).map((l) => [l.id, l]));
+
+  const factsHeadingStyle = getFactsHeadingStyle(project);
+  const blocks: string[] = [];
   const items: string[] = [];
-  for (const row of rows) {
-    const annexes = (row.annexures || []).filter((a: Annexure) => !a.isImpugnedOrder);
-    // The row text is already rich text; unwrap a lone wrapping paragraph so the
-    // <li> does not gain an extra block. Anything with several paragraphs is
-    // left alone — unwrapping it would run them together.
-    let html = unwrapLoneParagraph(row.event || "");
+  let currentListStart = 1;
+  let runningFactCount = 0;
+
+  const regimeAttr = isScWpFamily(project.courtType) ? ' data-regime="lower-alpha"' : '';
+
+  const flushItems = () => {
+    if (items.length === 0) return;
+    const startAttr = currentListStart > 1 ? ` start="${currentListStart}"` : '';
+    blocks.push(`<ol${regimeAttr}${startAttr}>${items.map((i) => `<li>${i}</li>`).join("")}</ol>`);
+    items.length = 0;
+  };
+
+  const escapeXml = (str: string) =>
+    str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex];
+
+    if (row.isHeading) {
+      const headingText = (row.heading || "").trim();
+      if (!headingText) continue;
+      flushItems();
+      const label = headingLabelFor(rows as any, rowIndex, factsHeadingStyle);
+      blocks.push(`<h2>${label} ${escapeXml(headingText)}</h2>`);
+      currentListStart = runningFactCount + 1;
+      continue;
+    }
+
+    // If annexures are marked in LoD, fallback to matching LoD row's annexures if row has none
+    const rowAnnexes = (row.annexures && row.annexures.length > 0)
+      ? row.annexures
+      : (mode === "lod" ? lodMap.get(row.id)?.annexures || [] : []);
+
+    const annexes = rowAnnexes.filter((a: Annexure) => !a.isImpugnedOrder);
+    let html = (row.event || "").trim();
     if (!html && annexes.length === 0) continue;
+
     const pageRangeText = isScWpFamily(project.courtType) ? "(pp.___ to ___)" : undefined;
     for (const annex of annexes) {
       const entry = pMap.get(annex.id);
       if (!entry) continue;
-      html = `${html} ${factsAnnexureSentenceHtml(entry.pNumber, annex, prefix, pageRangeText)}`.trim();
+      const sentence = factsAnnexureSentenceHtml(entry.pNumber, annex, prefix, pageRangeText);
+      html = appendSentenceToHtml(html, sentence);
     }
-    if (html) items.push(html);
+
+    if (html) {
+      if (!/^\s*<(?:p|div|h[1-6]|table|blockquote|ol|ul)\b/i.test(html)) {
+        html = `<p>${html}</p>`;
+      }
+      items.push(html);
+      runningFactCount++;
+    }
   }
-  if (items.length === 0) return "";
-  return `<ol>${items.map((i) => `<li>${i}</li>`).join("")}</ol>`;
+
+  flushItems();
+
+  if (blocks.length === 0) return stored;
+  return blocks.join("\n");
 }
 
 /**
  * Build Facts rows from the List of Dates — "On <date>, <event>", one row each.
- * Annexures are NOT carried: in this mode the List of Dates has none, and they
- * are attached on the Facts table itself.
- *
- * The exception is a project drafted before the switch, whose annexures are
- * still on the List of Dates; those come across so nothing is lost.
+ * If annexureMode is "lod", copies annexures from LoD so sentences preview.
+ * If annexureMode is "facts", preserves existing annexures on the Facts rows.
  */
-export function factsRowsFromLod(project: DraftoProject): LodRow[] {
-  const carryAnnexures = (project.listOfDates || []).some((r) => (r.annexures || []).length > 0);
+export function factsRowsFromLod(project: DraftoProject, existingFactsRows: LodRow[] = []): LodRow[] {
+  const mode = annexureModeOf(project);
+  const existingMap = new Map(existingFactsRows.map((r) => [r.id, r]));
   const out: LodRow[] = [];
+
   for (const lod of project.listOfDates || []) {
     const text = (lod.event || "").trim();
     const hasAnnex = (lod.annexures || []).length > 0;
     if (!text && !hasAnnex) continue;
+
+    const existingRow = existingMap.get(lod.id);
+    const annexures = mode === "lod"
+      ? (lod.annexures ? [...lod.annexures] : [])
+      : (existingRow?.annexures ? [...existingRow.annexures] : []);
+
     out.push({
-      id: `item_${Math.random().toString(36).slice(2, 10)}`,
+      id: lod.id,
       date: "",
       event: transposeToSentence(lod.date || "", text),
-      annexures: carryAnnexures ? lod.annexures || [] : [],
+      annexures,
     } as LodRow);
   }
   return out;
 }
 
-/** Strip one wrapping <p>…</p>, but only when it wraps the whole row. */
-function unwrapLoneParagraph(html: string): string {
-  const t = (html || "").trim();
-  const m = t.match(/^<p(?:\s[^>]*)?>([\s\S]*)<\/p>$/i);
-  if (!m) return t;
-  if (/<\/p\s*>/i.test(m[1])) return t; // more than one paragraph
-  return m[1].trim();
+/**
+ * Append-only transposition: adds rows for List-of-Dates entries that are not
+ * yet present in `existingRows` (by id), without modifying existing rows.
+ */
+export function appendNewLodRowsToFactsRows(project: DraftoProject, existingRows: LodRow[] = []): LodRow[] {
+  const mode = annexureModeOf(project);
+  const existingIds = new Set(existingRows.map((r) => r.id));
+  const toAppend: LodRow[] = [];
+
+  for (const lod of project.listOfDates || []) {
+    const text = (lod.event || "").trim();
+    const hasAnnex = (lod.annexures || []).length > 0;
+    if ((!text && !hasAnnex) || existingIds.has(lod.id)) continue;
+
+    toAppend.push({
+      id: lod.id,
+      date: "",
+      event: transposeToSentence(lod.date || "", text),
+      annexures: mode === "lod" ? (lod.annexures ? [...lod.annexures] : []) : [],
+    } as LodRow);
+  }
+
+  return [...existingRows, ...toAppend];
+}
+
+/**
+ * Converts legacy monolithic facts HTML (from BadhiyaBox <ol><li>...</li></ol>)
+ * into row items for backward compatibility when opening older projects.
+ */
+export function convertFactsHtmlToRows(html: string): LodRow[] {
+  if (!html || !html.trim()) return [];
+
+  const liMatches = [...html.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)];
+  if (liMatches.length > 0) {
+    return liMatches.map((m) => {
+      let inner = m[1].trim();
+      if (!/^\s*<p\b/i.test(inner)) inner = `<p>${inner}</p>`;
+      return {
+        id: `fact_${Math.random().toString(36).slice(2, 10)}`,
+        date: "",
+        event: inner,
+        annexures: [],
+      };
+    });
+  }
+
+  const pMatches = [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)];
+  if (pMatches.length > 0) {
+    return pMatches.map((m) => ({
+      id: `fact_${Math.random().toString(36).slice(2, 10)}`,
+      date: "",
+      event: `<p>${m[1].trim()}</p>`,
+      annexures: [],
+    }));
+  }
+
+  return [{
+    id: `fact_${Math.random().toString(36).slice(2, 10)}`,
+    date: "",
+    event: `<p>${html.trim()}</p>`,
+    annexures: [],
+  }];
 }
 
 /** Lowercase the first real letter, stepping over any leading tags. */
@@ -167,12 +278,8 @@ function isBlankHtml(html: string): boolean {
 /**
  * "12.03.2021" + "<p>The order was passed.</p>" → "<p>On 12.03.2021, the order
  * was passed.</p>"
- *
- * The prefix goes INSIDE the first paragraph rather than wrapping the row.
- * Wrapping would put a <p> inside a <p>, which the editor renders as a break
- * after the date and another after the text.
  */
-function transposeToSentence(date: string, html: string): string {
+export function transposeToSentence(date: string, html: string): string {
   const d = (date || "").trim();
   const t = (html || "").trim();
   if (!d || isBlankHtml(t)) return t;

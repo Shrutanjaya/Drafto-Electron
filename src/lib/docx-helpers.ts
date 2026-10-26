@@ -5,6 +5,7 @@ import {
   HorizontalPositionAlign,
   HorizontalPositionRelativeFrom,
   ImageRun,
+  LineRuleType,
   Paragraph,
   Table,
   TableCell,
@@ -143,10 +144,12 @@ export const createSlpHeader = (
   // the closing block, which names the provision the appeal is brought under.
   // Absent, every SLP renders exactly as before.
   appeal?: { provision: string; provisionId?: string },
+  pageBreakBefore = false,
 ) => {
   const currentYear = new Date().getFullYear();
-  const centered = (text: string, extra: Record<string, unknown> = {}) =>
+  const centered = (text: string, extra: Record<string, unknown> = {}, breakBefore = false) =>
     new Paragraph({
+      pageBreakBefore: breakBefore || undefined,
       alignment: AlignmentType.CENTER,
       spacing: { line: 240, after: 240 },
       children: [smartTextRun({ text, size: 28, ...extra })],
@@ -154,7 +157,7 @@ export const createSlpHeader = (
 
   const sciBlock = headerStyle === 'sci'
     ? [
-        centered("IN THE SUPREME COURT OF INDIA"),
+        centered("IN THE SUPREME COURT OF INDIA", {}, pageBreakBefore),
         centered(appeal
           ? `[S.C.R., ${appealOrderRule(caseType, appeal.provisionId)}]`
           : caseType === 'Criminal'
@@ -169,6 +172,7 @@ export const createSlpHeader = (
   return [
     ...(sciBlock ?? [
     new Paragraph({
+      pageBreakBefore: pageBreakBefore || undefined,
       alignment: AlignmentType.CENTER,
       spacing: { line: 240, after: 240 },
       children: [
@@ -442,7 +446,7 @@ const getFiledBySignature = (isScWp = false): { data: Uint8Array; widthPx: numbe
 export const createFiledByTable = (
     filingDate: Date,
     aorName: string,
-    opts?: { fontSizePt?: number; lineSpacing?: number; paraSpacingPt?: number; includeSignature?: boolean; isScWp?: boolean }
+    opts?: { fontSizePt?: number; lineSpacing?: number; paraSpacingPt?: number; includeSignature?: boolean; isScWp?: boolean; trailingParagraph?: boolean }
 ) => {
     const formattedDate = filingDate ? format(new Date(filingDate), "dd.MM.yyyy") : "";
     const noBorders = {
@@ -527,7 +531,18 @@ export const createFiledByTable = (
                     ]
                 })
             ]
-        })
+        }),
+        // Minimal 1pt trailing paragraph so Word/LibreOffice attaches <w:sectPr>
+        // here instead of synthesizing a full-height Normal paragraph after the
+        // table (which pushes an otherwise full page onto a trailing blank page).
+        // Omitted when another paragraph (e.g. a pageBreakBefore Certificate header)
+        // immediately follows the table in the same section.
+        ...(opts?.trailingParagraph === false ? [] : [
+            new Paragraph({
+                spacing: { before: 0, after: 0, line: 20, lineRule: LineRuleType.EXACT },
+                children: [new TextRun({ text: "", size: 2 })],
+            }),
+        ]),
     ]
 }
 

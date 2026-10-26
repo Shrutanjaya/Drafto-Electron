@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures";
+import { annexureRowsOf } from "@/lib/wp/facts-mode";
 import { isPil } from "@/lib/court-family";
 import {
   IA_COMMON_CLOSING,
@@ -182,9 +183,10 @@ export function ScWpIasTab() {
   const isPilProject = isPil(scWpCourtType);
   const wpDocNoun = isPilProject ? "Writ Petition (PIL)" : "Writ Petition";
 
-  // Auto-sync official translation active and reason based on translated copies in LoD
+  // Auto-sync official translation active and reason based on translated copies in active annexure table
   useEffect(() => {
-    const allAnnexures: Annexure[] = (listOfDates || []).flatMap(lod => lod.annexures || []);
+    const activeAnnexureRows = annexureRowsOf(form.getValues());
+    const allAnnexures: Annexure[] = activeAnnexureRows.flatMap(lod => lod.annexures || []);
     const hasTranslated = allAnnexures.some(a =>
       a.copyType === 'translated copy' || a.copyType === 'true and translated copy'
     );
@@ -192,7 +194,7 @@ export function ScWpIasTab() {
       form.setValue("standardIas.exemptionOfficialTranslation.active", hasTranslated, { shouldDirty: true });
     }
 
-    const orderedAnnexures = wpAnnexureOrderFromLods(listOfDates || []);
+    const orderedAnnexures = wpAnnexureOrderFromLods(activeAnnexureRows);
     const translatedPNums = orderedAnnexures
       .filter(e => e.annex.copyType === 'translated copy' || e.annex.copyType === 'true and translated copy')
       .map(e => `P-${e.pNumber}`);

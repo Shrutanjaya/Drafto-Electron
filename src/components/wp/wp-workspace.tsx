@@ -2,12 +2,11 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useFormContext, useWatch, useFieldArray } from "react-hook-form";
-import { Sparkles, PlusCircle, Columns2, LayoutList, ListPlus } from "lucide-react";
+import { Sparkles, PlusCircle, Columns2, LayoutList, ListPlus, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DraftoProject } from "@/lib/schema";
 import { customIaSchema } from "@/lib/schema";
-import { transposeLodToFacts, transposableLodIds, lodFingerprint, appendNewLodRowsToFacts } from "@/lib/wp/wp-facts";
-import { separateFactsMode, factsRowsFromLod } from "@/lib/wp/facts-mode";
+import { FactsSection } from "@/components/custom/facts-section";
 import { wpIsIoWrit } from "@/lib/wp/wp-annexures";
 import { WP_STD_CM_TITLES } from "@/lib/wp/wp-actions";
 import { CustomIaCard } from "@/components/custom/custom-ia-card";
@@ -29,6 +28,7 @@ import { SectionDialog } from "@/components/custom/section-dialog";
 import { DateInput } from "@/components/custom/date-input";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 import { UseFirstPartyButton } from "@/components/custom/use-first-party-button";
+import { getWpFiledBy } from "@/lib/wp/wp-settings";
 
 // ── Shared little components (mirrors the SLP tab) ───────────────────────────
 function ViewToggle({ mode, onChange }: { mode: "splitter" | "navigation"; onChange: (m: "splitter" | "navigation") => void }) {
@@ -95,47 +95,10 @@ export function WpWorkspace() {
   }, []);
 
   const [editorSection, setEditorSection] = useState<EditorSection>("synopsis");
-  const [prelim, setPrelim] = useState<"parties" | "details" | "deponent">("parties");
+  const [prelim, setPrelim] = useState<"parties" | "details" | "advocate" | "deponent">("parties");
   const [cmSection, setCmSection] = useState<"stay" | "lengthySynopsis" | "exemptionCopies" | "custom">(isIoWrit ? "stay" : "lengthySynopsis");
 
-  // Which way this project works — chosen once in Settings.
-  const separateFacts = separateFactsMode(form.getValues());
-
-  // Separate-Facts mode: build the Facts rows from the List of Dates. The text
-  // becomes "On <date>, <event>"; annexures are attached on the Facts table
-  // itself (except for a project drafted before the switch, whose annexures
-  // come across so nothing is lost).
-  const handleGenerateFactsRows = () => {
-    const proj = form.getValues();
-    const existing = (proj.wp.factsRows || []).some((r: any) => (r.event || "").trim() || (r.annexures || []).length);
-    if (existing && !window.confirm("Replace the Facts table with a fresh transposition from the List of Dates?")) return;
-    form.setValue("wp.factsRows", factsRowsFromLod(proj) as any, { shouldDirty: true });
-  };
-
-  // Facts generation (edit-locked).
-  const generatingFacts = useRef(false);
-  const handleGenerateFacts = () => {
-    const proj = form.getValues();
-    if (proj.wp.factsEdited && (proj.wp.facts || "").trim()) {
-      if (!window.confirm("Replace the current (edited) Facts with a fresh transposition from the List of Dates?")) return;
-    }
-    generatingFacts.current = true;
-    form.setValue("wp.facts", transposeLodToFacts(proj), { shouldDirty: true });
-    form.setValue("wp.factsEdited", false);
-    form.setValue("wp.factsLodIds", transposableLodIds(proj));
-    form.setValue("wp.factsLodFingerprint", lodFingerprint(proj));
-  };
-  // Append-only transposition: adds paragraphs for LoD rows added AFTER the last
-  // generation without touching the (possibly hand-edited) existing Facts.
-  const handleAppendNewRows = () => {
-    const proj = form.getValues();
-    const { html, appendedIds } = appendNewLodRowsToFacts(proj, proj.wp.facts || "", proj.wp.factsLodIds || []);
-    if (appendedIds.length === 0) return;
-    generatingFacts.current = true;
-    form.setValue("wp.facts", html, { shouldDirty: true });
-    form.setValue("wp.factsLodIds", [...(proj.wp.factsLodIds || []), ...appendedIds]);
-    form.setValue("wp.factsLodFingerprint", lodFingerprint(proj));
-  };
+  const annexureMode = useWatch({ control: form.control, name: "wp.annexureMode" as any }) || "lod";
 
   // Dot-active watches.
   const synopsis = useWatch({ control: form.control, name: "synopsis" });
@@ -148,14 +111,16 @@ export function WpWorkspace() {
   const caseType = useWatch({ control: form.control, name: "caseType" });
   const articleBasis = useWatch({ control: form.control, name: "wp.articleBasis" });
   const listingDate = useWatch({ control: form.control, name: "wp.listingDate" });
+  const wpAdv = useWatch({ control: form.control, name: "wp.advocate" });
+  const filingPlaceWatch = useWatch({ control: form.control, name: "advocate.filingPlace" });
   const deponent = useWatch({ control: form.control, name: "deponent" });
-  const hasAam = (rows: any[]) => rows?.some((r: any) => r.particulars?.trim()) ?? false;
-  const hasLoD = (rows: any[]) => rows?.some((r: any) => r.date?.trim() || r.event?.trim()) ?? false;
+  const hasAam = (rows: any[]) => Array.isArray(rows) && rows.some((r: any) => String(r?.particulars ?? "").trim().length > 0);
+  const hasLoD = (rows: any[]) => Array.isArray(rows) && rows.some((r: any) => String(r?.date ?? "").trim().length > 0 || String(r?.event ?? "").trim().length > 0);
 
   // ── Preliminary nav-dot readiness ──────────────────────────────────────────
   // Parties: every party has a name AND an address (Through is optional).
   const partiesFilled = (rows: any[]) =>
-    Array.isArray(rows) && rows.length > 0 && rows.every((r: any) => r?.name?.trim() && r?.address?.trim());
+    Array.isArray(rows) && rows.length > 0 && rows.every((r: any) => String(r?.name ?? "").trim().length > 0 && String(r?.address ?? "").trim().length > 0);
   const prelimPartiesReady = partiesFilled(petitioners) && partiesFilled(respondents);
   // Details: type + article picked, and listing date is a future date (drawn-on optional).
   const listingIsFuture = (() => {
@@ -167,15 +132,17 @@ export function WpWorkspace() {
     return d.getTime() > today.getTime();
   })();
   const prelimDetailsReady = !!caseType && !!articleBasis && listingIsFuture;
+  // Advocate: name and address are required (firm, enrolment, email, phone optional)
+  const prelimAdvocateReady = !!(String(wpAdv?.name ?? "").trim() && String(wpAdv?.address ?? "").trim());
   // Deponent: everything except "presently at" (location) is mandatory.
   const prelimDeponentReady = (["name", "relationship", "fatherName", "age", "address", "role"] as const)
     .every((k) => String((deponent as any)?.[k] ?? "").trim());
 
   const active: Record<EditorSection, boolean> = {
-    synopsis: !!synopsis?.trim(),
+    synopsis: !!String(synopsis ?? "").trim(),
     listOfDates: hasLoD(lod),
     reliefs: hasAam(reliefs),
-    facts: !!facts?.trim(),
+    facts: (factsRowsWatch || []).length > 0 || !!String(facts ?? "").trim(),
     grounds: hasAam(grounds),
   };
 
@@ -196,12 +163,7 @@ export function WpWorkspace() {
           <label htmlFor="wp-split" className="text-xs">Start List of Dates on a fresh page</label>
         </div>
       )} />
-      <p className="text-xs text-muted-foreground">
-        {separateFacts
-          ? "Dates and particulars only — a concise chronology. The annexures live on the Facts table."
-          : "Attach annexures to the relevant rows, as in an SLP. The Facts section is generated from these rows."}
-      </p>
-      <LoDTable hideAnnexures={separateFacts} />
+      <LoDTable hideAnnexures={annexureMode === "facts"} />
     </div>
   );
 
@@ -215,52 +177,7 @@ export function WpWorkspace() {
     </div>
   );
 
-  // Count of LoD rows added since the last generation (drives "Append new rows").
-  const factsLodIds = useWatch({ control: form.control, name: "wp.factsLodIds" });
-  const newLodRowCount = useMemo(() => {
-    const done = new Set(factsLodIds || []);
-    return transposableLodIds(form.getValues()).filter(id => !done.has(id)).length;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lod, factsLodIds]);
-
-  const factsEditor = separateFacts ? (
-    <div className="flex h-full flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          One row per paragraph, with the annexures attached here. The List of Dates stays as your concise chronology.
-        </p>
-        <Button type="button" size="sm" variant="secondary" className="shrink-0" onClick={handleGenerateFactsRows}>
-          <Sparkles className="mr-1 h-3.5 w-3.5" />Generate from List of Dates
-        </Button>
-      </div>
-      <LoDTable name="wp.factsRows" hideDate />
-    </div>
-  ) : (
-    <div className="flex h-full flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">Transposed from the List of Dates (with annexure sentences). Editing locks it against regeneration.</p>
-        <div className="flex shrink-0 items-center gap-1">
-          {!!facts?.trim() && newLodRowCount > 0 && (
-            <Button type="button" size="sm" variant="outline" title="Add paragraphs for List-of-Dates rows added after the last generation, without touching your edits" onClick={handleAppendNewRows}>
-              <ListPlus className="mr-1 h-3.5 w-3.5" />Append {newLodRowCount} new row{newLodRowCount === 1 ? "" : "s"}
-            </Button>
-          )}
-          <Button type="button" size="sm" variant="secondary" onClick={handleGenerateFacts}>
-            <Sparkles className="mr-1 h-3.5 w-3.5" />Generate from List of Dates
-          </Button>
-        </div>
-      </div>
-      <FormField control={form.control} name="wp.facts" render={({ field }) => (
-        <FormItem className="flex flex-grow flex-col"><FormControl>
-          <BadhiyaBox value={field.value} onChange={(v: string) => {
-            field.onChange(v);
-            if (generatingFacts.current) generatingFacts.current = false;
-            else form.setValue("wp.factsEdited", true);
-          }} path={field.name} />
-        </FormControl></FormItem>
-      )} />
-    </div>
-  );
+  const factsEditor = <FactsSection />;
 
   const groundsEditor = <AamTable name="grounds" allowHeadings />;
 
@@ -453,7 +370,71 @@ export function WpWorkspace() {
       )} />.
     </div>
   );
-  const prelimContent = { parties: partiesContent, details: detailsContent, deponent: deponentContent }[prelim];
+  const handleResetAdvocateToDefaults = () => {
+    const fb = getWpFiledBy();
+    form.setValue("wp.advocate.name", fb.name, { shouldDirty: true });
+    form.setValue("wp.advocate.firm", fb.firm, { shouldDirty: true });
+    form.setValue("wp.advocate.address", fb.address, { shouldDirty: true });
+    form.setValue("wp.advocate.enrolmentNo", fb.enrolmentNo, { shouldDirty: true });
+    form.setValue("wp.advocate.email", fb.email, { shouldDirty: true });
+    form.setValue("wp.advocate.phone", fb.phone, { shouldDirty: true });
+  };
+
+  const advocateContent = (
+    <div className="space-y-4 max-w-2xl text-xs">
+      <div className="flex items-center justify-between pb-2 border-b">
+        <div>
+          <h3 className="font-semibold text-sm">Advocate Details (&ldquo;Filed by&rdquo; Block)</h3>
+          <p className="text-muted-foreground text-xs">
+            These details appear on the &ldquo;Filed by&rdquo; table at the foot of every writ component and on the Vakalatnama.
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={handleResetAdvocateToDefaults}
+          className="text-xs h-7"
+          title="Reset to default details configured in Settings → Writ Petition (DHC)"
+        >
+          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+          Reset to Settings Defaults
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <FormField control={form.control} name="wp.advocate.name" render={({ field }) => (
+          <FormItem><Field label="Advocate Name *"><Input {...field} placeholder="e.g. Adv. Jane Doe" className="h-8 text-xs" /></Field></FormItem>
+        )} />
+        <FormField control={form.control} name="wp.advocate.firm" render={({ field }) => (
+          <FormItem><Field label="Firm / Chamber Name"><Input {...field} placeholder="e.g. Legal Associates" className="h-8 text-xs" /></Field></FormItem>
+        )} />
+        <FormField control={form.control} name="wp.advocate.enrolmentNo" render={({ field }) => (
+          <FormItem><Field label="Enrolment No."><Input {...field} placeholder="e.g. D/1234/2015" className="h-8 text-xs" /></Field></FormItem>
+        )} />
+        <FormField control={form.control} name="wp.advocate.phone" render={({ field }) => (
+          <FormItem><Field label="Phone No."><Input {...field} placeholder="e.g. +91 98765 43210" className="h-8 text-xs" /></Field></FormItem>
+        )} />
+        <FormField control={form.control} name="wp.advocate.email" render={({ field }) => (
+          <FormItem className="md:col-span-2"><Field label="Email Address"><Input {...field} placeholder="e.g. advocate@example.com" className="h-8 text-xs" /></Field></FormItem>
+        )} />
+        <FormField control={form.control} name="wp.advocate.address" render={({ field }) => (
+          <FormItem className="md:col-span-2"><Field label="Chamber / Office Address *"><Textarea {...field} rows={2} placeholder="e.g. Chamber No. 123, Delhi High Court, New Delhi - 110003" className="text-xs" /></Field></FormItem>
+        )} />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3 border-t">
+        <FormField control={form.control} name="advocate.filingPlace" render={({ field }) => (
+          <FormItem><Field label="Filing Place"><Input {...field} placeholder="New Delhi" className="h-8 text-xs" /></Field></FormItem>
+        )} />
+        <FormField control={form.control} name="advocate.filingDate" render={({ field }) => (
+          <FormItem><Field label="Filing Date"><DateInput value={field.value as Date} onChange={field.onChange} /></Field></FormItem>
+        )} />
+      </div>
+    </div>
+  );
+
+  const prelimContent = { parties: partiesContent, details: detailsContent, advocate: advocateContent, deponent: deponentContent }[prelim];
 
   // ── Applications content ────────────────────────────────────────────────────
   const cmToggle = (name: any, id: string, label: string) => (
@@ -576,6 +557,7 @@ export function WpWorkspace() {
           [
             { id: "parties", label: "Parties", active: prelimPartiesReady },
             { id: "details", label: "Petition Details", active: prelimDetailsReady },
+            { id: "advocate", label: "Advocate Details", active: prelimAdvocateReady },
             { id: "deponent", label: "Deponent", active: prelimDeponentReady },
           ],
           prelim, setPrelim, prelimContent, "wp-prelim-nav",

@@ -9,9 +9,9 @@ import { annexureRowsOf } from "./facts-mode";
 // is shared with the UI numbering (LoD table / annexure dialog) so on-screen
 // P-numbers always match the generated documents.
 export function wpAnnexureOrderFromLods(listOfDates: { annexures?: Annexure[] }[]): { annex: Annexure; pNumber: number }[] {
-  const all: Annexure[] = (listOfDates || []).flatMap(lod => lod.annexures || []);
-  const io = all.filter(a => a.isImpugnedOrder);
-  const rest = all.filter(a => !a.isImpugnedOrder);
+  const all: Annexure[] = (listOfDates || []).flatMap(lod => lod?.annexures || []).filter(Boolean);
+  const io = all.filter(a => a?.isImpugnedOrder);
+  const rest = all.filter(a => !a?.isImpugnedOrder);
   return [...io, ...rest].map((annex, i) => ({ annex, pNumber: i + 1 }));
 }
 

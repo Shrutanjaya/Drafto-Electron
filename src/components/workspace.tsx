@@ -13,6 +13,7 @@ import { WpWorkspace } from "./wp/wp-workspace";
 import { OaWorkspace } from "./oa/oa-workspace";
 import { ScWpWorkspace } from "./sc-wp/sc-wp-workspace";
 import { FIND_REVEAL_EVENT, getPendingReveal } from "@/lib/find-reveal";
+import { ErrorBoundary } from "./error-boundary";
 import type { DraftoProject } from "@/lib/schema";
 import { isScWpFamily, isAppeal } from "@/lib/court-family";
 
@@ -32,17 +33,29 @@ export function Workspace() {
 
   // Supreme Court writ-petition mode
   if (isScWpFamily(courtType)) {
-    return <ScWpWorkspace />;
+    return (
+      <ErrorBoundary fallbackTitle="Error loading Supreme Court Writ Petition workspace">
+        <ScWpWorkspace />
+      </ErrorBoundary>
+    );
   }
 
   // Delhi HC writ-petition mode loads an entirely different interface.
   if (courtType === "WritPetitionDHC") {
-    return <WpWorkspace />;
+    return (
+      <ErrorBoundary fallbackTitle="Error loading Delhi High Court Writ Petition workspace">
+        <WpWorkspace />
+      </ErrorBoundary>
+    );
   }
 
   // CAT Original Application mode.
   if (courtType === "OriginalApplicationCAT") {
-    return <OaWorkspace />;
+    return (
+      <ErrorBoundary fallbackTitle="Error loading CAT Original Application workspace">
+        <OaWorkspace />
+      </ErrorBoundary>
+    );
   }
 
   return (

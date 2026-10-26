@@ -102,9 +102,10 @@ export interface WpBookmark {
 export async function fileBytes(file: any, filePath?: string): Promise<Uint8Array | null> {
   try {
     if (file && typeof file.arrayBuffer === "function") return new Uint8Array(await file.arrayBuffer());
+    const path = filePath || (file as any)?.path;
     const el = (typeof window !== "undefined" ? (window as any).electron : null);
-    if (filePath && el?.readFileByPath) {
-      const res = await el.readFileByPath(filePath);
+    if (path && el?.readFileByPath) {
+      const res = await el.readFileByPath(path);
       if (res?.data) return b64ToBytes(res.data);
     }
   } catch { /* ignore */ }
@@ -191,9 +192,11 @@ export function applyWpBookmarks(pdf: PDFDocument, entries: WpBookmark[]) {
 export async function generateWpPdf(
   project: DraftoProject,
   onProgress?: (label: string) => void,
+  signal?: AbortSignal,
 ): Promise<{ success: boolean; pdfBase64?: string; fileName: string; error?: string; annexureFirstPages?: Record<string, number> }> {
   const fileName = "Writ Petition.pdf";
   try {
+    if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
     const merged = await PDFDocument.create();
     const bookmarks: WpBookmark[] = [];
     const stamps: { pageIndex: number; number: number }[] = [];
@@ -236,19 +239,38 @@ export async function generateWpPdf(
     for (const k of wpFrontMatterOrder(project)) await genItem(frontGens[k].gen, k, frontGens[k].title);
     await genItem(generateWpSynopsisAndLod, "slod", "Synopsis and List of Dates");
     await genItem((p) => generateWpPetition(p, { includeAffidavit: false, includeSignature: true }), "petition", `Writ Petition under Article ${project.wp.articleBasis}`);
-    if (!(await uploadItem(uploads.signedAffidavit, "affidavit", "Affidavit"))) await genItem(generateWpAffidavit, "affidavit", "Affidavit");
+    if (!(await uploadItem(uploads.signedAffidavit, "affidavit", "Affidavit"))) { const blank = await PDFDocument.create(); blank.addPage(); items.push({ key: "affidavit", title: "Affidavit", pdf: blank, paginated: true }); }
+
+    // Helper to find matching annexure in the alternate table if file not found in current annex
+    const findMatchingAnnex = (annexId: string) => {
+      const allRows = [...(project.listOfDates || []), ...((project.wp as any)?.factsRows || [])];
+      for (const r of allRows) {
+        const found = (r.annexures || []).find((a: any) => a.id === annexId);
+        if (found) return found;
+      }
+      return null;
+    };
 
     // Annexures (impugned-order first). Colly annexures are assembled from their
     // constituent files with nested bookmarks; missing files get a placeholder.
     for (const { annex, pNumber } of wpAnnexureOrder(project)) {
+      if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
       onProgress?.(`Annexure P-${pNumber}…`);
       let src: PDFDocument | null = null;
       const collyChildren: { title: string; offset: number }[] = [];
+      const altAnnex = findMatchingAnnex(annex.id);
+
       if (annex.isColly && (annex.collyDocuments?.length ?? 0) > 0) {
         src = await PDFDocument.create();
-        for (const cd of annex.collyDocuments) {
+        for (let cIdx = 0; cIdx < annex.collyDocuments.length; cIdx++) {
+          if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+          const cd = annex.collyDocuments[cIdx];
+          const altCd = altAnnex?.collyDocuments?.[cIdx];
           const offset = src.getPageCount();
-          const bytes = await fileBytes(cd.file, cd.filePath);
+          let bytes = await fileBytes(cd.file, cd.filePath);
+          if (!bytes && altCd) {
+            bytes = await fileBytes(altCd.file, altCd.filePath);
+          }
           const cpdf = bytes ? await pdfFromBytes(bytes) : null;
           if (cpdf && cpdf.getPageCount() > 0) {
             const cp = await src.copyPages(cpdf, cpdf.getPageIndices());
@@ -257,7 +279,10 @@ export async function generateWpPdf(
           collyChildren.push({ title: cd.title || cd.date || "Document", offset });
         }
       } else {
-        const bytes = await fileBytes(annex.file, annex.filePath);
+        let bytes = await fileBytes(annex.file, annex.filePath);
+        if (!bytes && altAnnex) {
+          bytes = await fileBytes(altAnnex.file, altAnnex.filePath);
+        }
         src = bytes ? await pdfFromBytes(bytes) : null;
       }
       if (!src || src.getPageCount() === 0) { src = await PDFDocument.create(); src.addPage(); }
@@ -276,12 +301,14 @@ export async function generateWpPdf(
     // own A-series annexures), then Vakalatnama, Court Fee, Proof of Service.
     const cms = wpActiveCms(project);
     for (let i = 0; i < cms.length; i++) {
+      if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
       onProgress?.(`CM Application ${i + 1}…`);
       // A signed affidavit uploaded for this application replaces the clean one
       // the generator would otherwise print at the end of it.
       const signed = wpCmSignedAffidavit(project, cms[i].key);
       const signedBytes = signed ? await fileBytes(signed.file, signed.filePath) : null;
-      const signedPdf = signedBytes ? await pdfFromBytes(signedBytes) : null;
+      let signedPdf = signedBytes ? await pdfFromBytes(signedBytes) : null;
+      if (!signedPdf) { signedPdf = await PDFDocument.create(); signedPdf.addPage(); }
 
       const res = await generateWpSingleCm(project, i, true, !!signedPdf);
       if (res.docx) items.push({ key: `cm:${i}`, title: wpCmTitle(cms[i]), pdf: await docxToPdf(res.docx), paginated: true });
@@ -303,14 +330,14 @@ export async function generateWpPdf(
         });
       }
     }
-    if (!(await uploadItem(uploads.signedVakalatnama, "vakalatnama", "Vakalatnama"))) await genItem(generateWpVakalatnama, "vakalatnama", "Vakalatnama");
+    if (!(await uploadItem(uploads.signedVakalatnama, "vakalatnama", "Vakalatnama"))) { const blank = await PDFDocument.create(); blank.addPage(); items.push({ key: "vakalatnama", title: "Vakalatnama", pdf: blank, paginated: true }); }
     // Court Fee / Proof of Service: when not uploaded, the Index still reserves
     // one page each so the row carries the page number the physical insert will
     // occupy; nothing is added to the PDF itself.
     if (!(await uploadItem(uploads.courtFee, "courtfee", "Court Fee")))
-      items.push({ key: "courtfee", title: "Court Fee", pdf: null, paginated: true, phantomPages: 1 });
+      { const blank = await PDFDocument.create(); blank.addPage(); items.push({ key: "courtfee", title: "Court Fee", pdf: blank, paginated: true }); }
     if (!(await uploadItem(uploads.proofOfService, "proofofservice", "Proof of Service")))
-      items.push({ key: "proofofservice", title: "Proof of Service", pdf: null, paginated: true, phantomPages: 1 });
+      { const blank = await PDFDocument.create(); blank.addPage(); items.push({ key: "proofofservice", title: "Proof of Service", pdf: blank, paginated: true }); }
 
     // ── Compute printed page ranges (continuous from 1) for the Index. ──
     let calc = 1;
@@ -335,6 +362,11 @@ export async function generateWpPdf(
     // The Index "Writ Petition … with affidavit" row spans petition + affidavit.
     if (rangeByKey["petition"]) {
       pageRanges["petition"] = fmt({ s: rangeByKey["petition"].s, e: (rangeByKey["affidavit"] ?? rangeByKey["petition"]).e });
+      for (let i = 0; i < cms.length; i++) {
+        if (rangeByKey[`cm:${i}`] && rangeByKey[`cmaff:${i}`]) {
+          pageRanges[`cm:${i}`] = fmt({ s: rangeByKey[`cm:${i}`].s, e: rangeByKey[`cmaff:${i}`].e });
+        }
+      }
     }
 
     // ── Generate the Index with the page ranges, then assemble Index-first. ──

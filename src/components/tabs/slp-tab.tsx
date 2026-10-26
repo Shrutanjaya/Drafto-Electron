@@ -30,7 +30,7 @@ import { useCalculatedValues } from "@/hooks/use-calculated-values";
 import { Columns2, LayoutList, Sparkles, ListPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isAppeal } from "@/lib/court-family";
-import { transposeLodToFacts, transposableLodIds, lodFingerprint, appendNewLodRowsToFacts } from "@/lib/wp/wp-facts";
+import { FactsSection } from "@/components/custom/facts-section";
 import { FIND_REVEAL_EVENT, getPendingReveal } from "@/lib/find-reveal";
 
 type SlpSection = 'synopsis' | 'listOfDates' | 'facts' | 'grounds' | 'questionsOfLaw' | 'interimRelief' | 'appendix' | 'declarations';
@@ -165,74 +165,22 @@ export function SlpTab() {
   const courtType = useWatch({ control: form.control, name: 'courtType' });
   const isAppealProject = isAppeal(courtType);
   const facts = useWatch({ control: form.control, name: 'wp.facts' });
-  const factsActive = !!facts?.trim();
-  const newLodRowCount = React.useMemo(() => {
-    if (!isAppealProject) return 0;
-    const proj = form.getValues();
-    return transposableLodIds(proj).filter(id => !(proj.wp?.factsLodIds || []).includes(id)).length;
-  }, [isAppealProject, listOfDatesWatch, facts, form]);
-
-  const handleGenerateFacts = () => {
-    const proj = form.getValues();
-    if (proj.wp?.factsEdited && (proj.wp?.facts || '').trim()) {
-      if (!window.confirm('Replace the current (edited) Facts with a fresh transposition from the List of Dates?')) return;
-    }
-    form.setValue('wp.facts', transposeLodToFacts(proj, 'A'), { shouldDirty: true });
-    form.setValue('wp.factsEdited', false);
-    form.setValue('wp.factsLodIds', transposableLodIds(proj));
-    form.setValue('wp.factsLodFingerprint', lodFingerprint(proj));
-  };
-
-  const handleAppendNewRows = () => {
-    const proj = form.getValues();
-    const { html, appendedIds } = appendNewLodRowsToFacts(proj, proj.wp?.facts || '', proj.wp?.factsLodIds || [], 'A');
-    form.setValue('wp.facts', html, { shouldDirty: true });
-    form.setValue('wp.factsLodIds', [...(proj.wp?.factsLodIds || []), ...appendedIds]);
-    form.setValue('wp.factsLodFingerprint', lodFingerprint(proj));
-  };
+  const factsRowsWatch = useWatch({ control: form.control, name: 'wp.factsRows' as any });
+  const annexureMode = useWatch({ control: form.control, name: 'wp.annexureMode' as any }) || 'lod';
+  const factsActive = (factsRowsWatch || []).length > 0 || !!String(facts ?? "").trim();
 
   const factsEditor = (
-    <div className="flex h-full flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">
-          Transposed from the List of Dates (with annexure sentences). Editing locks it against auto-regeneration.
-        </p>
-        <div className="flex shrink-0 items-center gap-1">
-          {factsActive && newLodRowCount > 0 && (
-            <Button type="button" size="sm" variant="outline" onClick={handleAppendNewRows}
-              title="Add paragraphs for List-of-Dates rows added after the last generation, without touching your edits">
-              <ListPlus className="mr-1 h-3.5 w-3.5" />
-              Append {newLodRowCount} new row{newLodRowCount === 1 ? '' : 's'}
-            </Button>
-          )}
-          <Button type="button" size="sm" variant="secondary" onClick={handleGenerateFacts}>
-            <Sparkles className="mr-1 h-3.5 w-3.5" />
-            Generate from List of Dates
-          </Button>
-        </div>
-      </div>
-      <FormField
-        control={form.control}
-        name="wp.facts"
-        render={({ field }) => (
-          <FormItem className="flex h-full flex-col flex-grow">
-            <FormControl>
-              <BadhiyaBox
-                value={field.value}
-                onChange={(v) => { field.onChange(v); form.setValue('wp.factsEdited', true); }}
-                path={field.name}
-              />
-            </FormControl>
-          </FormItem>
-        )}
-      />
-    </div>
+    <FactsSection
+      factsPath="wp.factsRows"
+      annexureModePath="wp.annexureMode"
+      storedFactsPath="wp.facts"
+    />
   );
 
-  const hasAamRow = (rows: any[]) => rows?.some((r: any) => r.particulars?.trim()) ?? false;
-  const hasLoDRow = (rows: any[]) => rows?.some((r: any) => r.date?.trim() || r.event?.trim()) ?? false;
+  const hasAamRow = (rows: any[]) => Array.isArray(rows) && rows.some((r: any) => String(r?.particulars ?? "").trim().length > 0);
+  const hasLoDRow = (rows: any[]) => Array.isArray(rows) && rows.some((r: any) => String(r?.date ?? "").trim().length > 0 || String(r?.event ?? "").trim().length > 0);
 
-  const synopsisActive = !!synopsis?.trim();
+  const synopsisActive = !!String(synopsis ?? "").trim();
   const listOfDatesActive = hasLoDRow(listOfDatesWatch);
   const groundsActive = hasAamRow(groundsWatch);
   const questionsOfLawActive = hasAamRow(questionsOfLawWatch);
@@ -288,7 +236,7 @@ export function SlpTab() {
                       )}
                     />
                   )}
-                  {selectedSection === 'listOfDates' && <LoDTable />}
+                  {selectedSection === 'listOfDates' && <LoDTable hideAnnexures={isAppealProject && annexureMode === "facts"} />}
                   {selectedSection === 'facts' && isAppealProject && factsEditor}
                   {selectedSection === 'grounds' && <AamTable name="grounds" defaultRows={10} allowHeadings />}
                   {selectedSection === 'questionsOfLaw' && <AamTable name="questionsOfLaw" defaultRows={10} />}
@@ -335,7 +283,7 @@ export function SlpTab() {
             <div className="flex flex-col h-full p-1">
               <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">List of Dates</h4>
               <div className="flex-grow overflow-auto">
-                <LoDTable />
+                <LoDTable hideAnnexures={isAppealProject && annexureMode === "facts"} />
               </div>
             </div>
           </ResizablePanel>

@@ -2,11 +2,11 @@
 import { Packer } from "docx";
 import { createSlpHeader, createPartiesHeader, createWithTable, getPartyHeader, createAnnexureText, createIaAnnexureText, createFiledByTable, createIaHeader, base64ToBuffer, convertToSmartQuotes, smartTextRun, isLodRowNonEmpty } from "@/lib/docx-helpers";
 import type { DraftoProject, Annexure } from "@/lib/schema";
-import { Document, AlignmentType, Paragraph, TextRun, PageBreak, Table, TableCell, TableRow, WidthType, VerticalAlign, Header, Footer, PageNumber, SectionType, ISectionOptions, BorderStyle, CheckBox, FrameAnchorType, HorizontalPositionAlign, VerticalPositionAlign } from "docx";
+import { Document, AlignmentType, Paragraph, TextRun, PageBreak, Table, TableCell, TableRow, WidthType, VerticalAlign, Header, Footer, PageNumber, SectionType, ISectionOptions, BorderStyle, CheckBox, FrameAnchorType, HorizontalPositionAlign, VerticalPositionAlign, TabStopType } from "docx";
 import { differenceInDays, format } from "date-fns";
 import { standardIaList } from "@/lib/ia-list";
 import { createListingProforma } from "@/lib/proforma-helpers";
-import { parseHtml } from "@/lib/html-to-docx";
+import { parseHtml, setDocxExportContext, buildDocxExportContext } from "@/lib/html-to-docx";
 import { getChecklistQueries, CHECKLIST_DECLARATION } from "@/lib/checklist-queries";
 import { PDFDocument, rgb, StandardFonts, PDFName, PDFDict, PDFArray, PDFRef, PDFString, PDFNumber, PDFRawStream, decodePDFRawStream, degrees } from 'pdf-lib';
 import { convertDocxToPdf as ipcConvertDocxToPdf } from "@/lib/ipc/pdf";
@@ -16,6 +16,7 @@ import {
   getGroundsHeadingStyle,
   groundsHeadingRuns,
   groundsHeadingHang,
+  headingRunProps,
 } from "@/lib/grounds-headings";
 import {
   getActiveAppendixItems,
@@ -41,7 +42,7 @@ import {
 } from "@/lib/sc-wp/sc-wp-actions";
 import { isScWpFamily, isAppeal, annexurePrefix } from "@/lib/court-family";
 import { appealProvisionText, appealTitle, appealOrderRule, getAppealLimitation } from "@/lib/appeal/appeal-provisions";
-import { resolveFactsHtml } from "@/lib/wp/facts-mode";
+import { resolveFactsHtml, annexureRowsOf } from "@/lib/wp/facts-mode";
 import { transposeLodToFacts, injectAnnexurePageRangesIntoFacts } from "@/lib/wp/wp-facts";
 import { getOfficialCourtName } from "@/lib/court-names";
 
@@ -1058,8 +1059,7 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
           columnWidths: [1000, 5000, 1500, 1500, 1000],
           rows: buildMasterIndexTableRows(pl, vo.sNoToVolume, vo.splitSNos, vo.pageRanges, vo.totalVolumes),
         }),
-        new Paragraph({ children: [new PageBreak()] }),
-        new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: `INDEX – VOLUME ${toRomanNumeral(1)}`, bold: true })] }),
+        new Paragraph({ pageBreakBefore: true, alignment: AlignmentType.CENTER, children: [smartTextRun({ text: `INDEX – VOLUME ${toRomanNumeral(1)}`, bold: true })] }),
       );
     } else {
       indexChildren.push(
@@ -1270,6 +1270,7 @@ export async function generateLpDocx(projectData: DraftoProject, includeSignatur
 }
 
 export async function generateSlodDocx(projectData: DraftoProject, annexurePageRanges?: Map<string, {start: number, end: number}>) {
+    setDocxExportContext(buildDocxExportContext(projectData));
     const validLods = (projectData.listOfDates || []).filter(isLodRowNonEmpty);
     const effectiveLods = validLods.length > 0 ? validLods : (projectData.listOfDates?.length ? [projectData.listOfDates[0]] : []);
 
@@ -1416,8 +1417,7 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
             children: [
                 new Paragraph({ children: [smartTextRun({ text: "SYNOPSIS", bold: true })], alignment: AlignmentType.CENTER, style: "Normal" }),
                 ...synopsisResult.paragraphs,
-                new Paragraph({ children: [new PageBreak()] }),
-                new Paragraph({ children: [smartTextRun({ text: "LIST OF DATES", bold: true })], alignment: AlignmentType.CENTER, style: "Normal" }),
+                new Paragraph({ pageBreakBefore: true, children: [smartTextRun({ text: "LIST OF DATES", bold: true })], alignment: AlignmentType.CENTER, style: "Normal" }),
                 lodTable,
             ],
         }],
@@ -1435,6 +1435,7 @@ export async function generateSlpDocx(
     // in here — the same contract the SC WP petition already follows.
     annexurePageRanges?: Map<string, { start: number; end: number }>,
 ) {
+    setDocxExportContext(buildDocxExportContext(projectData));
     // The certificate names the document four times over; an Appeal calls
     // itself an Appeal throughout.
     const certDocNoun = isAppeal(projectData.courtType) ? 'Appeal' : 'SLP';
@@ -1708,66 +1709,67 @@ export async function generateSlpDocx(
         },
     }) : null;
 
-    // Grounds, with any headings the user has placed between them. A heading is
-    // a full-width row of the SAME table: the table is never split, so nothing
-    // downstream shifts and the petition's paragraph numbering is untouched.
-    // It sits at the table's left edge, one notch in from the ground text.
-    // Lettering counts grounds only, so A, B, C run on across a heading.
+    // Grounds, with any headings the user has placed between them.
+    // Headings use the same indent as the main petition paragraphs (e.g. Para 5:
+    // left 720, hanging 360), placing the roman heading number in line with the
+    // paragraph numbers (360) and slightly to the left of the Grounds Pointers
+    // (A., B. at 720). Heading text starts at 720, aligning with the main
+    // paragraph text and the pointers.
+    // Consecutive ground rows are grouped into tables with indent 720.
     const slpGroundsHeadingStyle = getGroundsHeadingStyle(projectData);
     const slpGroundsEntries = groundsSequence(projectData.grounds, slpGroundsHeadingStyle);
-    const slpHeadingHang = groundsHeadingHang(slpGroundsEntries);
-    const groundsRows = slpGroundsEntries.map(entry => {
+    const groundsElements: (Paragraph | Table)[] = [];
+    let currentGroundTableRows: TableRow[] = [];
+
+    const flushGroundsTable = () => {
+        if (currentGroundTableRows.length > 0) {
+            groundsElements.push(new Table({
+                width: { size: 91.66, type: WidthType.PERCENTAGE },
+                columnWidths: [800, 9200],
+                rows: currentGroundTableRows,
+                borders: noBorders,
+                indent: {
+                    size: 720, // 0.5 inch
+                    type: WidthType.DXA,
+                },
+            }));
+            currentGroundTableRows = [];
+        }
+    };
+
+    for (const entry of slpGroundsEntries) {
         if (entry.kind === 'heading') {
-            return new TableRow({
+            flushGroundsTable();
+            groundsElements.push(new Paragraph({
+                style: "Normal",
+                alignment: AlignmentType.JUSTIFIED,
+                indent: { left: 720, hanging: 360 },
+                tabStops: [{ type: TabStopType.LEFT, position: 720 }],
+                spacing: { before: 200, after: 120 },
+                children: groundsHeadingRuns(entry.label, entry.text, slpGroundsHeadingStyle),
+            }));
+        } else {
+            const { paragraphs, numbering } = parseHtml(entry.row.particulars || '');
+            if (numbering.length > 0) {
+                allNumberingConfigs.push(...numbering);
+            }
+            currentGroundTableRows.push(new TableRow({
                 children: [
                     new TableCell({
-                        columnSpan: 2,
+                        children: [new Paragraph({ text: `${getAlphabeticalLabel(entry.ordinal)}.`, style: "Normal" })],
                         borders: noBorders,
-                        // No spacing of its own: "Normal" carries the line and
-                        // paragraph spacing the user has set for the output, so
-                        // the heading sits in the same rhythm as the grounds.
-                        // The hanging indent keeps the number out at the left,
-                        // level with the ground letters, and holds a heading
-                        // that runs to several lines in one clean block.
-                        children: [new Paragraph({
-                            style: "Normal",
-                            indent: { left: slpHeadingHang, hanging: slpHeadingHang },
-                            children: groundsHeadingRuns(entry.label, entry.text, slpGroundsHeadingStyle),
-                        })],
+                        width: { size: 8, type: WidthType.PERCENTAGE },
+                    }),
+                    new TableCell({
+                        children: paragraphs,
+                        borders: noBorders,
+                        width: { size: 92, type: WidthType.PERCENTAGE },
                     }),
                 ],
-            });
+            }));
         }
-        const { paragraphs, numbering } = parseHtml(entry.row.particulars || '');
-        if (numbering.length > 0) {
-            allNumberingConfigs.push(...numbering);
-        }
-        return new TableRow({
-            children: [
-                new TableCell({
-                    children: [new Paragraph({ text: `${getAlphabeticalLabel(entry.ordinal)}.`, style: "Normal" })],
-                    borders: noBorders,
-                    width: { size: 8, type: WidthType.PERCENTAGE },
-                }),
-                new TableCell({
-                    children: paragraphs,
-                    borders: noBorders,
-                    width: { size: 92, type: WidthType.PERCENTAGE },
-                }),
-            ],
-        });
-    });
-
-    const groundsTable = new Table({
-        width: { size: 91.66, type: WidthType.PERCENTAGE },
-        columnWidths: [800, 9200],
-        rows: groundsRows,
-        borders: noBorders,
-        indent: {
-            size: 720, // 0.5 inch
-            type: WidthType.DXA,
-        },
-    });
+    }
+    flushGroundsTable();
     
     const interimGroundsRows = projectData.interimReliefGrounds
         .filter(ig => ig.particulars.trim() !== '')
@@ -1956,7 +1958,7 @@ export async function generateSlpDocx(
             ...headingWithText("FACTS:", "The facts giving rise to the present Appeal are as under:", "appeal-list-3"),
             ...appealFactsParagraphs,
             ...headingWithText("GROUNDS:", "This Appeal is preferred on the following grounds taken without prejudice against each other:", "appeal-list-4"),
-            groundsTable,
+            ...groundsElements,
             new Paragraph({
                 text: convertToSmartQuotes(`The Appellant has not filed any other appeal or petition against${ioText}.`),
                 numbering: { reference: "appeal-list-5", level: 0 },
@@ -1986,7 +1988,7 @@ export async function generateSlpDocx(
                 "slp-intro-list-3",
             ),
             ...headingWithText("GROUNDS:", "This Special Leave Petition is preferred on the following grounds taken without prejudice against each other:", "slp-intro-list-3"),
-            groundsTable,
+            ...groundsElements,
             ...interimGroundsSection,
             ...headingWithText("MAIN PRAYERS:", "In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon'ble Court may be pleased to:", "slp-intro-list-7"),
             mainPrayersTable,
@@ -2049,11 +2051,9 @@ export async function generateSlpDocx(
                 alignment: AlignmentType.RIGHT,
                 children: [smartTextRun({ text: `And for this act of kindness, the humble ${partyLabel}(s) shall ever pray.`, italics: true })]
             }),
-            new Paragraph(""),
             ...(advocateDetailsTable ? [advocateDetailsTable, new Paragraph("")] : []),
-            ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature }),
-            new Paragraph({ children: [new PageBreak()] }),
-            ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData)),
+            ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature, trailingParagraph: false }),
+            ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData), true),
             ...createPartiesHeader(petHeader, resHeader),
             new Paragraph({
                 alignment: AlignmentType.CENTER,
@@ -2065,7 +2065,6 @@ export async function generateSlpDocx(
                 spacing: { line: 240 },
                 alignment: AlignmentType.JUSTIFIED,
             }),
-            new Paragraph(""), // Spacer
             ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature }),
         ]
     }];
@@ -2122,6 +2121,7 @@ export async function generateRefilingDocx(projectData: DraftoProject, includeSi
 }
 
 export async function generateAppendixDocx(projectData: DraftoProject, itemId?: string) {
+    setDocxExportContext(buildDocxExportContext(projectData));
     const activeItems = getActiveAppendixItems(projectData);
     const total = activeItems.length;
 
@@ -2142,8 +2142,8 @@ export async function generateAppendixDocx(projectData: DraftoProject, itemId?: 
     wanted.forEach(({ item, index }, position) => {
         const parsed = parseHtml(item.manualEntry);
         allNumberingConfigs.push(...parsed.numbering);
-        if (position > 0) children.push(new Paragraph({ children: [new PageBreak()] }));
         children.push(new Paragraph({
+            pageBreakBefore: position > 0 ? true : undefined,
             children: [smartTextRun({ text: appendixIndexText(item, index, total).toUpperCase(), bold: true })],
             alignment: AlignmentType.CENTER
         }));
@@ -2192,6 +2192,7 @@ export async function generateIaDocx(
     iaAnnexurePageRanges?: Map<string, {start: number, end: number}>,
     includeSignature = false,
 ) {
+    setDocxExportContext(buildDocxExportContext(projectData));
     const ioText = ` ${calculateIoText(projectData)}`;
     const petHeader = getPartyHeader(projectData.petitioners);
     const resHeader = getPartyHeader(projectData.respondents);
@@ -2424,8 +2425,14 @@ export async function generateIaDocx(
                 
                 const createAdAnnexureText = (pNumber: number, annex: Annexure): (TextRun | string)[] => {
                     const annexureLabel = `Annexure ${annexurePrefix(projectData.courtType)}-${pNumber}`;
+                    const pageRange = annex.id ? iaAnnexurePageRanges?.get(annex.id) : undefined;
+                    const pageRangeText = pageRange
+                        ? pageRange.start === pageRange.end
+                            ? `(p.${pageRange.start})`
+                            : `(pp.${pageRange.start} to ${pageRange.end})`
+                        : `(pp.___ to ___)`;
                     const parts: (TextRun | string)[] = [
-                        smartTextRun({ text: `${annexureLabel} (pp.___ to ___)`, bold: true }),
+                        smartTextRun({ text: `${annexureLabel} ${pageRangeText}`, bold: true }),
                         convertToSmartQuotes(` is a ${annex.copyType || '[description]'} of`)
                     ];
                     if (annex.title) parts.push(convertToSmartQuotes(` ${annex.title}`));
@@ -2486,7 +2493,8 @@ export async function generateIaDocx(
                 adGrounds
                     .filter((g: any) => g.particulars && g.particulars.trim() !== '')
                     .forEach((g: any) => {
-                        const { paragraphs, numbering } = parseHtml(g.particulars, undefined, { reference: currentListRef, level: 0 });
+                        const groundHtml = injectAnnexurePageRangesIntoFacts(g.particulars, projectData, iaAnnexurePageRanges);
+                        const { paragraphs, numbering } = parseHtml(groundHtml, undefined, { reference: currentListRef, level: 0 });
                         if (numbering.length > 0) allNumberingConfigs.push(...numbering);
                         countNumbered(paragraphs);
                         paragraphs.forEach(p => {
@@ -2828,7 +2836,6 @@ export async function generateIaDocx(
                     alignment: AlignmentType.RIGHT,
                     children: [smartTextRun({ text: "And for this act of kindness, the humble Petitioner(s) shall ever pray.", italics: true })]
                 }),
-                new Paragraph(""),
                 ...createFiledByTable(advocate.filingDate, advocate.aorName || "[AoR Name]", { includeSignature }),
             ]
         }]
@@ -3091,11 +3098,11 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
                     ],
                 })],
             }),
+            new Paragraph({
+                spacing: { before: 0, after: 0, line: 20 },
+                children: [new TextRun({ text: "", size: 2 })],
+            }),
         ];
-
-        if (index < validPetitioners.length - 1) {
-            children.push(new Paragraph({ children: [new PageBreak()] }));
-        }
 
         sections.push({
             properties: { page: { margin: getSlpMargins() } },
@@ -3646,107 +3653,80 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
     };
 
+    // Rotation-aware visual frame for any page (respecting MediaBox/CropBox via visibleFrame).
+    const getVisualFrame = (page: any) => {
+        const { x: frameX, y: frameY, width, height } = visibleFrame(page);
+        const rotation = pageRotation(page);
+        let cx: number, cy: number, rx: number, ry: number, ux: number, uy: number;
+        if (rotation === 90) {
+            cx = width; cy = 0;      rx = 0;  ry = 1;  ux = -1; uy = 0;
+        } else if (rotation === 180) {
+            cx = width; cy = height; rx = -1; ry = 0;  ux = 0;  uy = -1;
+        } else if (rotation === 270) {
+            cx = 0;     cy = height; rx = 0;  ry = -1; ux = 1;  uy = 0;
+        } else {
+            cx = 0;     cy = 0;      rx = 1;  ry = 0;  ux = 0;  uy = 1;
+        }
+        cx += frameX;
+        cy += frameY;
+        const sideways = rotation === 90 || rotation === 270;
+        return {
+            rotation,
+            visualWidth: sideways ? height : width,
+            visualHeight: sideways ? width : height,
+            toXY: (aRight: number, aUp: number) => ({
+                x: cx + aRight * rx + aUp * ux,
+                y: cy + aRight * ry + aUp * uy,
+            }),
+        };
+    };
+
+    const drawVisualStamp = (page: any, font: any, text: string, fontSize: number, aRight: number, aUp: number, withBg: boolean) => {
+        const f = getVisualFrame(page);
+        const textWidth = font.widthOfTextAtSize(text, fontSize);
+        if (withBg) {
+            const pad = 4;
+            const bgPos = f.toXY(aRight - pad, aUp - pad);
+            page.drawRectangle({
+                x: bgPos.x,
+                y: bgPos.y,
+                width: textWidth + pad * 2,
+                height: fontSize + pad * 2,
+                color: rgb(1, 1, 1),
+                rotate: degrees(f.rotation),
+            });
+        }
+        const pos = f.toXY(aRight, aUp);
+        page.drawText(text, {
+            x: pos.x,
+            y: pos.y,
+            size: fontSize,
+            font,
+            color: rgb(0, 0, 0),
+            rotate: degrees(f.rotation),
+        });
+    };
+
     // Helper function to add header to first page of annexure
     const addAnnexureHeader = async (pdf: PDFDocument, headerText: string) => {
         if (pdf.getPageCount() === 0) return;
 
         const firstPage = pdf.getPage(0);
-        const { x: frameX, y: frameY, width, height } = visibleFrame(firstPage);
-        const rotation = pageRotation(firstPage);
-        
-        // Load Times New Roman Bold font
+        const f = getVisualFrame(firstPage);
         const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
         const fontSize = Math.min(24, Math.max(10, (settings as any).annexureLabelSize ?? 14));
         const textWidth = font.widthOfTextAtSize(headerText, fontSize);
-
-        // Position header proportionally: base margin (user-configurable), scaled with font size
         const topMargin = (settings as any).annexureLabelMarginPt ?? 14.4; // default 0.2 inch = 14.4 points
-        
-        // Adjust coordinates based on rotation
-        let headerX, headerY, rotationAngle;
-        
-        if (rotation === 180) {
-            // Page is rotated 180 degrees - flip coordinates
-            headerX = width - ((width - textWidth) / 2);
-            headerY = topMargin;
-            rotationAngle = 180;
-        } else if (rotation === 90) {
-            // Page is rotated 90 degrees clockwise
-            headerX = topMargin + fontSize;
-            headerY = (height + textWidth) / 2;
-            rotationAngle = 90;
-        } else if (rotation === 270) {
-            // Page is rotated 270 degrees (90 counter-clockwise)
-            headerX = width - topMargin - fontSize;
-            headerY = (height - textWidth) / 2;
-            rotationAngle = 270;
-        } else {
-            // Normal orientation (0 degrees)
-            headerX = (width - textWidth) / 2;
-            headerY = height - topMargin - fontSize;
-            rotationAngle = 0;
-        }
 
-        // Shift into the visible frame (a no-op on a page that starts at the
-        // origin and is not cropped).
-        headerX += frameX;
-        headerY += frameY;
-
-        // Draw white background rectangle (all rotation angles)
-        if (settings.annexureLabelBackground) {
-            const padding = 4;
-
-            if (rotation === 0) {
-                // Normal: text flows right, ascent goes up
-                firstPage.drawRectangle({
-                    x: headerX - padding,
-                    y: headerY - padding,
-                    width: textWidth + (padding * 2),
-                    height: fontSize + (padding * 2),
-                    color: rgb(1, 1, 1),
-                });
-            } else if (rotation === 90) {
-                // CCW 90°: text advances downward (−y), ascent goes right (+x)
-                // Text spans y: [headerY − textWidth, headerY], x: [headerX, headerX + fontSize]
-                firstPage.drawRectangle({
-                    x: headerX - padding,
-                    y: headerY - textWidth - padding,
-                    width: fontSize + (padding * 2),
-                    height: textWidth + (padding * 2),
-                    color: rgb(1, 1, 1),
-                });
-            } else if (rotation === 270) {
-                // 270° (CW 90°): text advances upward (+y), ascent goes left (−x)
-                // Text spans y: [headerY, headerY + textWidth], x: [headerX − fontSize, headerX]
-                firstPage.drawRectangle({
-                    x: headerX - fontSize - padding,
-                    y: headerY - padding,
-                    width: fontSize + (padding * 2),
-                    height: textWidth + (padding * 2),
-                    color: rgb(1, 1, 1),
-                });
-            } else if (rotation === 180) {
-                // 180°: text advances left (−x), ascent goes down (−y)
-                // Text spans x: [headerX − textWidth, headerX], y: [headerY − fontSize, headerY]
-                firstPage.drawRectangle({
-                    x: headerX - textWidth - padding,
-                    y: headerY - fontSize - padding,
-                    width: textWidth + (padding * 2),
-                    height: fontSize + (padding * 2),
-                    color: rgb(1, 1, 1),
-                });
-            }
-        }
-        
-        // Draw text
-        firstPage.drawText(headerText, {
-            x: headerX,
-            y: headerY,
-            size: fontSize,
-            font: font,
-            color: rgb(0, 0, 0),
-            rotate: degrees(rotationAngle),
-        });
+        drawVisualStamp(
+            firstPage,
+            font,
+            headerText,
+            fontSize,
+            (f.visualWidth - textWidth) / 2,
+            f.visualHeight - topMargin - fontSize,
+            !!settings.annexureLabelBackground,
+        );
     };
 
     // Stamp the "True Copy" mark (small AoR signature above the words "True Copy")
@@ -3899,202 +3879,87 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
     const addPageNumbers = async (pdf: PDFDocument, startingPageNumber: number): Promise<number> => {
         const pageCount = pdf.getPageCount();
         if (pageCount === 0) return 0;
-        
-        // Load Times New Roman Bold font
+
         const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
         const fontSize = (settings as any).pageNumberSizePt ?? 20;
-
-        // Position: user-configurable distance from top and right (default 0.75 inch)
         const topMargin = (settings as any).pageNumberMarginTopPt ?? 54;
         const rightMargin = (settings as any).pageNumberMarginRightPt ?? 54;
 
         for (let i = 0; i < pageCount; i++) {
             const page = pdf.getPage(i);
-            const { x: frameX, y: frameY, width, height } = visibleFrame(page);
-            const rotation = pageRotation(page);
-            const pageNumber = startingPageNumber + i;
-            const pageText = pageNumber.toString();
+            const f = getVisualFrame(page);
+            const pageText = (startingPageNumber + i).toString();
             const textWidth = font.widthOfTextAtSize(pageText, fontSize);
-            
-            // Adjust coordinates based on rotation
-            let x, y, rotationAngle;
-            
-            if (rotation === 180) {
-                // Page is rotated 180 degrees
-                x = rightMargin;
-                y = topMargin;
-                rotationAngle = 180;
-            } else if (rotation === 90) {
-                // Page is rotated 90 degrees clockwise
-                x = topMargin + fontSize;
-                y = rightMargin + textWidth;
-                rotationAngle = 90;
-            } else if (rotation === 270) {
-                // Page is rotated 270 degrees (90 counter-clockwise)
-                x = width - topMargin - fontSize;
-                y = height - rightMargin - textWidth;
-                rotationAngle = 270;
-            } else {
-                // Normal orientation (0 degrees)
-                x = width - rightMargin - textWidth;
-                y = height - topMargin - fontSize;
-                rotationAngle = 0;
-            }
-
-            // Shift into the visible frame (a no-op on a page that starts at
-            // the origin and is not cropped).
-            x += frameX;
-            y += frameY;
-
-            // Draw white background behind numeric page number
-            if (settings.annexureLabelBackground) {
-                const padding = 4;
-                if (rotation === 0) {
-                    page.drawRectangle({ x: x - padding, y: y - padding, width: textWidth + padding * 2, height: fontSize + padding * 2, color: rgb(1, 1, 1) });
-                } else if (rotation === 180) {
-                    page.drawRectangle({ x: x - textWidth - padding, y: y - fontSize - padding, width: textWidth + padding * 2, height: fontSize + padding * 2, color: rgb(1, 1, 1) });
-                } else if (rotation === 90) {
-                    page.drawRectangle({ x: x - padding, y: y - textWidth - padding, width: fontSize + padding * 2, height: textWidth + padding * 2, color: rgb(1, 1, 1) });
-                } else if (rotation === 270) {
-                    page.drawRectangle({ x: x - fontSize - padding, y: y - padding, width: fontSize + padding * 2, height: textWidth + padding * 2, color: rgb(1, 1, 1) });
-                }
-            }
-
-            page.drawText(pageText, {
-                x,
-                y,
-                size: fontSize,
-                font: font,
-                color: rgb(0, 0, 0),
-                rotate: degrees(rotationAngle),
-            });
+            drawVisualStamp(
+                page,
+                font,
+                pageText,
+                fontSize,
+                f.visualWidth - rightMargin - textWidth,
+                f.visualHeight - topMargin - fontSize,
+                !!settings.annexureLabelBackground,
+            );
         }
-        
-        return pageCount; // Return number of pages processed
+
+        return pageCount;
     };
 
     // Helper function to add alphabetical page numbers to all pages of a PDF
     const addAlphabeticalPageNumbers = async (pdf: PDFDocument, startingLetterIndex: number): Promise<number> => {
         const pageCount = pdf.getPageCount();
         if (pageCount === 0) return 0;
-        
-        // Load Times New Roman Bold font
+
         const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
         const fontSize = (settings as any).pageNumberSizePt ?? 20;
-
-        // Position: user-configurable distance from top and right (default 0.75 inch)
         const topMargin = (settings as any).pageNumberMarginTopPt ?? 54;
         const rightMargin = (settings as any).pageNumberMarginRightPt ?? 54;
 
         for (let i = 0; i < pageCount; i++) {
             const page = pdf.getPage(i);
-            const { x: frameX, y: frameY, width, height } = visibleFrame(page);
-            const rotation = pageRotation(page);
-            const letterIndex = startingLetterIndex + i;
-            const pageText = numberToAlphabet(letterIndex);
+            const f = getVisualFrame(page);
+            const pageText = numberToAlphabet(startingLetterIndex + i);
             const textWidth = font.widthOfTextAtSize(pageText, fontSize);
-            
-            // Adjust coordinates based on rotation
-            let x, y, rotationAngle;
-            
-            if (rotation === 180) {
-                // Page is rotated 180 degrees
-                x = rightMargin;
-                y = topMargin;
-                rotationAngle = 180;
-            } else if (rotation === 90) {
-                // Page is rotated 90 degrees clockwise
-                x = topMargin + fontSize;
-                y = rightMargin + textWidth;
-                rotationAngle = 90;
-            } else if (rotation === 270) {
-                // Page is rotated 270 degrees (90 counter-clockwise)
-                x = width - topMargin - fontSize;
-                y = height - rightMargin - textWidth;
-                rotationAngle = 270;
-            } else {
-                // Normal orientation (0 degrees)
-                x = width - rightMargin - textWidth;
-                y = height - topMargin - fontSize;
-                rotationAngle = 0;
-            }
-
-            // Shift into the visible frame (see visibleFrame).
-            x += frameX;
-            y += frameY;
-
-            page.drawText(pageText, {
-                x,
-                y,
-                size: fontSize,
-                font: font,
-                color: rgb(0, 0, 0),
-                rotate: degrees(rotationAngle),
-            });
+            drawVisualStamp(
+                page,
+                font,
+                pageText,
+                fontSize,
+                f.visualWidth - rightMargin - textWidth,
+                f.visualHeight - topMargin - fontSize,
+                false,
+            );
         }
-        
-        return pageCount; // Return number of pages processed
+
+        return pageCount;
     };
 
     // Helper function to add A-prefixed page numbers (A1, A2, A3...) for Listing Proforma
     const addAPrefixedPageNumbers = async (pdf: PDFDocument): Promise<number> => {
         const pageCount = pdf.getPageCount();
         if (pageCount === 0) return 0;
-        
-        // Load Times New Roman Bold font
+
         const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
         const fontSize = (settings as any).pageNumberSizePt ?? 20;
-
-        // Position: user-configurable distance from top and right (default 0.75 inch)
         const topMargin = (settings as any).pageNumberMarginTopPt ?? 54;
         const rightMargin = (settings as any).pageNumberMarginRightPt ?? 54;
 
         for (let i = 0; i < pageCount; i++) {
             const page = pdf.getPage(i);
-            const { x: frameX, y: frameY, width, height } = visibleFrame(page);
-            const pageNumber = i + 1; // 1, 2, 3...
-            const pageText = `A${pageNumber}`; // A1, A2, A3...
+            const f = getVisualFrame(page);
+            const pageText = `A${i + 1}`;
             const textWidth = font.widthOfTextAtSize(pageText, fontSize);
-
-            // Check page rotation and adjust coordinates accordingly (same
-            // anchors as the numeric and alphabetical stamps)
-            const rotation = pageRotation(page);
-            let x = width - rightMargin - textWidth;
-            let y = height - topMargin - fontSize;
-            let rotationAngle = 0;
-
-            if (rotation === 180) {
-                // Page is upside down - flip coordinates and rotate text
-                x = rightMargin;
-                y = topMargin;
-                rotationAngle = 180;
-            } else if (rotation === 90) {
-                // Page is rotated 90 degrees clockwise
-                x = topMargin + fontSize;
-                y = rightMargin + textWidth;
-                rotationAngle = 90;
-            } else if (rotation === 270) {
-                // Page is rotated 270 degrees clockwise (90 counter-clockwise)
-                x = width - topMargin - fontSize;
-                y = height - rightMargin - textWidth;
-                rotationAngle = 270;
-            }
-
-            // Shift into the visible frame (see visibleFrame).
-            x += frameX;
-            y += frameY;
-
-            page.drawText(pageText, {
-                x,
-                y,
-                size: fontSize,
-                font: font,
-                color: rgb(0, 0, 0),
-                rotate: degrees(rotationAngle),
-            });
+            drawVisualStamp(
+                page,
+                font,
+                pageText,
+                fontSize,
+                f.visualWidth - rightMargin - textWidth,
+                f.visualHeight - topMargin - fontSize,
+                false,
+            );
         }
-        
-        return pageCount; // Return number of pages processed
+
+        return pageCount;
     };
 
     // Track page numbering states
@@ -4216,6 +4081,16 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                         });
                         continue;
                     }
+                } else if (OPTIONAL_CRIMINAL_DOC_IDS.has(meta.id) || meta.id.startsWith('ia_affidavit_')) {
+                    continue;
+                } else {
+                    // Missing mandatory upload: count 1 page for the blank PDF placeholder
+                    docPageCounts.set(meta.id, {
+                        id: meta.id,
+                        pageCount: 1,
+                        shouldCombineWithNext: pairedWithNext(meta.id, fileMetas),
+                    });
+                    continue;
                 }
             } else {
                 // System-generated document
@@ -4568,7 +4443,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                     convertToSmartQuotes(`: ${appendixBodyText(item)}`),
                 ]);
             });
-            const _orderedAnnexures = wpAnnexureOrderFromLods(projectData.listOfDates || []);
+            const _orderedAnnexures = wpAnnexureOrderFromLods(annexureRowsOf(projectData));
             _orderedAnnexures.forEach(({ annex, pNumber }) => {
                 _pl.push(createAnnexureText(pNumber, annex, true, annexurePrefix(projectData.courtType)));
             });
@@ -4688,7 +4563,10 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                     // FIR Details, and IA affidavits) — skip them rather than failing.
                     continue;
                 } else {
-                    throw new Error("File not found in form data.");
+                    // Missing mandatory upload: use a 1-page blank PDF placeholder
+                    const blank = await PDFDocument.create();
+                    blank.addPage();
+                    pdfToMerge = blank;
                 }
             } else { // meta.useSystem is true
                 let result;
@@ -4841,6 +4719,11 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 // Check if this is the certified copy receipt and add header
                 if (meta.id === 'certified_copy_receipt') {
                     await addAnnexureHeader(pdfToMerge, 'Annexure-A');
+                }
+
+                // Stamp "Memo of Parties" heading on the first page of the Memo of Parties
+                if (meta.id === 'memoOfParties') {
+                    await addAnnexureHeader(pdfToMerge, 'Memo of Parties');
                 }
 
                 // Stamp "True Copy" + small AoR signature on every annexure page (Beta)

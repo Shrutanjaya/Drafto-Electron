@@ -41,6 +41,7 @@ import { getIaList } from "@/lib/ia-list-utils";
 import { isScWpFamily, annexurePrefix } from "@/lib/court-family";
 import { getScWpIaList } from "@/lib/sc-wp/sc-wp-actions";
 import { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures";
+import { annexureRowsOf } from "@/lib/wp/facts-mode";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { useEntitlement, useExportPermission } from "@/providers/entitlement-provider";
@@ -114,15 +115,15 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
 
     // Petition (SLP or Writ Petition)
     const slpIssues: string[] = [];
-    if (!(data.listOfDates || []).some(r => r.event?.trim())) slpIssues.push('List of Dates table is empty');
+    if (!(data.listOfDates || []).some(r => String(r?.event ?? "").trim())) slpIssues.push('List of Dates table is empty');
     if (!isScWp) {
-        if (!(data.questionsOfLaw || []).some(r => r.particulars?.trim())) slpIssues.push('Questions of Law table is empty');
+        if (!(data.questionsOfLaw || []).some(r => String(r?.particulars ?? "").trim())) slpIssues.push('Questions of Law table is empty');
     } else {
-        if (!data.wp?.facts?.trim()) slpIssues.push('Facts section is empty (click "Generate from List of Dates")');
-        if (!(data.wp?.reliefs || []).some(r => r.particulars?.trim())) slpIssues.push('Relief(s) table is empty');
+        if (!String(data.wp?.facts ?? "").trim()) slpIssues.push('Facts section is empty (click "Generate from List of Dates")');
+        if (!(data.wp?.reliefs || []).some(r => String(r?.particulars ?? "").trim())) slpIssues.push('Relief(s) table is empty');
     }
-    if (!(data.grounds || []).some(r => r.particulars?.trim())) slpIssues.push('Grounds table is empty');
-    if (!data.synopsis?.trim()) slpIssues.push('Synopsis is blank');
+    if (!(data.grounds || []).some(r => String(r?.particulars ?? "").trim())) slpIssues.push('Grounds table is empty');
+    if (!String(data.synopsis ?? "").trim()) slpIssues.push('Synopsis is blank');
     // Each Appendix row in the Index is built from its description; without one
     // the row prints a placeholder. Rows with nothing attached are dropped from
     // the paper-book altogether, so say so rather than filing silently short.
@@ -130,7 +131,7 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
         const appendixRows = getAppendixItems(data);
         const included = appendixRows.filter(appendixHasContent);
         included.forEach((item, index) => {
-            if (!item.description?.trim() && !item.indexTextOverride?.trim()) {
+            if (!String(item.description ?? "").trim() && !String(item.indexTextOverride ?? "").trim()) {
                 slpIssues.push(`${appendixLabel(index, included.length)}: description (shown in the Index)`);
             }
         });
@@ -143,16 +144,16 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
     // IAs
     const iaIssues: string[] = [];
     if (!isScWp && data.standardIas?.condonationOfDelay?.active) {
-        if (!(data.standardIas.condonationOfDelay.grounds || []).some(g => g.particulars?.trim()))
+        if (!(data.standardIas.condonationOfDelay.grounds || []).some(g => String(g?.particulars ?? "").trim()))
             iaIssues.push('Condonation of Delay: Grounds table is empty');
     }
     if (data.standardIas?.exemptionFromSurrendering?.active) {
-        if (!(data.standardIas.exemptionFromSurrendering.grounds || []).some(g => g.particulars?.trim()))
+        if (!(data.standardIas.exemptionFromSurrendering.grounds || []).some(g => String(g?.particulars ?? "").trim()))
             iaIssues.push('Exemption from Surrendering: Grounds table is empty');
     }
     (data.customIas || []).forEach(ia => {
-        if (!(ia.grounds || []).some(g => g.particulars?.trim()))
-            iaIssues.push(`${ia.title?.trim() || 'Custom IA'}: Grounds table is empty`);
+        if (!(ia.grounds || []).some(g => String(g?.particulars ?? "").trim()))
+            iaIssues.push(`${String(ia.title ?? "").trim() || 'Custom IA'}: Grounds table is empty`);
     });
     if (iaIssues.length) issues.push({ tab: 'IAs', items: iaIssues });
 
@@ -185,7 +186,7 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
         ['Land Acquisition S.17', sc?.landAcqS17],
     ];
     for (const [label, value] of lpChecks) {
-        if (value !== undefined && !value.trim()) lpIssues.push(label);
+        if (value !== undefined && !String(value ?? "").trim()) lpIssues.push(label);
     }
     if (lpIssues.length) issues.push({ tab: 'Listing Proforma', items: lpIssues });
 
@@ -254,7 +255,10 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+    const [showIncompleteWarning, setShowIncompleteWarning] = useState(false);
+    const confirmedIncompleteRef = useRef(false);
     const [showCriminalDocWarning, setShowCriminalDocWarning] = useState(false);
+    const confirmedOptionalRef = useRef(false);
     const pendingSubmitData = useRef<PdfMergeForm | null>(null);
     const [progress, setProgress] = useState(0);
     const [progressLabel, setProgressLabel] = useState<string>("");
@@ -304,7 +308,8 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             });
         });
         
-        const allAnnexures: (Annexure & {lodId: string})[] = (projectData.listOfDates || []).flatMap(lod => (lod.annexures || []).map(a => ({...a, lodId: lod.id})));
+        const activeLodRows = isScWp ? annexureRowsOf(projectData as DraftoProject) : (projectData.listOfDates || []);
+        const allAnnexures: (Annexure & {lodId: string})[] = activeLodRows.flatMap(lod => (lod.annexures || []).map(a => ({...a, lodId: lod.id})));
         
         const annexureNumberingMap = new Map<string, number>();
         let pCounter = 1;
@@ -312,7 +317,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         const adAnnexures = allAnnexures.filter(a => a.isAdditionalDocument);
 
         if (isScWp) {
-            const scWpOrder = wpAnnexureOrderFromLods(projectData.listOfDates || []);
+            const scWpOrder = wpAnnexureOrderFromLods(activeLodRows);
             scWpOrder.forEach(e => annexureNumberingMap.set(e.annex.id, e.pNumber));
         } else {
             nonAdAnnexures.forEach(a => annexureNumberingMap.set(a.id, pCounter++));
@@ -379,7 +384,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         };
 
         if (isScWp) {
-            const scWpOrderedAnnexures = wpAnnexureOrderFromLods(projectData.listOfDates || []).map(e => ({
+            const scWpOrderedAnnexures = wpAnnexureOrderFromLods(activeLodRows).map(e => ({
                 ...e.annex,
                 lodId: '',
             }));
@@ -787,13 +792,23 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             return;
         }
 
+        // Warn if mandatory documents are missing, allowing placeholder generation on confirmation
+        const currentMissingMandatory = getMissingUploads();
+        if (currentMissingMandatory.length > 0 && !confirmedIncompleteRef.current) {
+            pendingSubmitData.current = data;
+            setShowIncompleteWarning(true);
+            return;
+        }
+        confirmedIncompleteRef.current = false;
+
         // Warn if optional docs (IA affidavits, custody/FIR) are missing, but allow proceeding
         const missingOptional = getMissingOptionalDocs(data);
-        if (missingOptional.length > 0 && !pendingSubmitData.current) {
+        if (missingOptional.length > 0 && !confirmedOptionalRef.current) {
             pendingSubmitData.current = data;
             setShowCriminalDocWarning(true);
             return;
         }
+        confirmedOptionalRef.current = false;
         pendingSubmitData.current = null;
 
         setIsGenerating(true);
@@ -1053,37 +1068,59 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
     };
 
     const missingUploads = getMissingUploads();
-    const isGoButtonDisabled = isGenerating || missingUploads.length > 0;
+    const isGoButtonDisabled = isGenerating;
 
     // ── Grouping + per-section readiness (kept in sync with the header by reusing
     // the same missing-upload computations) ──
-    const sectionForId = (id: string): { key: string; label: string } => {
-        if (id.startsWith('annexure_')) return { key: 'annexures', label: 'Annexures' };
-        if (id === 'custodyCertificate' || id === 'firDetails' || id === 'proofOfService' || id.startsWith('ia_')) return { key: 'ias', label: 'Applications (IAs)' };
-        return { key: 'court', label: 'Petition & Court Documents' };
+    const sectionForId = (id: string): { key: 'initial' | 'annexures' | 'tail'; label: string } => {
+        if (id.startsWith('annexure_')) {
+            return { key: 'annexures', label: 'Annexures' };
+        }
+        if (
+            id.startsWith('ia_') ||
+            id === 'certified_copy_receipt' ||
+            id === 'custodyCertificate' ||
+            id === 'firDetails' ||
+            id === 'proofOfService' ||
+            id === 'memoOfParties' ||
+            id === 'filingMemo' ||
+            id === 'vakalatnama'
+        ) {
+            return { key: 'tail', label: 'Tail (after annexures)' };
+        }
+        return { key: 'initial', label: 'Initial (before annexures)' };
     };
     const optionalMissing = getMissingOptionalDocs({ mergeItems: watchedItems });
     const mandatoryMissingSet = new Set(missingUploads);
     const optionalMissingSet = new Set(optionalMissing);
     const itemStatus = (it: MergeItem): 'ready' | 'mandatory' | 'optional' =>
         mandatoryMissingSet.has(it.label) ? 'mandatory' : optionalMissingSet.has(it.label) ? 'optional' : 'ready';
-    // Build ordered sections (preserving merge order — items are already in
-    // paperbook order, so this only inserts headers, never reorders). Rows are
-    // either an upload (a merge item) or a non-upload requirement.
+    // Build ordered sections (strictly 'initial', 'annexures', 'tail')
     type ListRow =
-        | { kind: 'item'; item: MergeItem; index: number }
+        | { kind: 'item'; item: MergeItem; index: number; sNo: string | number }
         | { kind: 'requirement'; req: DataRequirement };
-    const sections: { key: string; label: string; status: 'ready' | 'mandatory' | 'optional'; rows: ListRow[] }[] = [];
+    const SECTION_DEFS: { key: 'initial' | 'annexures' | 'tail'; label: string }[] = [
+        { key: 'initial', label: 'Initial (before annexures)' },
+        { key: 'annexures', label: 'Annexures' },
+        { key: 'tail', label: 'Tail (after annexures)' },
+    ];
+    const sections: { key: 'initial' | 'annexures' | 'tail'; label: string; status: 'ready' | 'mandatory' | 'optional'; rows: ListRow[] }[] =
+        SECTION_DEFS.map(def => ({ key: def.key, label: def.label, status: 'ready', rows: [] }));
+
+    let currentSNo = 1;
     watchedItems.forEach((item, index) => {
         if (!item) return;
-        const { key, label } = sectionForId(item.id);
-        let sec = sections.find((s) => s.key === key);
-        if (!sec) { sec = { key, label, status: 'ready', rows: [] }; sections.push(sec); }
-        sec.rows.push({ kind: 'item', item, index });
+        const { key } = sectionForId(item.id);
+        const sec = sections.find(s => s.key === key)!;
+        let sNo: string | number = '—';
+        if (item.id !== 'refiling' && item.id !== 'advocateChecklist') {
+            sNo = currentSNo++;
+        }
+        sec.rows.push({ kind: 'item', item, index, sNo });
     });
     // Slot each non-upload requirement directly under the row it belongs to.
     dataRequirements.forEach((req) => {
-        const sec = sections.find((s) => s.key === req.sectionKey);
+        const sec = sections.find((s) => s.key === (req.sectionKey === 'ias' ? 'tail' : req.sectionKey));
         if (!sec) return; // still surfaced in the Go tooltip
         const anchor = req.afterId
             ? sec.rows.findIndex((r) => r.kind === 'item' && r.item.id === req.afterId)
@@ -1152,32 +1189,13 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
     };
     
     const GoButtonWrapper = ({ children }: { children: React.ReactNode }) => {
-        if (isGoButtonDisabled && missingUploads.length > 0) {
-            return (
-                <TooltipProvider>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                           <span tabIndex={0}>{children}</span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                            <div className="text-xs">
-                                <p className="font-bold">The following mandatory items are missing:</p>
-                                <ul className="list-disc pl-4">
-                                    {missingUploads.map(label => <li key={label}>{label}</li>)}
-                                </ul>
-                            </div>
-                        </TooltipContent>
-                    </Tooltip>
-                </TooltipProvider>
-            );
-        }
         return <>{children}</>;
     };
 
     return (
         <DialogContent className="max-w-4xl">
             <DialogHeader>
-                <DialogTitle>Generate Full PDF Paper Book</DialogTitle>
+                <DialogTitle>Paperbook Generator</DialogTitle>
                 <DialogDescription>
                     Gray items are system-generated (click any to override with your own file), red items need your upload, yellow are optional. The final PDF is merged in the order below.
                 </DialogDescription>
@@ -1206,9 +1224,9 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                        <Table>
                             <TableHeader>
                                 <TableRow>
-                                    <TableHead className="w-[50px] text-xs">S.No.</TableHead>
-                                    <TableHead className="text-xs">Component</TableHead>
-                                    <TableHead className="w-[200px] text-center text-xs">Source</TableHead>
+                                    <TableHead className="w-[60px] text-xs">S. No.</TableHead>
+                                    <TableHead className="text-xs">Particulars</TableHead>
+                                    <TableHead className="w-[180px] text-center text-xs">Status</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -1221,7 +1239,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                                           <button
                                             type="button"
                                             onClick={() => setCollapsedSections((p) => ({ ...p, [sec.key]: !p[sec.key] }))}
-                                            className="flex w-full items-center justify-between gap-2 text-left"
+                                            className="flex w-full items-center justify-between gap-2 text-left cursor-pointer"
                                           >
                                             <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                                               <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", !collapsed && "rotate-90")} />
@@ -1240,109 +1258,156 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                                         const req = row.req;
                                         return (
                                             <TableRow key={req.id}>
-                                                <TableCell className="text-xs text-muted-foreground">—</TableCell>
+                                                <TableCell className="text-xs font-mono text-muted-foreground">—</TableCell>
                                                 <TableCell className="text-xs">{req.label}</TableCell>
                                                 <TableCell className="text-center">
                                                     {req.value ? (
-                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400">
-                                                            <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
-                                                            {req.value}
-                                                        </span>
+                                                        <TooltipProvider>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400">
+                                                                        <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
+                                                                        Ready
+                                                                    </span>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>
+                                                                    <p className="text-xs">{req.value}</p>
+                                                                </TooltipContent>
+                                                            </Tooltip>
+                                                        </TooltipProvider>
                                                     ) : (
-                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400">
-                                                            <AlertCircle className="h-3 w-3 flex-shrink-0" />
-                                                            {req.fix}
-                                                        </span>
+                                                        <TooltipProvider>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400">
+                                                                        <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                                                                        Upload
+                                                                    </span>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>
+                                                                    <p className="text-xs">{req.fix}</p>
+                                                                </TooltipContent>
+                                                            </Tooltip>
+                                                        </TooltipProvider>
                                                     )}
                                                 </TableCell>
                                             </TableRow>
                                         );
                                     }
 
-                                    const { item, index } = row;
+                                    const { item, index, sNo } = row;
                                     const currentItem = item;
 
                                     const isLocked = isLockedId(currentItem.id);
                                     const hasFile = currentItem.userFile instanceof File;
                                     const isSystemMode = currentItem.useSystem;
                                     const isOptionalCriminal = currentItem.id === 'custodyCertificate' || currentItem.id === 'firDetails' || currentItem.id === 'proofOfService';
-                                    // Optional uploads share the same (yellow) treatment: Custody/FIR in
-                                    // Criminal SLPs, plus IA Affidavits in every SLP.
                                     const isOptional = isOptionalCriminal || isOptionalUpload(currentItem.id);
                                     const lockedTooltip = currentItem.id === 'ci'
                                         ? 'Cover page & index contains auto-calculated page numbers; cannot be replaced'
                                         : currentItem.id === 'slod'
                                         ? 'Synopsis & list of dates contains auto-embedded annexure references; cannot be replaced'
-                                        : 'This IA is system-generated and cannot be replaced';
+                                        : 'File frozen, cannot be replaced';
 
                                     return (
                                         <TableRow key={item.id}>
-                                            <TableCell className="text-xs">{index + 1}</TableCell>
+                                            <TableCell className="text-xs font-mono text-muted-foreground">{sNo}</TableCell>
                                             <TableCell className="text-xs">{item.label}</TableCell>
                                             <TableCell className="text-center">
                                                 {isLocked ? (
                                                     <TooltipProvider>
                                                         <Tooltip>
                                                             <TooltipTrigger asChild>
-                                                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed">
+                                                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 opacity-90 cursor-not-allowed">
                                                                     <Lock className="h-3 w-3 flex-shrink-0" />
-                                                                    Auto-Generated
+                                                                    Ready
                                                                 </span>
                                                             </TooltipTrigger>
                                                             <TooltipContent>
-                                                                <p className="max-w-[220px] text-xs">{lockedTooltip}</p>
+                                                                <p className="max-w-[240px] text-xs">{lockedTooltip}</p>
                                                             </TooltipContent>
                                                         </Tooltip>
                                                     </TooltipProvider>
                                                 ) : hasFile ? (
                                                     <div className="inline-flex items-center gap-1">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => triggerFileUpload(index)}
-                                                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20 cursor-pointer max-w-[180px]"
-                                                        >
-                                                            <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
-                                                            <span className="truncate">{currentItem.userFile!.name}</span>
-                                                        </button>
+                                                        <TooltipProvider>
+                                                            <Tooltip>
+                                                                <TooltipTrigger asChild>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => triggerFileUpload(index)}
+                                                                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20 cursor-pointer"
+                                                                    >
+                                                                        <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
+                                                                        Ready
+                                                                    </button>
+                                                                </TooltipTrigger>
+                                                                <TooltipContent>
+                                                                    <p className="text-xs max-w-[260px] truncate">
+                                                                        File uploaded, click to replace: {currentItem.userFile!.name}.
+                                                                    </p>
+                                                                </TooltipContent>
+                                                            </Tooltip>
+                                                        </TooltipProvider>
                                                         {isOptional && (
                                                             <button
                                                                 type="button"
                                                                 onClick={() => handleRemoveFile(index)}
                                                                 title="Remove file"
                                                                 aria-label="Remove file"
-                                                                className="inline-flex items-center justify-center h-5 w-5 rounded-full text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/20 cursor-pointer"
+                                                                className="inline-flex items-center justify-center h-5 w-5 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer"
                                                             >
                                                                 <X className="h-3.5 w-3.5" />
                                                             </button>
                                                         )}
                                                     </div>
                                                 ) : isSystemMode ? (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => triggerFileUpload(index)}
-                                                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-gray-400/40 dark:border-gray-500/40 bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer"
-                                                    >
-                                                        <Settings2 className="h-3 w-3 flex-shrink-0" />
-                                                        System Generated
-                                                    </button>
+                                                    <TooltipProvider>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => triggerFileUpload(index)}
+                                                                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20 cursor-pointer"
+                                                                >
+                                                                    <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
+                                                                    Ready
+                                                                </button>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>
+                                                                <p className="text-xs">Click to replace</p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </TooltipProvider>
                                                 ) : (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => triggerFileUpload(index)}
-                                                        className={cn(
-                                                            "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs cursor-pointer",
-                                                            isOptional
-                                                                ? "border border-yellow-500/40 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/20"
-                                                                : "border border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20"
-                                                        )}
-                                                    >
-                                                        <AlertCircle className="h-3 w-3 flex-shrink-0" />
-                                                        Upload Required
-                                                    </button>
+                                                    <TooltipProvider>
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => triggerFileUpload(index)}
+                                                                    className={cn(
+                                                                        "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs cursor-pointer",
+                                                                        isOptional
+                                                                            ? "border border-yellow-500/40 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/20"
+                                                                            : "border border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20"
+                                                                    )}
+                                                                >
+                                                                    <AlertCircle className="h-3 w-3 flex-shrink-0" />
+                                                                    Upload
+                                                                </button>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent>
+                                                                <p className="text-xs">
+                                                                    {isOptional ? "Please upload a PDF here (Optional)." : "Please upload a PDF here."}
+                                                                </p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </TooltipProvider>
                                                 )}
                                             </TableCell>
                                         </TableRow>
-                                    )
+                                    );
                                       })}
                                     </React.Fragment>
                                   );
@@ -1413,6 +1478,43 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                     </Button>
                 </GoButtonWrapper>
             </DialogFooter>
+            {/* Warning for missing mandatory documents (generate with placeholders) */}
+            <AlertDialog open={showIncompleteWarning} onOpenChange={setShowIncompleteWarning}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-amber-600 dark:text-amber-500 flex items-center gap-2">
+                            <AlertCircle className="h-5 w-5" />
+                            Incomplete Paperbook
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="text-sm text-foreground/90 space-y-2">
+                            <span>
+                                WARNING: This will generate an INCOMPLETE paperbook which is NOT ready to be filed. Since the following mandatory documents have not been uploaded, Drafto will use placeholders in their stead:
+                            </span>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="max-h-48 overflow-y-auto pl-2 my-2">
+                        <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
+                            {missingUploads.map((label, idx) => (
+                                <li key={idx} className="font-medium text-foreground">{label}</li>
+                            ))}
+                        </ul>
+                    </div>
+                    <p className="text-sm font-medium">Proceed anyway?</p>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => { setShowIncompleteWarning(false); pendingSubmitData.current = null; }}>
+                            No
+                        </AlertDialogCancel>
+                        <AlertDialogAction onClick={() => {
+                            setShowIncompleteWarning(false);
+                            confirmedIncompleteRef.current = true;
+                            if (pendingSubmitData.current) onSubmit(pendingSubmitData.current);
+                        }}>
+                            Yes
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
             {/* Warning for missing optional Criminal SLP documents */}
             <AlertDialog open={showCriminalDocWarning} onOpenChange={setShowCriminalDocWarning}>
                 <AlertDialogContent>
@@ -1433,6 +1535,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                         </AlertDialogCancel>
                         <AlertDialogAction onClick={() => {
                             setShowCriminalDocWarning(false);
+                            confirmedOptionalRef.current = true;
                             if (pendingSubmitData.current) onSubmit(pendingSubmitData.current);
                         }}>
                             Proceed Anyway

@@ -89,7 +89,7 @@ export function ListingProformaTab() {
   const landS4 = useWatch({ control: form.control, name: "listingProforma.specialCategories.landAcqS4" });
 
   const basicInfoActive = !!(petPhone || petEmail || resPhone || resEmail || mainCat || notBefore || judgesPassed);
-  const legalProvisionsActive = fields.length > 0 && fields.some((f: any) => f.act?.trim());
+  const legalProvisionsActive = fields.length > 0 && fields.some((f: any) => String(f?.act ?? "").trim().length > 0);
   const linkedMattersActive = !!(similarDisposed || similarPending || litigationSame);
   const optionalActive = !!(firNoAndDate || taxEffect || landS4);
 

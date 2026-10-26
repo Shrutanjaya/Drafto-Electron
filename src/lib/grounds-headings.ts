@@ -18,6 +18,7 @@ import { TextRun, Tab } from "docx";
 import { smartTextRun } from "./docx-helpers";
 import type { DraftoProject } from "./schema";
 import { enumLabel, type EnumStyle } from "./wp/wp-numbering";
+import { getHeadingSettings } from "./heading-settings";
 
 export type { EnumStyle };
 
@@ -39,11 +40,33 @@ export const DEFAULT_GROUNDS_HEADING_STYLE: GroundsHeadingStyle = {
   allCaps: false,
 };
 
+function getBaseHeadingDefault(): GroundsHeadingStyle {
+  try {
+    const h1 = getHeadingSettings().h1;
+    if (h1) {
+      return {
+        numbering: h1.numbering === "none" ? "upper-roman" : h1.numbering,
+        bold: h1.bold,
+        italics: h1.italics,
+        underline: h1.underline,
+        smallCaps: h1.smallCaps,
+        allCaps: h1.allCaps,
+      };
+    }
+  } catch { /* fall back */ }
+  return DEFAULT_GROUNDS_HEADING_STYLE;
+}
+
 // The style/formatting is one choice for the whole Grounds section — a sequence
 // in mixed styles would be wrong, and it keeps the editor uncluttered.
 export function getGroundsHeadingStyle(project: Partial<DraftoProject> | undefined): GroundsHeadingStyle {
   const s = (project as any)?.groundsHeadingStyle;
-  return { ...DEFAULT_GROUNDS_HEADING_STYLE, ...(s || {}) };
+  return { ...getBaseHeadingDefault(), ...(s || {}) };
+}
+
+export function getFactsHeadingStyle(project: Partial<DraftoProject> | undefined): GroundsHeadingStyle {
+  const s = (project as any)?.factsHeadingStyle;
+  return { ...getBaseHeadingDefault(), ...(s || {}) };
 }
 
 export const HEADING_STYLE_OPTIONS: { value: EnumStyle; label: string }[] = [
@@ -54,11 +77,12 @@ export const HEADING_STYLE_OPTIONS: { value: EnumStyle; label: string }[] = [
   { value: "decimal", label: "1, 2, 3" },
 ];
 
-// A row of a grounds list. Only `isHeading` rows carry `heading` text; ordinary
-// grounds carry rich-text `particulars` as they always have.
+// A row of a grounds or facts list. Only `isHeading` rows carry `heading` text; ordinary
+// rows carry rich-text `particulars` (grounds) or `event` (facts).
 export interface GroundsRow {
   id?: string;
   particulars?: string;
+  event?: string;
   isHeading?: boolean;
   heading?: string;
 }
@@ -68,7 +92,7 @@ export const isGroundsHeading = (row: GroundsRow | undefined): boolean => !!row?
 // Does this row have anything worth printing?
 const hasText = (html?: string) => !!(html || "").replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim();
 export const groundsRowHasContent = (row: GroundsRow): boolean =>
-  isGroundsHeading(row) ? !!(row.heading || "").trim() : hasText(row.particulars);
+  isGroundsHeading(row) ? !!(row.heading || "").trim() : hasText(row.particulars || row.event);
 
 export type GroundsEntry =
   | { kind: "heading"; row: GroundsRow; rowIndex: number; label: string; text: string }

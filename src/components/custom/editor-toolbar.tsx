@@ -36,8 +36,16 @@ import {
 import { TextSelection } from '@tiptap/pm/state'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { useContext, useState, useRef, useEffect } from 'react';
+import { useContext, useState, useRef, useEffect, useMemo } from 'react';
 import { EditorContext } from './editor-provider';
+import { useFormContext, useWatch } from 'react-hook-form';
+import type { DraftoProject } from '@/lib/schema';
+import { annexureRowsOf } from '@/lib/wp/facts-mode';
+import { annexPrefixFor } from '@/lib/annex-prefix';
+import { annexureNumbering } from '@/lib/annexure-numbering';
+import { applySmartHeading } from '@/lib/heading-smart';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Bookmark } from 'lucide-react';
 
 // Move the table row containing the cursor up or down by one, preserving cell
 // content (TipTap ships no moveRow command). Deletes the row node and reinserts
@@ -88,8 +96,66 @@ export const EditorToolbar = () => {
     const [activeHighlightColor, setActiveHighlightColor] = useState('#fef08a');
     const [customRows, setCustomRows] = useState(2);
     const [customCols, setCustomCols] = useState(3);
+    const [showAnnexurePicker, setShowAnnexurePicker] = useState(false);
+    const [annexSearch, setAnnexSearch] = useState("");
     const pickerRef = useRef<HTMLDivElement>(null);
     const tableMenuRef = useRef<HTMLDivElement>(null);
+
+    const form = useFormContext<DraftoProject>();
+    const courtType = useWatch({ control: form?.control, name: "courtType" }) || "SLP";
+    const listOfDates = useWatch({ control: form?.control, name: "listOfDates" }) || [];
+    const factsRows = useWatch({ control: form?.control, name: "wp.factsRows" as any }) || [];
+
+    const annexureItems = useMemo(() => {
+      if (!form) return [];
+      const proj = form.getValues();
+      const activeRows = annexureRowsOf(proj);
+      const prefix = annexPrefixFor(courtType);
+      const numMap = annexureNumbering(activeRows, courtType);
+      const items: { id: string; num: number; label: string; details: string }[] = [];
+
+      activeRows.forEach((r: any) => {
+        (r.annexures || []).forEach((a: any) => {
+          const num = numMap.get(a.id);
+          if (num !== undefined) {
+            const label = `Annexure ${prefix}-${num}`;
+            const parts: string[] = [];
+            if (a.particulars?.trim()) parts.push(a.particulars.trim());
+            if (a.date?.trim()) parts.push(`dated ${a.date.trim()}`);
+            items.push({ id: a.id, num, label, details: parts.join(" ") || "No particulars" });
+          }
+        });
+      });
+      return items;
+    }, [form, courtType, listOfDates, factsRows]);
+
+    const filteredAnnexures = useMemo(() => {
+      if (!annexSearch.trim()) return annexureItems;
+      const q = annexSearch.toLowerCase();
+      return annexureItems.filter(
+        (a) => a.label.toLowerCase().includes(q) || a.details.toLowerCase().includes(q)
+      );
+    }, [annexureItems, annexSearch]);
+
+    const handleInsertAnnexureBadge = (item: { id: string; label: string }) => {
+      if (!editor) return;
+      editor
+        .chain()
+        .focus()
+        .insertContent([
+          {
+            type: "annexureBadge",
+            attrs: {
+              annexureId: item.id,
+              fallbackLabel: item.label,
+            },
+          },
+          { type: "text", text: " " },
+        ])
+        .run();
+      setShowAnnexurePicker(false);
+      setAnnexSearch("");
+    };
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
@@ -184,6 +250,99 @@ export const EditorToolbar = () => {
       <Button variant="ghost" size="icon" onClick={toggleBold} className={cn("h-6 w-6 p-1", editor?.isActive('bold') ? 'bg-accent' : '')}><Bold /></Button>
       <Button variant="ghost" size="icon" onClick={toggleItalic} className={cn("h-6 w-6 p-1", editor?.isActive('italic') ? 'bg-accent' : '')}><Italic /></Button>
       <Button variant="ghost" size="icon" onClick={toggleUnderline} className={cn("h-6 w-6 p-1", editor?.isActive('underline') ? 'bg-accent' : '')}><UnderlineIcon /></Button>
+      {/* Headings H1, H2, H3 */}
+      <div className="flex items-center mx-0.5 border-l border-r border-border/60 px-0.5 gap-0.5">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => editor && applySmartHeading(editor, 1)}
+          className={cn(
+            "h-6 px-1.5 text-xs font-bold tracking-tight rounded-sm",
+            editor?.isActive('heading', { level: 1 }) ? 'bg-accent text-accent-foreground' : ''
+          )}
+          title="Heading 1 (Smart continuous numbering: I, II, III)"
+        >
+          H1
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => editor && applySmartHeading(editor, 2)}
+          className={cn(
+            "h-6 px-1.5 text-xs font-medium tracking-tight rounded-sm",
+            editor?.isActive('heading', { level: 2 }) ? 'bg-accent text-accent-foreground' : ''
+          )}
+          style={{ fontVariant: 'small-caps' }}
+          title="Heading 2 (Smart continuous numbering: A, B, C)"
+        >
+          H2
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => editor && applySmartHeading(editor, 3)}
+          className={cn(
+            "h-6 px-1.5 text-xs italic tracking-tight rounded-sm",
+            editor?.isActive('heading', { level: 3 }) ? 'bg-accent text-accent-foreground' : ''
+          )}
+          title="Heading 3 (Smart continuous numbering: i, ii, iii)"
+        >
+          H3
+        </Button>
+      </div>
+      {/* Dynamic Annexure Badge Picker */}
+      <Popover open={showAnnexurePicker} onOpenChange={setShowAnnexurePicker}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 px-1.5 text-xs gap-1 text-muted-foreground hover:text-foreground"
+            title="Insert dynamic Annexure Badge (e.g. Annexure P-1)"
+          >
+            <Bookmark className="h-3 w-3 text-primary" />
+            <span className="text-[11px] font-medium">Badge</span>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-80 p-2 space-y-2">
+          <div className="text-xs font-semibold text-foreground flex items-center justify-between">
+            <span>Insert Annexure Badge</span>
+            <span className="text-[10px] text-muted-foreground font-normal">Dynamic pointer</span>
+          </div>
+          {annexureItems.length > 3 && (
+            <Input
+              value={annexSearch}
+              onChange={(e) => setAnnexSearch(e.target.value)}
+              placeholder="Search annexures..."
+              className="h-6 text-xs"
+            />
+          )}
+          {filteredAnnexures.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-2 text-center">
+              {annexureItems.length === 0
+                ? "No annexures marked yet. Mark annexures in the List of Dates or Facts table first."
+                : "No matching annexures found."}
+            </p>
+          ) : (
+            <div className="max-h-56 overflow-y-auto space-y-1">
+              {filteredAnnexures.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleInsertAnnexureBadge(item)}
+                  className="w-full text-left p-1.5 rounded text-xs hover:bg-accent transition-colors flex flex-col gap-0.5 border border-transparent hover:border-border cursor-pointer"
+                >
+                  <span className="font-semibold text-primary">{item.label}</span>
+                  <span className="text-[11px] text-muted-foreground line-clamp-2">{item.details}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
       <Button variant="ghost" size="icon" onClick={toggleBulletList} className={cn("h-6 w-6 p-1", editor?.isActive('bulletList') ? 'bg-accent' : '')}><List /></Button>
       <div className="flex items-center">
         <Button variant="ghost" size="icon" onClick={toggleOrderedList} className={cn("h-6 w-6 p-1 rounded-r-none", editor?.isActive('orderedList') ? 'bg-accent' : '')} title="Numbered list"><ListOrdered /></Button>
