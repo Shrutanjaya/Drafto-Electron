@@ -34,6 +34,7 @@ const LIST_ITEM_PARSERS: Record<string, (raw: Record<string, unknown>) => unknow
   ias: (r) => iaSchema.parse(r),
   // IA grounds / additional-document grounds (flat particulars rows).
   "standardIas.condonationOfDelay.grounds": (r) => iaGroundItemSchema.parse(r),
+  "standardIas.condonationOfDelayInRefiling.grounds": (r) => iaGroundItemSchema.parse(r),
   "standardIas.exemptionFromSurrendering.grounds": (r) => iaGroundItemSchema.parse(r),
   "standardIas.additionalDocumentsGrounds": (r) => aamTableItemSchema.parse(r),
   "listingProforma.legalProvisions": (r) => legalProvisionSchema.parse(r),

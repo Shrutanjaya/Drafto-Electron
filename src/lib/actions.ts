@@ -10,6 +10,7 @@ import { createListingProforma } from "@/lib/proforma-helpers";
 import { parseHtml, setDocxExportContext, buildDocxExportContext } from "@/lib/html-to-docx";
 import { getChecklistQueries, CHECKLIST_DECLARATION } from "@/lib/checklist-queries";
 import { PDFDocument, rgb, StandardFonts, PDFName, PDFDict, PDFArray, PDFRef, PDFString, PDFNumber, PDFRawStream, decodePDFRawStream, degrees } from 'pdf-lib';
+import { embedStampFont } from "@/lib/pdf-stamp-fonts";
 import { convertDocxToPdf as ipcConvertDocxToPdf } from "@/lib/ipc/pdf";
 import { pageRotation } from "@/lib/pdf-rotation";
 import {
@@ -131,6 +132,15 @@ const getIaList = (projectData: DraftoProject) => {
         const delayDays = projectData.standardIas.condonationOfDelay.delayDays > 0 ? projectData.standardIas.condonationOfDelay.delayDays : "__";
         const title = `Application for condonation of delay of ${delayDays} days in filing the ${isAppeal(projectData.courtType) ? 'Appeal' : 'SLP'}`;
         ias.push({ prefix: iaPrefix, title, id: 'condonationOfDelay' });
+    }
+    if (projectData.standardIas.condonationOfDelayInRefiling?.active) {
+        const rawDays = projectData.standardIas.condonationOfDelayInRefiling.delayDays;
+        const cleaned = (rawDays !== undefined && rawDays !== null && String(rawDays).trim() !== "" && String(rawDays).trim() !== "0")
+            ? String(rawDays).trim().replace(/\s*days?$/i, "").trim()
+            : "__";
+        const delayDays = cleaned || "__";
+        const title = `Application for condonation of delay of ${delayDays} days in refiling the ${isAppeal(projectData.courtType) ? 'Appeal' : 'SLP'}`;
+        ias.push({ prefix: iaPrefix, title, id: 'condonationOfDelayInRefiling' });
     }
     if (projectData.standardIas.exemptionCertifiedCopy.active) {
         const title = standardIaList.find(i => i.id === 'exemptionCertifiedCopy')?.title || "";
@@ -887,6 +897,15 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
           if (ground.annexures) {
               ground.annexures.forEach(annex => {
                   allIaAnnexures.push({ ...annex, iaId: 'condonationOfDelay' });
+              });
+          }
+      });
+  }
+  if (projectData.standardIas?.condonationOfDelayInRefiling?.active) {
+      projectData.standardIas.condonationOfDelayInRefiling.grounds?.forEach(ground => {
+          if (ground.annexures) {
+              ground.annexures.forEach(annex => {
+                  allIaAnnexures.push({ ...annex, iaId: 'condonationOfDelayInRefiling' });
               });
           }
       });
@@ -2213,6 +2232,7 @@ export async function generateAppendixDocx(projectData: DraftoProject, itemId?: 
 const getShortIaTitle = (iaIdentifier: string, iaTitle: string): string => {
     switch (iaIdentifier) {
         case 'condonationOfDelay': return 'IA-CoD';
+        case 'condonationOfDelayInRefiling': return 'IA-CoD-Refiling';
         case 'exemptionCertifiedCopy': return 'IA-CC';
         case 'exemptionOfficialTranslation': return 'IA-OT';
         case 'exemptionFromSurrendering': return 'IA-surr';
@@ -2420,6 +2440,76 @@ export async function generateIaDocx(
                         numbering: nextNumbering(),
                     }),
                     groundsTable
+                ];
+                newListSegment(); // the grounds table interrupts the numbering
+                break;
+            case "condonationOfDelayInRefiling":
+                const refilingRawDays = projectData.standardIas?.condonationOfDelayInRefiling?.delayDays;
+                const refilingCleaned = (refilingRawDays !== undefined && refilingRawDays !== null && String(refilingRawDays).trim() !== "" && String(refilingRawDays).trim() !== "0")
+                    ? String(refilingRawDays).trim().replace(/\s*days?$/i, "").trim()
+                    : "__";
+                const refilingDelayDays = refilingCleaned || "__";
+                iaTitle = `Application for condonation of delay of ${refilingDelayDays} days in refiling the ${iaDocShort}`;
+                customPrayer = `Condone the delay of ${refilingDelayDays} days in refiling the accompanying ${iaDocShort} against${ioText}; and`;
+                prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
+
+                const refilingGrounds = projectData.standardIas?.condonationOfDelayInRefiling?.grounds || [];
+                
+                // Build annexure numbering map for grounds
+                const refilingGroundsAnnexureMap = new Map<string, number>();
+                let refilingACounter = 1;
+                refilingGrounds.forEach(g => {
+                    if (g.annexures) {
+                        g.annexures.forEach(annex => {
+                            refilingGroundsAnnexureMap.set(annex.id, refilingACounter++);
+                        });
+                    }
+                });
+                
+                const refilingGroundsRows = refilingGrounds
+                    .filter(g => g.particulars.trim() !== '')
+                    .map((g, index) => {
+                        const { paragraphs, numbering } = parseHtml(g.particulars);
+                        if (numbering.length > 0) allNumberingConfigs.push(...numbering);
+                        
+                        // Add annexure sentences for this ground
+                        if (g.annexures && g.annexures.length > 0) {
+                            g.annexures.forEach(annex => {
+                                const aNumber = refilingGroundsAnnexureMap.get(annex.id);
+                                if (aNumber) {
+                                    const annexureTextParts = createIaAnnexureText(aNumber, annex);
+                                    const textRuns = annexureTextParts.map(part => 
+                                        typeof part === 'string' ? smartTextRun(part) : part
+                                    );
+                                    paragraphs.push(new Paragraph({ children: textRuns, style: "Normal" }));
+                                }
+                            });
+                        }
+                        
+                        return new TableRow({
+                            children: [
+                                new TableCell({
+                                    children: [new Paragraph({ text: `${getAlphabeticalLabel(index)}.`, style: "Normal" })],
+                                    borders: noBorders, width: { size: 10, type: WidthType.PERCENTAGE },
+                                    }),
+                                new TableCell({ children: paragraphs, borders: noBorders, width: { size: 90, type: WidthType.PERCENTAGE } }),
+                            ],
+                        });
+                    });
+
+                const refilingGroundsTable = new Table({
+                    width: { size: 91.66, type: WidthType.PERCENTAGE },
+                    columnWidths: [800, 9200],
+                    rows: refilingGroundsRows, borders: noBorders,
+                    indent: { size: 720, type: WidthType.DXA },
+                });
+
+                customTextParagraphs = [
+                    new Paragraph({
+                        text: `This application, seeking condonation of delay of ${refilingDelayDays} days in refiling the accompanying ${iaDocShort}, is preferred on the following grounds:`,
+                        numbering: nextNumbering(),
+                    }),
+                    refilingGroundsTable
                 ];
                 newListSegment(); // the grounds table interrupts the numbering
                 break;
@@ -3565,6 +3655,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         trueCopyPosition: (isScWp ? rawSettings.scWpTrueCopyPosition : undefined) ?? rawSettings.trueCopyPosition ?? 'left',
         trueCopyBackground: isScWp ? (rawSettings.scWpTrueCopyBackground ?? rawSettings.trueCopyBackground ?? false) : (rawSettings.trueCopyBackground ?? false),
         trueCopyMarginXPt: (isScWp ? rawSettings.scWpTrueCopyMarginXPt : undefined) ?? rawSettings.trueCopyMarginXPt ?? 36,
+        stampFont: (isScWp ? rawSettings.scWpStampFont : undefined) ?? rawSettings.stampFont ?? 'times',
         trueCopyMarginBottomPt: (isScWp ? rawSettings.scWpTrueCopyMarginBottomPt : undefined) ?? rawSettings.trueCopyMarginBottomPt ?? 36,
     };
 
@@ -3758,7 +3849,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
 
         const firstPage = pdf.getPage(0);
         const f = getVisualFrame(firstPage);
-        const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
+        const font = await embedStampFont(pdf, settings.stampFont);
         const fontSize = Math.min(24, Math.max(10, (settings as any).annexureLabelSize ?? 14));
         const textWidth = font.widthOfTextAtSize(headerText, fontSize);
         const topMargin = (settings as any).annexureLabelMarginPt ?? 14.4; // default 0.2 inch = 14.4 points
@@ -3791,7 +3882,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         } catch {
             return; // not a valid PNG — skip silently
         }
-        const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
+        const font = await embedStampFont(pdf, settings.stampFont);
 
         const marginX = (s.trueCopyMarginXPt ?? 36);          // horizontal margin (default 0.5 inch)
         const marginBottom = (s.trueCopyMarginBottomPt ?? 36); // bottom margin (default 0.5 inch)
@@ -3925,7 +4016,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         const pageCount = pdf.getPageCount();
         if (pageCount === 0) return 0;
 
-        const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
+        const font = await embedStampFont(pdf, settings.stampFont);
         const fontSize = (settings as any).pageNumberSizePt ?? 20;
         const topMargin = (settings as any).pageNumberMarginTopPt ?? 54;
         const rightMargin = (settings as any).pageNumberMarginRightPt ?? 54;
@@ -3954,7 +4045,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         const pageCount = pdf.getPageCount();
         if (pageCount === 0) return 0;
 
-        const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
+        const font = await embedStampFont(pdf, settings.stampFont);
         const fontSize = (settings as any).pageNumberSizePt ?? 20;
         const topMargin = (settings as any).pageNumberMarginTopPt ?? 54;
         const rightMargin = (settings as any).pageNumberMarginRightPt ?? 54;
@@ -3983,7 +4074,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         const pageCount = pdf.getPageCount();
         if (pageCount === 0) return 0;
 
-        const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
+        const font = await embedStampFont(pdf, settings.stampFont);
         const fontSize = (settings as any).pageNumberSizePt ?? 20;
         const topMargin = (settings as any).pageNumberMarginTopPt ?? 54;
         const rightMargin = (settings as any).pageNumberMarginRightPt ?? 54;
@@ -4549,6 +4640,8 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             const _allIaAnn: any[] = [];
             if (projectData.standardIas?.condonationOfDelay?.active)
                 projectData.standardIas.condonationOfDelay.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: 'condonationOfDelay' })));
+            if (projectData.standardIas?.condonationOfDelayInRefiling?.active)
+                projectData.standardIas.condonationOfDelayInRefiling.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: 'condonationOfDelayInRefiling' })));
             if (projectData.standardIas?.exemptionFromSurrendering?.active)
                 projectData.standardIas.exemptionFromSurrendering.grounds?.forEach(g => g.annexures?.forEach(a => _allIaAnn.push({ ...a, iaId: 'exemptionFromSurrendering' })));
             if (projectData.standardIas?.suspensionOfSentence?.active)
@@ -5040,7 +5133,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             if (pageIndex < 0 || pageIndex >= pdf.getPageCount()) return;
             const page = pdf.getPage(pageIndex);
             const { width, height } = page.getSize();
-            const font = await pdf.embedFont(StandardFonts.TimesRomanBold);
+            const font = await embedStampFont(pdf, settings.stampFont);
             const fontSize = 16;
             const textWidth = font.widthOfTextAtSize(text, fontSize);
             const margin = 40;

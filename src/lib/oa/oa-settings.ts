@@ -91,7 +91,7 @@ export function getOaStampSettings(): WpStampSettings {
     };
     const hasSig = !!(s.oaSignaturePng && s.oaSignatureW && s.oaSignatureH);
     return {
-      font: ["times", "helvetica", "courier"].includes(s.oaStampFont) ? s.oaStampFont : d.font,
+      font: ["times", "helvetica", "courier", "tinos", "palatino"].includes(s.oaStampFont) ? s.oaStampFont : d.font,
       pageNumberSizePt: num(s.oaPageNumberSizePt, d.pageNumberSizePt, 8, 48),
       pageNumberMarginTopPt: num(s.oaPageNumberMarginTopPt, d.pageNumberMarginTopPt, 0, 216),
       pageNumberMarginRightPt: num(s.oaPageNumberMarginRightPt, d.pageNumberMarginRightPt, 0, 216),

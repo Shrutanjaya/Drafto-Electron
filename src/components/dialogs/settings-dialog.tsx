@@ -55,6 +55,7 @@ interface SettingsData {
   inputFont: string;     // editing font for form fields + rich-text editor
   inputFontSize: number; // editing text size, px
   annexureLabelBackground: boolean;
+  stampFont: 'times' | 'helvetica' | 'courier' | 'tinos' | 'palatino';
   annexureLabelSize: number;
   annexureLabelMarginPt: number;   // top margin (pt) of the "Annexure P-X" label
 
@@ -167,7 +168,7 @@ interface SettingsData {
   // Writ Petition — "Filed by" advocate-details layout (order / joins / styling)
   wpFiledByLayout: WpFiledByLayoutItem[];
   // Writ Petition — PDF stamps (annexure labels / page numbers / True Copy)
-  wpStampFont: 'times' | 'helvetica' | 'courier';
+  wpStampFont: 'times' | 'helvetica' | 'courier' | 'tinos' | 'palatino';
   wpPageNumberSizePt: number;
   wpPageNumberMarginTopPt: number;
   wpPageNumberMarginRightPt: number;
@@ -192,7 +193,7 @@ interface SettingsData {
   oaPlaceSignatureInPaperbook: boolean;
   oaSignatureSizePx: number;
   // CAT — PDF stamps (annexure labels / page numbers / True Copy)
-  oaStampFont: 'times' | 'helvetica' | 'courier';
+  oaStampFont: 'times' | 'helvetica' | 'courier' | 'tinos' | 'palatino';
   oaPageNumberSizePt: number;
   oaPageNumberMarginTopPt: number;
   oaPageNumberMarginRightPt: number;
@@ -239,6 +240,7 @@ interface SettingsData {
   scWpAffidavitAnnexureRef: 'actual' | 'blank';
   scWpAnnexureLabelSize: number;
   scWpAnnexureLabelMarginPt: number;
+  scWpStampFont: 'times' | 'helvetica' | 'courier' | 'tinos' | 'palatino';
   scWpAnnexureLabelBackground: boolean;
   scWpPageNumberSizePt: number;
   scWpPageNumberMarginTopPt: number;
@@ -279,7 +281,7 @@ interface SettingsData {
 // Fonts offered for the output text formatting
 const OUTPUT_FONTS = [
   "Arial", "Cambria", "Calibri", "Tahoma", "Verdana", "Georgia", "Garamond",
-  "Times New Roman", "Equity Text A", "Tinos", "Calisto MT", "Bookman Old Style",
+  "Times New Roman", "Equity Text A", "Tinos", "Palatino Linotype", "TeX Gyre Pagella", "Calisto MT", "Bookman Old Style",
   "Century Schoolbook", "Century",
 ];
 
@@ -295,6 +297,9 @@ const SYSTEM_FONTS: { label: string; value: string }[] = [
   { label: "Segoe UI", value: '"Segoe UI", system-ui, sans-serif' },
   { label: "Georgia", value: 'Georgia, "Times New Roman", serif' },
   { label: "Times New Roman", value: '"Times New Roman", Times, serif' },
+  { label: "Tinos", value: 'Tinos, "Times New Roman", Times, serif' },
+  { label: "Palatino Linotype", value: '"Palatino Linotype", "TeX Gyre Pagella", Palatino, serif' },
+  { label: "Equity Text A", value: '"Equity Text A", "Times New Roman", Georgia, serif' },
   { label: "Cambria", value: 'Cambria, Georgia, serif' },
   { label: "Garamond", value: 'Garamond, "Times New Roman", serif' },
   { label: "Courier New", value: '"Courier New", Courier, monospace' },
@@ -731,6 +736,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     inputFont: DEFAULT_INPUT_FONT,
     inputFontSize: DEFAULT_INPUT_FONT_SIZE,
     annexureLabelBackground: false,
+    stampFont: 'times',
     annexureLabelSize: 14,
     annexureLabelMarginPt: 14.4,
     pageNumberSizePt: 20,
@@ -873,6 +879,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     scWpAffidavitAnnexureRef: 'actual',
     scWpAnnexureLabelSize: 14,
     scWpAnnexureLabelMarginPt: 14.4,
+    scWpStampFont: 'times',
     scWpAnnexureLabelBackground: false,
     scWpPageNumberSizePt: 20,
     scWpPageNumberMarginTopPt: 54,
@@ -926,6 +933,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           inputFont: parsed.inputFont || DEFAULT_INPUT_FONT,
           inputFontSize: parsed.inputFontSize ?? DEFAULT_INPUT_FONT_SIZE,
           annexureLabelBackground: parsed.annexureLabelBackground ?? false,
+        stampFont: (['times', 'helvetica', 'courier', 'tinos', 'palatino'].includes(parsed.stampFont) ? parsed.stampFont : 'times') as 'times' | 'helvetica' | 'courier' | 'tinos' | 'palatino',
           annexureLabelSize: parsed.annexureLabelSize ?? 14,
           annexureLabelMarginPt: parsed.annexureLabelMarginPt ?? 14.4,
           pageNumberSizePt: parsed.pageNumberSizePt ?? 20,
@@ -1012,7 +1020,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           wpOutputParaAfterPt: parsed.wpOutputParaAfterPt ?? 12,
           wpFiledByLeftPct: parsed.wpFiledByLeftPct ?? 40,
           wpFiledByLayout: normalizeWpFiledByLayout(parsed.wpFiledByLayout),
-          wpStampFont: ['times', 'helvetica', 'courier'].includes(parsed.wpStampFont) ? parsed.wpStampFont : 'times',
+          wpStampFont: ['times', 'helvetica', 'courier', 'tinos', 'palatino'].includes(parsed.wpStampFont) ? parsed.wpStampFont : 'times',
           wpPageNumberSizePt: parsed.wpPageNumberSizePt ?? 20,
           wpPageNumberMarginTopPt: parsed.wpPageNumberMarginTopPt ?? 54,
           wpPageNumberMarginRightPt: parsed.wpPageNumberMarginRightPt ?? 54,
@@ -1041,7 +1049,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           oaSignatureH: parsed.oaSignatureH ?? 0,
           oaPlaceSignatureInPaperbook: parsed.oaPlaceSignatureInPaperbook ?? false,
           oaSignatureSizePx: parsed.oaSignatureSizePx ?? 120,
-          oaStampFont: ['times', 'helvetica', 'courier'].includes(parsed.oaStampFont) ? parsed.oaStampFont : 'times',
+          oaStampFont: ['times', 'helvetica', 'courier', 'tinos', 'palatino'].includes(parsed.oaStampFont) ? parsed.oaStampFont : 'times',
           oaPageNumberSizePt: parsed.oaPageNumberSizePt ?? 20,
           oaPageNumberMarginTopPt: parsed.oaPageNumberMarginTopPt ?? 54,
           oaPageNumberMarginRightPt: parsed.oaPageNumberMarginRightPt ?? 54,
@@ -1086,6 +1094,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           scWpAffidavitAnnexureRef: (parsed.scWpAffidavitAnnexureRef || parsed.slpAffidavitAnnexureRef || 'actual') as 'actual' | 'blank',
           scWpAnnexureLabelSize: parsed.scWpAnnexureLabelSize ?? parsed.annexureLabelSize ?? 14,
           scWpAnnexureLabelMarginPt: parsed.scWpAnnexureLabelMarginPt ?? parsed.annexureLabelMarginPt ?? 14.4,
+        scWpStampFont: (['times', 'helvetica', 'courier', 'tinos', 'palatino'].includes(parsed.scWpStampFont) ? parsed.scWpStampFont : (['times', 'helvetica', 'courier', 'tinos', 'palatino'].includes(parsed.stampFont) ? parsed.stampFont : 'times')) as 'times' | 'helvetica' | 'courier' | 'tinos' | 'palatino',
           scWpAnnexureLabelBackground: parsed.scWpAnnexureLabelBackground ?? parsed.annexureLabelBackground ?? false,
           scWpPageNumberSizePt: parsed.scWpPageNumberSizePt ?? parsed.pageNumberSizePt ?? 20,
           scWpPageNumberMarginTopPt: parsed.scWpPageNumberMarginTopPt ?? parsed.pageNumberMarginTopPt ?? 54,
@@ -1254,6 +1263,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
       scWpAffidavitAnnexureRef: prev.slpAffidavitAnnexureRef,
       scWpAnnexureLabelSize: prev.annexureLabelSize,
       scWpAnnexureLabelMarginPt: prev.annexureLabelMarginPt,
+      scWpStampFont: prev.stampFont,
       scWpAnnexureLabelBackground: prev.annexureLabelBackground,
       scWpPageNumberSizePt: prev.pageNumberSizePt,
       scWpPageNumberMarginTopPt: prev.pageNumberMarginTopPt,
@@ -2464,6 +2474,18 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   title="Annexure labels"
                   info={"The \"Annexure P-X\" label stamped on the first page of each annexure. Defaults: size 14, margin 14.4 pt (0.2 inch) from the top edge. 72 pt = 1 inch."}
                 >
+                  <SettingRow label="Stamp font">
+                    <Select value={settings.stampFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, stampFont: v as SettingsData['stampFont'] }))}>
+                      <SelectTrigger className="h-7 w-[240px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="times" className="text-xs" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
+                        <SelectItem value="tinos" className="text-xs" style={{ fontFamily: 'Tinos, Times New Roman' }}>Tinos (Bold)</SelectItem>
+                        <SelectItem value="palatino" className="text-xs" style={{ fontFamily: '"Palatino Linotype", "TeX Gyre Pagella", Palatino' }}>Palatino / TeX Gyre Pagella (Bold)</SelectItem>
+                        <SelectItem value="helvetica" className="text-xs" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
+                        <SelectItem value="courier" className="text-xs" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
                   <SettingRow label="Label text size">
                     <Slider
                       min={10}
@@ -2915,6 +2937,18 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   title="Annexure labels"
                   info={"The \"Annexure P-X\" label stamped on the first page of each annexure. Defaults: size 14, margin 14.4 pt (0.2 inch) from the top edge. 72 pt = 1 inch."}
                 >
+                  <SettingRow label="Stamp font">
+                    <Select value={settings.scWpStampFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, scWpStampFont: v as SettingsData['scWpStampFont'] }))}>
+                      <SelectTrigger className="h-7 w-[240px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="times" className="text-xs" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
+                        <SelectItem value="tinos" className="text-xs" style={{ fontFamily: 'Tinos, Times New Roman' }}>Tinos (Bold)</SelectItem>
+                        <SelectItem value="palatino" className="text-xs" style={{ fontFamily: '"Palatino Linotype", "TeX Gyre Pagella", Palatino' }}>Palatino / TeX Gyre Pagella (Bold)</SelectItem>
+                        <SelectItem value="helvetica" className="text-xs" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
+                        <SelectItem value="courier" className="text-xs" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </SettingRow>
                   <SettingRow label="Label text size">
                     <Slider
                       min={10}
@@ -3226,6 +3260,8 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="times" className="text-xs" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
+                        <SelectItem value="tinos" className="text-xs" style={{ fontFamily: 'Tinos, Times New Roman' }}>Tinos (Bold)</SelectItem>
+                        <SelectItem value="palatino" className="text-xs" style={{ fontFamily: '"Palatino Linotype", "TeX Gyre Pagella", Palatino' }}>Palatino / TeX Gyre Pagella (Bold)</SelectItem>
                         <SelectItem value="helvetica" className="text-xs" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
                         <SelectItem value="courier" className="text-xs" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
                       </SelectContent>
@@ -3508,6 +3544,8 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="times" className="text-xs" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
+                        <SelectItem value="tinos" className="text-xs" style={{ fontFamily: 'Tinos, Times New Roman' }}>Tinos (Bold)</SelectItem>
+                        <SelectItem value="palatino" className="text-xs" style={{ fontFamily: '"Palatino Linotype", "TeX Gyre Pagella", Palatino' }}>Palatino / TeX Gyre Pagella (Bold)</SelectItem>
                         <SelectItem value="helvetica" className="text-xs" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
                         <SelectItem value="courier" className="text-xs" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
                       </SelectContent>
@@ -3948,6 +3986,7 @@ export function getSettings(): SettingsData {
     inputFont: DEFAULT_INPUT_FONT,
     inputFontSize: DEFAULT_INPUT_FONT_SIZE,
     annexureLabelBackground: false,
+    stampFont: 'times',
     annexureLabelSize: 14,
     annexureLabelMarginPt: 14.4,
     pageNumberSizePt: 20,
@@ -4087,6 +4126,7 @@ export function getSettings(): SettingsData {
     scWpAffidavitAnnexureRef: 'actual' as const,
     scWpAnnexureLabelSize: 14,
     scWpAnnexureLabelMarginPt: 14.4,
+    scWpStampFont: 'times',
     scWpAnnexureLabelBackground: false,
     scWpPageNumberSizePt: 20,
     scWpPageNumberMarginTopPt: 54,
@@ -4143,6 +4183,7 @@ export function getSettings(): SettingsData {
         inputFont: parsed.inputFont || DEFAULT_INPUT_FONT,
         inputFontSize: parsed.inputFontSize ?? DEFAULT_INPUT_FONT_SIZE,
         annexureLabelBackground: parsed.annexureLabelBackground ?? false,
+        stampFont: (['times', 'helvetica', 'courier', 'tinos', 'palatino'].includes(parsed.stampFont) ? parsed.stampFont : 'times') as 'times' | 'helvetica' | 'courier' | 'tinos' | 'palatino',
         annexureLabelSize: parsed.annexureLabelSize ?? 14,
         annexureLabelMarginPt: parsed.annexureLabelMarginPt ?? 14.4,
         pageNumberSizePt: parsed.pageNumberSizePt ?? 20,
@@ -4229,7 +4270,7 @@ export function getSettings(): SettingsData {
         wpOutputParaAfterPt: parsed.wpOutputParaAfterPt ?? 12,
         wpFiledByLeftPct: parsed.wpFiledByLeftPct ?? 40,
         wpFiledByLayout: normalizeWpFiledByLayout(parsed.wpFiledByLayout),
-        wpStampFont: (['times', 'helvetica', 'courier'].includes(parsed.wpStampFont) ? parsed.wpStampFont : 'times') as 'times' | 'helvetica' | 'courier',
+        wpStampFont: (['times', 'helvetica', 'courier', 'tinos', 'palatino'].includes(parsed.wpStampFont) ? parsed.wpStampFont : 'times') as 'times' | 'helvetica' | 'courier' | 'tinos' | 'palatino',
         wpPageNumberSizePt: parsed.wpPageNumberSizePt ?? 20,
         wpPageNumberMarginTopPt: parsed.wpPageNumberMarginTopPt ?? 54,
         wpPageNumberMarginRightPt: parsed.wpPageNumberMarginRightPt ?? 54,
@@ -4258,7 +4299,7 @@ export function getSettings(): SettingsData {
         oaSignatureH: parsed.oaSignatureH ?? 0,
         oaPlaceSignatureInPaperbook: parsed.oaPlaceSignatureInPaperbook ?? false,
         oaSignatureSizePx: parsed.oaSignatureSizePx ?? 120,
-        oaStampFont: ['times', 'helvetica', 'courier'].includes(parsed.oaStampFont) ? parsed.oaStampFont : 'times',
+        oaStampFont: ['times', 'helvetica', 'courier', 'tinos', 'palatino'].includes(parsed.oaStampFont) ? parsed.oaStampFont : 'times',
         oaPageNumberSizePt: parsed.oaPageNumberSizePt ?? 20,
         oaPageNumberMarginTopPt: parsed.oaPageNumberMarginTopPt ?? 54,
         oaPageNumberMarginRightPt: parsed.oaPageNumberMarginRightPt ?? 54,
@@ -4303,6 +4344,7 @@ export function getSettings(): SettingsData {
         scWpAffidavitAnnexureRef: (parsed.scWpAffidavitAnnexureRef || parsed.slpAffidavitAnnexureRef || 'actual') as 'actual' | 'blank',
         scWpAnnexureLabelSize: parsed.scWpAnnexureLabelSize ?? parsed.annexureLabelSize ?? 14,
         scWpAnnexureLabelMarginPt: parsed.scWpAnnexureLabelMarginPt ?? parsed.annexureLabelMarginPt ?? 14.4,
+        scWpStampFont: (['times', 'helvetica', 'courier', 'tinos', 'palatino'].includes(parsed.scWpStampFont) ? parsed.scWpStampFont : (['times', 'helvetica', 'courier', 'tinos', 'palatino'].includes(parsed.stampFont) ? parsed.stampFont : 'times')) as 'times' | 'helvetica' | 'courier' | 'tinos' | 'palatino',
         scWpAnnexureLabelBackground: parsed.scWpAnnexureLabelBackground ?? parsed.annexureLabelBackground ?? false,
         scWpPageNumberSizePt: parsed.scWpPageNumberSizePt ?? parsed.pageNumberSizePt ?? 20,
         scWpPageNumberMarginTopPt: parsed.scWpPageNumberMarginTopPt ?? parsed.pageNumberMarginTopPt ?? 54,
@@ -4378,6 +4420,7 @@ const SLP_TO_WP_SEED: [string, string, unknown][] = [
   // Annexure labelling
   ["annexureLabelSize", "wpAnnexureLabelSizePt", 14],
   ["annexureLabelMarginPt", "wpAnnexureLabelMarginPt", 14.4],
+  ["stampFont", "wpStampFont", "times"],
   // Pagination
   ["pageNumberSizePt", "wpPageNumberSizePt", 20],
   ["pageNumberMarginTopPt", "wpPageNumberMarginTopPt", 54],

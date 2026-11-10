@@ -2,6 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'Tinos';
+  font-style: normal;
+  font-weight: 400;
+  src: url('/fonts/Tinos-Regular.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Tinos';
+  font-style: normal;
+  font-weight: 700;
+  src: url('/fonts/Tinos-Bold.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'TeX Gyre Pagella';
+  font-style: normal;
+  font-weight: 400;
+  src: url('/fonts/texgyrepagella-regular.otf') format('opentype');
+}
+
+@font-face {
+  font-family: 'TeX Gyre Pagella';
+  font-style: normal;
+  font-weight: 700;
+  src: url('/fonts/texgyrepagella-bold.otf') format('opentype');
+}
+
 body {
   /* Interface font — configurable in Settings → Appearance. */
   font-family: var(--ui-font, Arial, Helvetica, sans-serif);

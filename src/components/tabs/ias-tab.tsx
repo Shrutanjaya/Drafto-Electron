@@ -265,6 +265,8 @@ export function IasTab() {
   const ccReceiptDate = useWatch({ control: form.control, name: "standardIas.exemptionCertifiedCopy.receiptDate" });
   const ccReason = useWatch({ control: form.control, name: "standardIas.exemptionCertifiedCopy.reasonForNotApplying" });
   const delayActive = useWatch({ control: form.control, name: "standardIas.condonationOfDelay.active" });
+  const delayRefilingActive = useWatch({ control: form.control, name: "standardIas.condonationOfDelayInRefiling.active" });
+  const delayRefilingDays = useWatch({ control: form.control, name: "standardIas.condonationOfDelayInRefiling.delayDays" });
   const ccActive = useWatch({ control: form.control, name: "standardIas.exemptionCertifiedCopy.active" });
   const surrenderActive = useWatch({ control: form.control, name: "standardIas.exemptionFromSurrendering.active" });
   const otActive = useWatch({ control: form.control, name: "standardIas.exemptionOfficialTranslation.active" });
@@ -287,6 +289,10 @@ export function IasTab() {
   const partyLabel = multiPet ? `${partyNoun}s` : partyNoun;
   const commonClosing = getIaCommonClosing(partyNoun, multiPet, multiRes);
   const suspensionActive = useWatch({ control: form.control, name: "standardIas.suspensionOfSentence.active" });
+
+  const rawRefilingDays = delayRefilingDays !== undefined && delayRefilingDays !== null ? String(delayRefilingDays).trim() : "";
+  const cleanedRefilingDays = rawRefilingDays.replace(/\s*days?$/i, "").trim();
+  const delayRefilingDisplay = (cleanedRefilingDays && cleanedRefilingDays !== "0") ? cleanedRefilingDays : "__";
 
   // Delay IA is "ready" (green) only once the user has supplied at least one
   // non-blank ground. AD/OT grounds are optional, so those stay green when active.
@@ -442,6 +448,7 @@ export function IasTab() {
                   { id: "surrender", label: "Exemption (Surrender)", included: !!surrenderActive, show: isCriminal },
                   { id: "susp", label: "Suspension of Sentence", included: !!suspensionActive, show: isAppealProject && isCriminal },
                   { id: "delay", label: "Condonation of Delay", included: delay > 0, show: true },
+                  { id: "delayRefiling", label: "Condonation of Delay (Refiling)", included: !!delayRefilingActive, show: true },
                   { id: "ot", label: "Exemption (Official Translation)", included: true, show: !!otActive },
                   { id: "ad", label: "Additional Documents", included: !!adActive, show: true },
                 ].filter((r) => r.show);
@@ -543,6 +550,72 @@ export function IasTab() {
                   <IaGroundTable name="standardIas.condonationOfDelay.grounds" />
                   <StandardBlock startNum={3} paras={commonClosing} />
                   <StandardPrayerBlock id="condonationOfDelay" num={5} opts={{ delayDays: delay > 0 ? delay : "__", io: ioText, docNoun: iaDocShort, partyNoun }} />
+                </div>
+              )}
+
+              {/* ── Condonation of Delay in Refiling — Configurable ── */}
+              {selectedId === "delayRefiling" && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">
+                      {`Application for condonation of delay of ${delayRefilingDisplay} days in refiling the ${isAppealProject ? "Appeal" : "SLP"}`}
+                    </h4>
+                    <FormField
+                      control={form.control}
+                      name="standardIas.condonationOfDelayInRefiling.active"
+                      render={({ field }) => (
+                        <FormItem className="flex items-center gap-1.5 space-y-0">
+                          <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="delay-refiling-active" /></FormControl>
+                          <FormLabel htmlFor="delay-refiling-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <FormField
+                      control={form.control}
+                      name="standardIas.condonationOfDelayInRefiling.delayDays"
+                      render={({ field }) => (
+                        <FormItem className="flex items-center gap-2 space-y-0">
+                          <FormLabel className="text-xs whitespace-nowrap">Delay (in days):</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              value={field.value ?? ""}
+                              onChange={field.onChange}
+                              className="h-8 w-28 text-xs"
+                              placeholder="e.g. 15"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <StandardBlock
+                    startNum={1}
+                    paras={[
+                      getIaCommonOpening(ioText, iaDocLong),
+                      getIaLeadIn("condonationOfDelayInRefiling", {
+                        delayDays: delayRefilingDisplay,
+                        docNoun: iaDocShort,
+                        partyNoun
+                      })
+                    ]}
+                  />
+                  <IaGroundTable name="standardIas.condonationOfDelayInRefiling.grounds" />
+                  <StandardBlock startNum={3} paras={commonClosing} />
+                  <StandardPrayerBlock
+                    id="condonationOfDelayInRefiling"
+                    num={5}
+                    opts={{
+                      delayDays: delayRefilingDisplay,
+                      io: ioText,
+                      docNoun: iaDocShort,
+                      partyNoun
+                    }}
+                  />
                 </div>
               )}
 

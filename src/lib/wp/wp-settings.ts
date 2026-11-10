@@ -213,7 +213,7 @@ export function getWpFiledByLeftPct(): number {
 // Mirrors the SLP paperbook stamps, WP-keyed. The True Copy mark reuses the WP
 // advocate signature (independent of the Filed-by placement toggle, like SLP).
 
-export type WpStampFont = "times" | "helvetica" | "courier";
+export type WpStampFont = "times" | "helvetica" | "courier" | "tinos" | "palatino";
 export type WpAnnexureLabelPosition = "center" | "right";
 export type WpTrueCopyPosition = "left" | "center";
 
@@ -267,7 +267,7 @@ export function getWpStampSettings(): WpStampSettings {
     };
     const hasSig = !!(s.wpSignaturePng && s.wpSignatureW && s.wpSignatureH);
     return {
-      font: ["times", "helvetica", "courier"].includes(s.wpStampFont) ? s.wpStampFont : d.font,
+      font: ["times", "helvetica", "courier", "tinos", "palatino"].includes(s.wpStampFont) ? s.wpStampFont : d.font,
       pageNumberSizePt: num(s.wpPageNumberSizePt, d.pageNumberSizePt, 8, 48),
       pageNumberMarginTopPt: num(s.wpPageNumberMarginTopPt, d.pageNumberMarginTopPt, 0, 216),
       pageNumberMarginRightPt: num(s.wpPageNumberMarginRightPt, d.pageNumberMarginRightPt, 0, 216),

@@ -74,6 +74,22 @@ exports.default = async function beforePack(context) {
       const sizeOutput = execSync(`powershell -NoProfile -Command "'{0:N0} MB' -f ((Get-ChildItem -Recurse '${stagedApp}' | Measure-Object -Property Length -Sum).Sum / 1MB)"`, { encoding: "utf8" }).trim();
       console.log(`[beforePack] LibreOffice staged: ${sizeOutput}`);
     } catch {}
+    // Copy bundled extra fonts (Tinos, TeX Gyre Pagella) into LibreOffice share/fonts/truetype
+    try {
+      const publicFontsDir = path.join(context.packager.projectDir, "public", "fonts");
+      const loFontsDir = path.join(stagedApp, "share", "fonts", "truetype");
+      if (fs.existsSync(publicFontsDir)) {
+        fs.mkdirSync(loFontsDir, { recursive: true });
+        for (const file of fs.readdirSync(publicFontsDir)) {
+          if (/\.(ttf|otf)$/i.test(file)) {
+            fs.copyFileSync(path.join(publicFontsDir, file), path.join(loFontsDir, file));
+            console.log(`[beforePack] Copied font ${file} into LibreOffice share/fonts/truetype`);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[beforePack] Warning copying extra fonts into Windows LibreOffice staging:", e);
+    }
     console.log(`[beforePack] LibreOffice ready for embedding into resources/LibreOffice`);
     return;
   }
@@ -127,7 +143,24 @@ exports.default = async function beforePack(context) {
     { stdio: "inherit" }
   );
 
-  // 6. Report size so the developer knows what they are bundling.
+  // 6. Copy bundled extra fonts (Tinos, TeX Gyre Pagella) into LibreOffice share/fonts/truetype
+  try {
+    const publicFontsDir = path.join(projectRoot, "public", "fonts");
+    const loFontsDir = path.join(stagedApp, "Contents", "Resources", "fonts", "truetype");
+    if (fs.existsSync(publicFontsDir)) {
+      fs.mkdirSync(loFontsDir, { recursive: true });
+      for (const file of fs.readdirSync(publicFontsDir)) {
+        if (/\.(ttf|otf)$/i.test(file)) {
+          fs.copyFileSync(path.join(publicFontsDir, file), path.join(loFontsDir, file));
+          console.log(`[beforePack] Copied font ${file} into LibreOffice Mac fonts`);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[beforePack] Warning copying extra fonts into Mac LibreOffice staging:", e);
+  }
+
+  // 7. Report size so the developer knows what they are bundling.
   try {
     const sizeOutput = execSync(`/usr/bin/du -sh "${stagedApp}"`, {
       encoding: "utf8",

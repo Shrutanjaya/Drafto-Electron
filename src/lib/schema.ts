@@ -347,6 +347,11 @@ export const draftoProjectSchema = z.object({
       delayDays: z.number().default(0),
       grounds: z.array(iaGroundItemSchema).default([iaGroundItemSchema.parse({})]),
     }).default({}),
+    condonationOfDelayInRefiling: z.object({
+      active: z.boolean().default(false),
+      delayDays: z.union([z.number(), z.string()]).default(""),
+      grounds: z.array(iaGroundItemSchema).default([iaGroundItemSchema.parse({})]),
+    }).default({}),
     additionalDocuments: z.boolean().default(false),
     additionalDocumentsGrounds: z.array(aamTableItemSchema).default([aamTableItemSchema.parse({})]),
     exemptionCertifiedCopy: z.object({

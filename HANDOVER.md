@@ -62,7 +62,7 @@ node …            # then unzip -p out.docx word/document.xml and grep the XML
 ## Outstanding work, in the user's own words
 
 1. ~~**Mandatory auto-update.**~~ **Done** — downloads quietly in the background (`autoDownload = true`, `autoInstallOnAppQuit = true` in `electron/main.js`), shows an insistent non-dismissible "Update ready — restart now" bar (`src/components/custom/auto-update-banner.tsx`) when downloaded, and a gentle dismissible banner if offline or check/download fails.
-2. **Extra fonts** (Equity Text A, Palatino Linotype, Tinos) — analysis done, nothing built. Tinos is Apache-licensed and can be bundled (including into the bundled LibreOffice's own font folder, so PDFs get it with nothing installed); Palatino Linotype and Equity Text A cannot be redistributed — offer them as "use if installed", and TeX Gyre Pagella as a bundleable Palatino. Page numbers and stamps are drawn by pdf-lib, which only has the 14 standard PDF fonts, so matching them to the body font needs font embedding (fontkit).
+2. ~~**Extra fonts** (Equity Text A, Palatino Linotype, Tinos)~~ **Done** — Added Tinos, Palatino Linotype, TeX Gyre Pagella, and Equity Text A across Output Fonts (SC SLP, Appeal, SC WP, DHC WP, and CAT OA) and Appearance Interface/Editing font options. Bundled open fonts (`Tinos` and `TeX Gyre Pagella`) into `public/fonts/`, registered `@font-face` in `globals.css`, integrated font copying into LibreOffice staging via `beforePack.js`, and added custom font embedding for PDF paperbook stamps via `embedStampFont` using `@foliojs-fork/fontkit`.
 3. ~~**Petitioner(s)/has-have**~~ **Done** — smart singular/plural (`src/lib/party-grammar.ts`) across all tools (SC SLP, Appeal, SC WP, PIL, DHC WP, CAT OA) in both live UI and DOCX generation, driven by the number of parties and impugned orders.
 4. ~~**Cover page overflow (SLP)**~~ **Done** — `computeCoverPageSpacing` (`src/lib/docx-helpers.ts`) progressively tightens cover page line/paragraph spacing (and font size when ultra-compact) so a long cause title, `sci` header, lengthy `ioText`, and multiple applications fit on one page.
 5. **CAT Facts** need a real end-to-end check (see below).
@@ -105,6 +105,11 @@ The table issues in both Word export and the on-screen editor have been resolved
 - Writ dialog with an active CM → its own affidavit upload slot; uploading one should *replace* the generated affidavit, not add to it.
 - Refiling declaration (SLP) and a criminal SLP with Proof of Service — both touch the Index, where a mistake shifts page numbers.
 - Multi-document buttons with **no** default docx folder set → one folder prompt, then every file written there.
+
+### Recent Feature Implementations (2026-11):
+1. **Extra Fonts Integration**: Added Tinos and TeX Gyre Pagella font files, `@font-face` rules, embedded font binaries in `src/lib/fonts-embedded.ts`, and `embedStampFont` utility with dynamic `@pdf-lib/fontkit` import and `Buffer` polyfill in `src/main.tsx`. Font options (Tinos, Palatino, TeX Gyre Pagella, Equity Text A) added to Settings for all courts. Headless LibreOffice font copying configured in `beforePack.js`.
+2. **Preset IA: Condonation of Delay in Refiling**: Added "Application for Condonation of Delay in Refiling the Special Leave Petition" (`condonationOfDelayInRefiling`) as an optional preset IA in the Applications tab of the SLP tool. Supports manual entry of delay days via textbox, dynamic filling in title, Para 2, and Para 5(a) (Prayers) with "refiling" wording, grounds table with annexure attachments, and full paperbook integration (Cover Page CI, Index, Affidavits, and PDF merge).
+3. **BadhiyaBox Headings Prefix & Continuous Numbering Fix**: Fixed in `src/lib/heading-smart.ts`: (a) toggling a heading off now strips the numbering prefix (e.g. `I. `) restoring clean plain text; (b) applying a heading now renumbers all headings of that level across the document in reverse order so inserting a heading between existing ones shifts subsequent headings consecutively (e.g. `III` becomes `IV`).
 
 ---
 

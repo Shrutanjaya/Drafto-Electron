@@ -103,6 +103,8 @@ export function getIaLeadIn(id: string, o: IaPreviewOpts = {}): string {
   switch (id) {
     case "condonationOfDelay":
       return `This application, seeking condonation of delay of ${delay} days in filing the accompanying ${docNoun}, is preferred on the following grounds:`;
+    case "condonationOfDelayInRefiling":
+      return `This application, seeking condonation of delay of ${delay} days in refiling the accompanying ${docNoun}, is preferred on the following grounds:`;
     case "exemptionCertifiedCopy": {
       let t = `This application seeks exemption from filing certified copy of ${io}. `;
       if (o.ccApplied === "yes") {
@@ -141,6 +143,8 @@ export function getIaPrayer(id: string, o: IaPreviewOpts = {}): string {
   switch (id) {
     case "condonationOfDelay":
       return `Condone the delay of ${delay} days in filing the accompanying ${docNoun} against ${io}; and`;
+    case "condonationOfDelayInRefiling":
+      return `Condone the delay of ${delay} days in refiling the accompanying ${docNoun} against ${io}; and`;
     case "exemptionCertifiedCopy":
       return `Grant exemption to the ${pet} from filing certified copy of ${io}; and`;
     case "additionalDocuments":

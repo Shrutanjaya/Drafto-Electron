@@ -9,7 +9,8 @@
 // Service, signed Affidavit/Vakalatnama overlays, nested colly bookmarks, and
 // back-filling the Index page numbers are the next increment.
 
-import { PDFDocument, StandardFonts, rgb, degrees, PDFDict, PDFName, PDFArray, PDFString, PDFNumber, type PDFRef, type PDFPage, type PDFFont } from "pdf-lib";
+import { PDFDocument, rgb, degrees, PDFDict, PDFName, PDFArray, PDFString, PDFNumber, type PDFRef, type PDFPage, type PDFFont } from "pdf-lib";
+import { embedStampFont } from "@/lib/pdf-stamp-fonts";
 import { getWpStampSettings, type WpStampSettings } from "./wp-settings";
 import { convertDocxToPdf as ipcConvertDocxToPdf } from "@/lib/ipc/pdf";
 import type { DraftoProject } from "@/lib/schema";
@@ -307,8 +308,7 @@ export async function generateWpPdf(
       // the generator would otherwise print at the end of it.
       const signed = wpCmSignedAffidavit(project, cms[i].key);
       const signedBytes = signed ? await fileBytes(signed.file, signed.filePath) : null;
-      let signedPdf = signedBytes ? await pdfFromBytes(signedBytes) : null;
-      if (!signedPdf) { signedPdf = await PDFDocument.create(); signedPdf.addPage(); }
+      const signedPdf = signedBytes ? await pdfFromBytes(signedBytes) : null;
 
       const res = await generateWpSingleCm(project, i, true, !!signedPdf);
       if (res.docx) items.push({ key: `cm:${i}`, title: wpCmTitle(cms[i]), pdf: await docxToPdf(res.docx), paginated: true });
@@ -409,8 +409,7 @@ export async function generateWpPdf(
     // rotation-aware (see visualFrame above).
     onProgress?.("Numbering pages…");
     const st: WpStampSettings = getWpStampSettings();
-    const STAMP_FONTS = { times: StandardFonts.TimesRomanBold, helvetica: StandardFonts.HelveticaBold, courier: StandardFonts.CourierBold } as const;
-    const font = await merged.embedFont(STAMP_FONTS[st.font]);
+        const font = await embedStampFont(merged, st.font);
 
     for (const s of stamps) {
       const page = merged.getPage(s.pageIndex);

@@ -12,7 +12,8 @@
 //   Application (Paras 1–9) → Last Page(s) → Annexures → Vakalatnama →
 //   Authority Letter(s) → Court Fee → Proof of Service
 
-import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
+import { PDFDocument, rgb, degrees } from "pdf-lib";
+import { embedStampFont } from "@/lib/pdf-stamp-fonts";
 import { withAnnexureCustomText } from "@/lib/wp/wp-facts";
 import type { DraftoProject } from "@/lib/schema";
 import {
@@ -250,8 +251,7 @@ export async function generateOaPdf(
     // ── PASS 3: stamps (settings-driven, rotation-aware) ──
     onProgress?.("Numbering pages…");
     const st = getOaStampSettings();
-    const STAMP_FONTS = { times: StandardFonts.TimesRomanBold, helvetica: StandardFonts.HelveticaBold, courier: StandardFonts.CourierBold } as const;
-    const font = await merged.embedFont(STAMP_FONTS[st.font]);
+    const font = await embedStampFont(merged, st.font);
 
     for (const s of stamps) {
       const page = merged.getPage(s.pageIndex);

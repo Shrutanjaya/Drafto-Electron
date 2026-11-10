@@ -93,6 +93,7 @@ export function buildSearchableFields(values: DraftoProject): FieldDescriptor[] 
   // ── IAs ──
   const si = values.standardIas;
   (si?.condonationOfDelay?.grounds ?? []).forEach((_, i) => push(`standardIas.condonationOfDelay.grounds.${i}.particulars`, 'IAs', true));
+  (si?.condonationOfDelayInRefiling?.grounds ?? []).forEach((_, i) => push(`standardIas.condonationOfDelayInRefiling.grounds.${i}.particulars`, 'IAs', true));
   (si?.additionalDocumentsGrounds ?? []).forEach((_, i) => push(`standardIas.additionalDocumentsGrounds.${i}.particulars`, 'IAs', true));
   (si?.exemptionFromSurrendering?.grounds ?? []).forEach((_, i) => push(`standardIas.exemptionFromSurrendering.grounds.${i}.particulars`, 'IAs', true));
   push('standardIas.exemptionCertifiedCopy.reasonForNotApplying', 'IAs');

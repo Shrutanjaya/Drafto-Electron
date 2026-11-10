@@ -31,7 +31,7 @@ import {
 
 interface IaAnnexureDialogProps {
   groundIndex: number;
-  nestingKey: `standardIas.condonationOfDelay.grounds` | `customIas.${number}.grounds`;
+  nestingKey: `standardIas.condonationOfDelay.grounds` | `standardIas.condonationOfDelayInRefiling.grounds` | `customIas.${number}.grounds` | string;
   children: React.ReactElement;
   annexureNumberingMap: Map<string, number>;
 }

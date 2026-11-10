@@ -478,7 +478,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     }
 
     // standardIas grounds annexures
-    for (const key of ['condonationOfDelay', 'exemptionFromSurrendering'] as const) {
+    for (const key of ['condonationOfDelay', 'condonationOfDelayInRefiling', 'exemptionFromSurrendering'] as const) {
       const grounds = data.standardIas?.[key]?.grounds ?? [];
       for (let i = 0; i < grounds.length; i++) {
         for (let j = 0; j < (grounds[i].annexures ?? []).length; j++) {
@@ -921,7 +921,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     }
 
     // standardIas grounds annexures
-    for (const key of ['condonationOfDelay', 'exemptionFromSurrendering'] as const) {
+    for (const key of ['condonationOfDelay', 'condonationOfDelayInRefiling', 'exemptionFromSurrendering'] as const) {
       const grounds = data.standardIas?.[key]?.grounds ?? [];
       for (let gi = 0; gi < grounds.length; gi++) {
         for (let ai = 0; ai < (grounds[gi].annexures ?? []).length; ai++) {

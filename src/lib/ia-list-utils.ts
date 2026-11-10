@@ -20,6 +20,15 @@ export const getIaList = (projectData: DraftoProject) => {
         const title = `Application for condonation of delay of ${delayDays} days in filing the ${isAppeal(projectData.courtType) ? 'Appeal' : 'SLP'}`;
         ias.push({ prefix: iaPrefix, title, id: 'condonationOfDelay' });
     }
+    if (projectData.standardIas.condonationOfDelayInRefiling?.active) {
+        const rawDays = projectData.standardIas.condonationOfDelayInRefiling.delayDays;
+        const cleaned = (rawDays !== undefined && rawDays !== null && String(rawDays).trim() !== "" && String(rawDays).trim() !== "0")
+            ? String(rawDays).trim().replace(/\s*days?$/i, "").trim()
+            : "__";
+        const delayDays = cleaned || "__";
+        const title = `Application for condonation of delay of ${delayDays} days in refiling the ${isAppeal(projectData.courtType) ? 'Appeal' : 'SLP'}`;
+        ias.push({ prefix: iaPrefix, title, id: 'condonationOfDelayInRefiling' });
+    }
     if (projectData.standardIas.exemptionCertifiedCopy.active) {
         const title = standardIaList.find(i => i.id === 'exemptionCertifiedCopy')?.title || "";
         ias.push({ prefix: iaPrefix, title, id: 'exemptionCertifiedCopy' });

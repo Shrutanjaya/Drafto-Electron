@@ -5,6 +5,10 @@ export const standardIaList = [
         title: "Application for condonation of delay in filing the SLP",
     },
     {
+        id: "condonationOfDelayInRefiling" as const,
+        title: "Application for condonation of delay in refiling the SLP",
+    },
+    {
         id: "exemptionCertifiedCopy" as const,
         title: "Application for exemption from filing certified copy of the Impugned Order(s)",
     },

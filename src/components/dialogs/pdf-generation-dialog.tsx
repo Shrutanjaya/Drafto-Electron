@@ -147,6 +147,10 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
         if (!(data.standardIas.condonationOfDelay.grounds || []).some(g => String(g?.particulars ?? "").trim()))
             iaIssues.push('Condonation of Delay: Grounds table is empty');
     }
+    if (!isScWp && data.standardIas?.condonationOfDelayInRefiling?.active) {
+        if (!(data.standardIas.condonationOfDelayInRefiling.grounds || []).some(g => String(g?.particulars ?? "").trim()))
+            iaIssues.push('Condonation of Delay in Refiling: Grounds table is empty');
+    }
     if (data.standardIas?.exemptionFromSurrendering?.active) {
         if (!(data.standardIas.exemptionFromSurrendering.grounds || []).some(g => String(g?.particulars ?? "").trim()))
             iaIssues.push('Exemption from Surrendering: Grounds table is empty');
@@ -335,6 +339,15 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                 }
             });
         }
+        if (!isScWp && projectData.standardIas?.condonationOfDelayInRefiling?.active) {
+            projectData.standardIas.condonationOfDelayInRefiling.grounds?.forEach(ground => {
+                if (ground.annexures) {
+                    ground.annexures.forEach(annex => {
+                        allIaAnnexures.push({ ...annex, iaId: 'condonationOfDelayInRefiling' });
+                    });
+                }
+            });
+        }
         if (projectData.standardIas?.exemptionFromSurrendering?.active) {
             projectData.standardIas.exemptionFromSurrendering.grounds?.forEach(ground => {
                 if (ground.annexures) {
@@ -488,6 +501,18 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                     if (annex && annex.file instanceof File) {
                         prePopulatedFile = annex.file;
                         break;
+                    }
+                }
+
+                // Check condonation of delay in refiling grounds
+                if (!prePopulatedFile) {
+                    const refilingGrounds = mainForm.getValues('standardIas.condonationOfDelayInRefiling.grounds') || [];
+                    for (const ground of refilingGrounds) {
+                        const annex = ground.annexures?.find((a: any) => a.id === annexureId);
+                        if (annex && annex.file instanceof File) {
+                            prePopulatedFile = annex.file;
+                            break;
+                        }
                     }
                 }
                 
@@ -679,6 +704,11 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             mainForm.setValue(
                 'standardIas.condonationOfDelay.grounds',
                 updateGrounds(mainForm.getValues('standardIas.condonationOfDelay.grounds')),
+                { shouldDirty: true }
+            );
+            mainForm.setValue(
+                'standardIas.condonationOfDelayInRefiling.grounds',
+                updateGrounds(mainForm.getValues('standardIas.condonationOfDelayInRefiling.grounds')),
                 { shouldDirty: true }
             );
             mainForm.setValue(
