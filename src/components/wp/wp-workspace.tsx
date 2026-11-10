@@ -29,6 +29,7 @@ import { DateInput } from "@/components/custom/date-input";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 import { UseFirstPartyButton } from "@/components/custom/use-first-party-button";
 import { getWpFiledBy } from "@/lib/wp/wp-settings";
+import { countParties, getPartyGrammar, adaptPartyText } from "@/lib/party-grammar";
 
 // ── Shared little components (mirrors the SLP tab) ───────────────────────────
 function ViewToggle({ mode, onChange }: { mode: "splitter" | "navigation"; onChange: (m: "splitter" | "navigation") => void }) {
@@ -114,6 +115,34 @@ export function WpWorkspace() {
   const wpAdv = useWatch({ control: form.control, name: "wp.advocate" });
   const filingPlaceWatch = useWatch({ control: form.control, name: "advocate.filingPlace" });
   const deponent = useWatch({ control: form.control, name: "deponent" });
+
+  // Auto-sync unedited preset CM body/prayer sentences between singular/plural when party counts change
+  useEffect(() => {
+    const g = getPartyGrammar({ petitioners, respondents, courtType: "dhc" });
+    const paths = [
+      "wp.cms.stay.body",
+      "wp.cms.stay.prayers",
+      "wp.cms.lengthySynopsis.body",
+      "wp.cms.lengthySynopsis.prayers",
+      "wp.cms.exemptionCopies.body",
+      "wp.cms.exemptionCopies.prayers",
+    ] as const;
+    for (const p of paths) {
+      const rows = form.getValues(p as any) || [];
+      let changed = false;
+      const updated = rows.map((r: any) => {
+        const next = adaptPartyText(r?.particulars || "", g);
+        if (next !== r?.particulars) {
+          changed = true;
+          return { ...r, particulars: next };
+        }
+        return r;
+      });
+      if (changed) {
+        form.setValue(p as any, updated, { shouldDirty: true });
+      }
+    }
+  }, [petitioners, respondents, form]);
   const hasAam = (rows: any[]) => Array.isArray(rows) && rows.some((r: any) => String(r?.particulars ?? "").trim().length > 0);
   const hasLoD = (rows: any[]) => Array.isArray(rows) && rows.some((r: any) => String(r?.date ?? "").trim().length > 0 || String(r?.event ?? "").trim().length > 0);
 
@@ -270,8 +299,8 @@ export function WpWorkspace() {
   const partiesContent = (
     <div className="space-y-2">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div><p className="mb-1 text-xs font-medium">Petitioner(s)</p><VaadiTable name="petitioners" showPosition={false} showThrough throughPlaceholder={petitionerThrough} compactAdd /></div>
-        <div><p className="mb-1 text-xs font-medium">Respondent(s)</p><VaadiTable name="respondents" showPosition={false} showThrough throughPlaceholder={respondentThrough} compactAdd /></div>
+        <div><p className="mb-1 text-xs font-medium">{countParties(petitioners) > 1 ? "Petitioners" : "Petitioner"}</p><VaadiTable name="petitioners" showPosition={false} showThrough throughPlaceholder={petitionerThrough} compactAdd /></div>
+        <div><p className="mb-1 text-xs font-medium">{countParties(respondents) > 1 ? "Respondents" : "Respondent"}</p><VaadiTable name="respondents" showPosition={false} showThrough throughPlaceholder={respondentThrough} compactAdd /></div>
       </div>
     </div>
   );

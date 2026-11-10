@@ -61,10 +61,10 @@ node …            # then unzip -p out.docx word/document.xml and grep the XML
 
 ## Outstanding work, in the user's own words
 
-1. **Mandatory auto-update.** Their decisions, already taken: **download quietly in the background** (app stays usable), then an **insistent, non-dismissible "Update ready — restart now"** bar; if the download fails or there's no internet, **let them in with a dismissible banner**. The app already uses `electron-updater` (`autoDownload=false`, `autoInstallOnAppQuit=false` in `electron/main.js`).
+1. ~~**Mandatory auto-update.**~~ **Done** — downloads quietly in the background (`autoDownload = true`, `autoInstallOnAppQuit = true` in `electron/main.js`), shows an insistent non-dismissible "Update ready — restart now" bar (`src/components/custom/auto-update-banner.tsx`) when downloaded, and a gentle dismissible banner if offline or check/download fails.
 2. **Extra fonts** (Equity Text A, Palatino Linotype, Tinos) — analysis done, nothing built. Tinos is Apache-licensed and can be bundled (including into the bundled LibreOffice's own font folder, so PDFs get it with nothing installed); Palatino Linotype and Equity Text A cannot be redistributed — offer them as "use if installed", and TeX Gyre Pagella as a bundleable Palatino. Page numbers and stamps are drawn by pdf-lib, which only has the 14 standard PDF fonts, so matching them to the body font needs font embedding (fontkit).
-3. **Petitioner(s)/has-have** — smart singular/plural in the hard-coded text of all three tools, driven by the number of parties, updating live. Not started.
-4. **Cover page overflow (SLP)** — with a long cause title *and* several applications, the cover page content outgrows one page and pushes "PAPERBOOK" and the AoR line onto a second. Pre-existing; user was told; not fixed.
+3. ~~**Petitioner(s)/has-have**~~ **Done** — smart singular/plural (`src/lib/party-grammar.ts`) across all tools (SC SLP, Appeal, SC WP, PIL, DHC WP, CAT OA) in both live UI and DOCX generation, driven by the number of parties and impugned orders.
+4. ~~**Cover page overflow (SLP)**~~ **Done** — `computeCoverPageSpacing` (`src/lib/docx-helpers.ts`) progressively tightens cover page line/paragraph spacing (and font size when ultra-compact) so a long cause title, `sci` header, lengthy `ioText`, and multiple applications fit on one page.
 5. **CAT Facts** need a real end-to-end check (see below).
 
 ---

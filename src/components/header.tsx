@@ -337,27 +337,15 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     if (!window.electron) return;
     // Query persisted state from main process (handles case where update fired before mount)
     window.electron.auGetState?.().then((state: { status: string; version: string | null }) => {
-      if (state?.status === 'available' || state?.status === 'downloaded') {
+      if (state?.status === 'available' || state?.status === 'downloading' || state?.status === 'downloaded') {
         setUpdateAvailable(true);
-        toast({
-          title: state.status === 'downloaded' ? 'Update ready to install' : `Update available: v${state.version}`,
-          description: 'Open Settings → Support to install.',
-        });
       }
     });
-    window.electron.onAuUpdateAvailable?.((info: { version: string }) => {
+    window.electron.onAuUpdateAvailable?.(() => {
       setUpdateAvailable(true);
-      toast({
-        title: `Update available: v${info.version}`,
-        description: 'Open Settings → Support to download and install.',
-      });
     });
     window.electron.onAuUpdateDownloaded?.(() => {
       setUpdateAvailable(true);
-      toast({
-        title: 'Update ready to install',
-        description: 'Open Settings → Support, then click Restart & Install.',
-      });
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1246,6 +1234,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
             projectFolder: projectName,
           });
           if (savedPath) {
+            incrementGenerationCount('paperbook');
             toast({ title: "PDF Saved", description: savedPath });
             window.electron.revealFilePath?.(savedPath);
             return;
@@ -1311,6 +1300,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         if (typeof window !== "undefined" && window.electron?.savePdf) {
           const savedPath = await window.electron.savePdf({ fileName: result.fileName, content: result.pdfBase64, defaultPath: (settings as any).defaultPdfPath || undefined });
           if (savedPath) {
+            incrementGenerationCount('paperbook');
             toast({ title: "PDF Saved", description: savedPath });
             window.electron.revealFilePath?.(savedPath);
             offerBriefing();

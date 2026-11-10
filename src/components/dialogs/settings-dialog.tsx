@@ -1154,10 +1154,11 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   // Register auto-update event listeners
   useEffect(() => {
     if (!window.electron) return;
+    window.electron.auGetState?.().then((s: { status: string; version: string | null } | null) => { if (!s) return; if (s.version) setUpdateVersion(s.version); if (s.status === 'downloaded' || s.status === 'downloading' || s.status === 'available') setUpdateStatus(s.status as any); });
     window.electron.onAuUpdateAvailable?.((info: { version: string }) => {
       userCheckInProgress.current = false;
       setUpdateVersion(info.version);
-      setUpdateStatus('available');
+      setUpdateStatus('downloading');
     });
     window.electron.onAuUpdateNotAvailable?.(() => {
       // Only surface "up-to-date" if the user explicitly asked

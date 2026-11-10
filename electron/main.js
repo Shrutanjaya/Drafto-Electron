@@ -294,7 +294,7 @@ function createWindow() {
     mainWindow.webContents.once("did-finish-load", () => {
       setTimeout(() => {
         autoUpdater.checkForUpdates().catch((err) =>
-          console.warn("[autoUpdater] startup check failed:", err)
+          console.warn("[autoUpdater] startup check failed:", err), (auState.status !== "error" && (auState = { status: "error", version: auState.version, error: String(err) }, sendUpdate("au-error", String(err))))
         );
       }, 4000);
     });
@@ -940,8 +940,8 @@ ipcMain.handle("ai-split-documents", async (_event, opts) => {
 });
 
 // ── Auto-updater ─────────────────────────────────────────────────────────────
-autoUpdater.autoDownload = false;
-autoUpdater.autoInstallOnAppQuit = false;
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
 
 // Persisted state so the renderer can query it any time (e.g. on mount)
 let auState = { status: 'idle', version: null, error: null };
@@ -953,7 +953,7 @@ function sendUpdate(channel, data) {
 }
 
 autoUpdater.on("update-available", (info) => {
-  auState = { status: 'available', version: info.version, error: null };
+  auState = { status: 'downloading', version: info.version, error: null };
   sendUpdate("au-update-available", info);
 });
 autoUpdater.on("update-not-available", (info) => {
@@ -969,7 +969,7 @@ autoUpdater.on("update-downloaded", (info) => {
   sendUpdate("au-update-downloaded", info);
 });
 autoUpdater.on("error", (err) => {
-  auState = { status: 'error', version: null, error: String(err) };
+  auState = { status: 'error', version: auState.version, error: String(err) };
   sendUpdate("au-error", String(err));
 });
 

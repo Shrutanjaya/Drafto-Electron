@@ -17,6 +17,7 @@ import { EntitlementProvider, useEntitlement, useCanDraft } from "@/providers/en
 import type { CourtType } from "@/lib/entitlement/entitlement";
 import { EarlyBirdOfferDialog } from "@/components/dialogs/early-bird-offer-dialog";
 import { EntitlementBanner } from "@/components/custom/entitlement-banner";
+import { AutoUpdateBanner } from "@/components/custom/auto-update-banner";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { ReadOnlyLock } from "@/components/custom/read-only-lock";
 import { useUndoRedo } from "@/hooks/useUndoRedo";
@@ -72,6 +73,7 @@ function DraftoClientInner() {
     <FormProvider {...form}>
       <FieldRevealProvider>
         <Card className="border-2 shadow-xl">
+          <AutoUpdateBanner />
           <EntitlementBanner uncoveredCourtType={covered ? null : courtType} />
           <EarlyBirdOfferDialog />
           <Header undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo} />

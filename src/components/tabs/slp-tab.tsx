@@ -30,6 +30,7 @@ import { useCalculatedValues } from "@/hooks/use-calculated-values";
 import { Columns2, LayoutList, Sparkles, ListPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isAppeal } from "@/lib/court-family";
+import { getPartyGrammar, adaptPartyText } from "@/lib/party-grammar";
 import { FactsSection } from "@/components/custom/facts-section";
 import { FIND_REVEAL_EVENT, getPendingReveal } from "@/lib/find-reveal";
 
@@ -113,6 +114,34 @@ export function SlpTab() {
       }
     }
   }, [ioText, form]);
+
+  // Auto-sync unedited preset interim relief grounds between singular/plural when party counts change
+  const watchedPetitioners = useWatch({ control: form.control, name: "petitioners" });
+  const watchedRespondents = useWatch({ control: form.control, name: "respondents" });
+  const watchedCommonParties = useWatch({ control: form.control, name: "commonOrderParties" });
+  const watchedIsCommonOrder = useWatch({ control: form.control, name: "isCommonOrder" });
+  useEffect(() => {
+    const g = getPartyGrammar({
+      petitioners: watchedPetitioners,
+      respondents: watchedRespondents,
+      commonOrderParties: watchedCommonParties,
+      isCommonOrder: watchedIsCommonOrder,
+      courtType: form.getValues("courtType"),
+    });
+    const currentGrounds = form.getValues("interimReliefGrounds") || [];
+    let changed = false;
+    const updated = currentGrounds.map((row: any) => {
+      const next = adaptPartyText(row.particulars || "", g);
+      if (next !== row.particulars) {
+        changed = true;
+        return { ...row, particulars: next };
+      }
+      return row;
+    });
+    if (changed) {
+      form.setValue("interimReliefGrounds", updated, { shouldDirty: true });
+    }
+  }, [watchedPetitioners, watchedRespondents, watchedCommonParties, watchedIsCommonOrder, form]);
 
   // View mode + open section: toggled in-tab (next to the formatting toolbar);
   // sticky so they survive switching to another tab and back (Radix unmounts the

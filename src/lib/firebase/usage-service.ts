@@ -13,18 +13,29 @@ export async function incrementGenerationCount(type: GenerationType): Promise<vo
   if (!user) return;
 
   const ref = doc(db, 'usage', user.uid);
+  const now = new Date().toISOString();
   try {
-    const field = type === 'paperbook' ? 'paperbooksGenerated' : 'docxGenerated';
-    await updateDoc(ref, { [field]: increment(1) });
+    const isPb = type === 'paperbook';
+    const field = isPb ? 'paperbooksGenerated' : 'docxGenerated';
+    const timestampField = isPb ? 'lastPaperbookGeneratedAt' : 'lastDocxGeneratedAt';
+    await updateDoc(ref, {
+      [field]: increment(1),
+      [timestampField]: now,
+      lastGeneratedAt: now,
+    });
   } catch (err: unknown) {
     // Document likely doesn't exist — create it
     if ((err as { code?: string }).code === 'not-found') {
       try {
+        const isPb = type === 'paperbook';
         await setDoc(ref, {
           email: user.email,
           displayName: user.displayName,
-          paperbooksGenerated: type === 'paperbook' ? 1 : 0,
-          docxGenerated: type === 'docx' ? 1 : 0,
+          paperbooksGenerated: isPb ? 1 : 0,
+          docxGenerated: isPb ? 0 : 1,
+          lastPaperbookGeneratedAt: isPb ? now : null,
+          lastDocxGeneratedAt: isPb ? null : now,
+          lastGeneratedAt: now,
         });
       } catch { /* silent */ }
     }
@@ -35,6 +46,9 @@ export async function incrementGenerationCount(type: GenerationType): Promise<vo
 export interface UsageCounts {
   paperbooksGenerated: number;
   docxGenerated: number;
+  lastPaperbookGeneratedAt?: string | null;
+  lastDocxGeneratedAt?: string | null;
+  lastGeneratedAt?: string | null;
 }
 
 /**
@@ -51,6 +65,9 @@ export async function getGenerationCounts(): Promise<UsageCounts> {
     return {
       paperbooksGenerated: data.paperbooksGenerated ?? 0,
       docxGenerated: data.docxGenerated ?? 0,
+      lastPaperbookGeneratedAt: data.lastPaperbookGeneratedAt ?? null,
+      lastDocxGeneratedAt: data.lastDocxGeneratedAt ?? null,
+      lastGeneratedAt: data.lastGeneratedAt ?? null,
     };
   } catch {
     return { paperbooksGenerated: 0, docxGenerated: 0 };

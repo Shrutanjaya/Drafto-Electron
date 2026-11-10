@@ -14,6 +14,7 @@ import type { DraftoProject, VaadiTableItem } from "@/lib/schema";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { VaadiTable } from "@/components/custom/vaadi-table";
 import { isPil } from "@/lib/court-family";
+import { countParties } from "@/lib/party-grammar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -175,14 +176,14 @@ export function ScWpBasicTab() {
                 <ResizablePanelGroup direction="horizontal" className="flex-grow min-h-[360px] rounded-lg border" autoSaveId="sc-wp-parties-panels">
                   <ResizablePanel defaultSize={50}>
                     <div className="flex flex-col h-full p-1">
-                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Petitioners</h4>
+                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">{countParties(petitionersWatch) > 1 ? "Petitioners" : "Petitioner"}</h4>
                       <div className="flex-grow overflow-auto"><VaadiTable name="petitioners" showThrough showPosition={false} showPilDetails={isPilProject} /></div>
                     </div>
                   </ResizablePanel>
                   <ResizableHandle withHandle />
                   <ResizablePanel defaultSize={50}>
                     <div className="flex flex-col h-full p-1">
-                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Respondents</h4>
+                      <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">{countParties(respondentsWatch) > 1 ? "Respondents" : "Respondent"}</h4>
                       <div className="flex-grow overflow-auto"><VaadiTable name="respondents" showThrough showPosition={false} /></div>
                     </div>
                   </ResizablePanel>

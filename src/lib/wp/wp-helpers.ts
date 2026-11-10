@@ -18,6 +18,7 @@ import {
 } from "docx";
 import { format } from "date-fns";
 import { smartTextRun } from "@/lib/docx-helpers";
+import { isHeaderPlural } from "@/lib/party-grammar";
 import type { DraftoProject } from "@/lib/schema";
 import { getWpFiledBySignature, getWpMarginsIn, getWpOutputFormatting, getWpFiledByLeftPct, getWpFiledByLayout, wpFiledByLines, getWpFiledBy, type WpFiledByLayoutItem } from "./wp-settings";
 
@@ -147,7 +148,7 @@ export function createWpPartiesHeader(petHeader: string, resHeader: string, o?: 
         new TableRow({
           children: [
             new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: petHeader, ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
-            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: "…Petitioner", ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: isHeaderPlural(petHeader) ? "…Petitioners" : "…Petitioner", ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
           ],
         }),
         new TableRow({
@@ -158,7 +159,7 @@ export function createWpPartiesHeader(petHeader: string, resHeader: string, o?: 
         new TableRow({
           children: [
             new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: resHeader, ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
-            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: "…Respondents", ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
+            new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: isHeaderPlural(resHeader) ? "…Respondents" : "…Respondent", ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
           ],
         }),
       ],

@@ -39,11 +39,11 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures";
 import { annexureRowsOf } from "@/lib/wp/facts-mode";
 import { isPil } from "@/lib/court-family";
+import { countParties } from "@/lib/party-grammar";
 import {
-  IA_COMMON_CLOSING,
+  getIaCommonClosing,
   IA_PRAYER_LEAD,
   IA_PRAYER_TAIL,
-  CUSTOM_IA_PARA2_LEAD,
 } from "@/lib/ia-preview";
 
 const getScWpIaOpening = (docNoun: string = "Writ Petition") =>
@@ -180,6 +180,13 @@ export function ScWpIasTab() {
   const otReason = useWatch({ control: form.control, name: "standardIas.exemptionOfficialTranslation.reason" });
   const otUserReason = useWatch({ control: form.control, name: "standardIas.exemptionOfficialTranslation.userReason" });
   const scWpCourtType = useWatch({ control: form.control, name: "courtType" });
+  const watchedPetitioners = useWatch({ control: form.control, name: "petitioners" });
+  const watchedRespondents = useWatch({ control: form.control, name: "respondents" });
+  const multiPet = countParties(watchedPetitioners) > 1;
+  const multiRes = countParties(watchedRespondents) > 1;
+  const petLabel = multiPet ? "Petitioners" : "Petitioner";
+  const petUndertakes = multiPet ? "undertake" : "undertakes";
+  const commonClosing = getIaCommonClosing("Petitioner", multiPet, multiRes);
   const isPilProject = isPil(scWpCourtType);
   const wpDocNoun = isPilProject ? "Writ Petition (PIL)" : "Writ Petition";
 
@@ -317,16 +324,16 @@ export function ScWpIasTab() {
 
                   <StandardBlock
                     startNum={2}
-                    paras={[`This application seeks exemption from filing official translation of ${otReason || "certain annexures"}. ${otUserReason?.trim() ? `${otUserReason.trim()} ` : ""}It is respectfully submitted that true and correct translations of the said documents have been placed on record. The Petitioner undertakes to file official translations as and when directed by this Hon'ble Court.`]}
+                    paras={[`This application seeks exemption from filing official translation of ${otReason || "certain annexures"}. ${otUserReason?.trim() ? `${otUserReason.trim()} ` : ""}It is respectfully submitted that true and correct translations of the said documents have been placed on record. The ${petLabel} ${petUndertakes} to file official translations as and when directed by this Hon'ble Court.`]}
                   />
-                  <StandardBlock startNum={3} paras={IA_COMMON_CLOSING} />
+                  <StandardBlock startNum={3} paras={commonClosing} />
                   <div className="space-y-1">
                     <p className={STD_TEXT}>
                       <span className="font-medium mr-1">4.</span>
                       {IA_PRAYER_LEAD}
                     </p>
                     <ol className="list-[lower-alpha] pl-6 space-y-0.5">
-                      <li className={STD_TEXT}>{`Grant exemption to the Petitioner(s) from filing official translation of ${otReason || "certain annexures"}; and`}</li>
+                      <li className={STD_TEXT}>{`Grant exemption to the ${petLabel} from filing official translation of ${otReason || "certain annexures"}; and`}</li>
                       <li className={STD_TEXT}>{IA_PRAYER_TAIL}</li>
                     </ol>
                   </div>
@@ -354,7 +361,7 @@ export function ScWpIasTab() {
                   <StandardBlock startNum={1} paras={[getScWpIaOpening(wpDocNoun)]} />
                   <div className="space-y-1">
                     <p className={STD_TEXT}>
-                      <span className="font-medium mr-1">2.</span>{CUSTOM_IA_PARA2_LEAD}
+                      <span className="font-medium mr-1">2.</span>The present application is being filed by the {petLabel}
                     </p>
                     <FormField
                       control={form.control}
@@ -368,9 +375,9 @@ export function ScWpIasTab() {
                       )}
                     />
                   </div>
-                  <StandardBlock startNum={3} paras={["The Petitioner is approaching this Hon'ble Court on the following amongst other grounds:"]} />
+                  <StandardBlock startNum={3} paras={[`The ${petLabel} ${multiPet ? "are" : "is"} approaching this Hon'ble Court on the following amongst other grounds:`]} />
                   <IaGroundTable name={`customIas.${index}.grounds`} />
-                  <StandardBlock startNum={4} paras={IA_COMMON_CLOSING} />
+                  <StandardBlock startNum={4} paras={commonClosing} />
                   <StandardBlock startNum={5} paras={[IA_PRAYER_LEAD]} />
                   <AamTable name={`customIas.${index}.prayers`} />
                 </div>

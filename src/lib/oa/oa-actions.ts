@@ -247,7 +247,9 @@ function groundsBlocks(project: DraftoProject, style: OaStyle, numbering: any[])
 function plurals(project: DraftoProject) {
   const names = (project.petitioners || []).map((p) => p.name?.trim()).filter(Boolean) as string[];
   const multi = names.length > 1;
-  return { names, count: names.length, multi, Appl: multi ? "Applicants" : "Applicant", appl: multi ? "applicants" : "applicant", declares: multi ? "declare" : "declares", prays: multi ? "pray" : "prays", is: multi ? "are" : "is", have: multi ? "have" : "has", they: multi ? "they" : "he", them: multi ? "them" : "him" };
+  const resNames = (project.respondents || []).map((r) => r.name?.trim()).filter(Boolean) as string[];
+  const multiRes = resNames.length ? resNames.length > 1 : (project.respondents?.length || 0) > 1;
+  return { names, count: names.length, multi, multiRes, Appl: multi ? "Applicants" : "Applicant", OtherAppl: names.length > 2 ? "Applicants" : "Applicant", Res: multiRes ? "Respondents" : "Respondent", appl: multi ? "applicants" : "applicant", submits: multi ? "submit" : "submits", declares: multi ? "declare" : "declares", prays: multi ? "pray" : "prays", is: multi ? "are" : "is", have: multi ? "have" : "has", they: multi ? "they" : "he", them: multi ? "them" : "him" };
 }
 
 // ── header + parties ─────────────────────────────────────────────────────────
@@ -301,7 +303,7 @@ function createOaPartiesHeader(project: DraftoProject, o?: { size?: number }): C
       new TableRow({ children: [new TableCell({ columnSpan: 2, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: "Versus", italics: true, ...sz })] })], borders: NO_BORDERS })] }),
       new TableRow({ children: [
         new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: resHeader, ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: "…Respondents", ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
+        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun({ text: `…${plurals(project).Res}`, ...sz })] })], borders: NO_BORDERS, verticalAlign: VerticalAlign.CENTER }),
       ] }),
     ] }),
   ];
@@ -441,7 +443,7 @@ function buildOaBody(project: DraftoProject, numbering: any[], mainRef: string):
     ...createOaHeader(),
     ...createOaPartiesHeader(project),
     docTitle("ORIGINAL APPLICATION UNDER SECTION 19 OF THE ADMINISTRATIVE TRIBUNALS ACT, 1985"),
-    new Paragraph({ spacing: { before: 120 }, children: [smartTextRun({ text: "The Applicant most respectfully submits that:", bold: true })] }),
+    new Paragraph({ spacing: { before: 120 }, children: [smartTextRun({ text: `The ${p.Appl} most respectfully ${p.submits} that:`, bold: true })] }),
     // 1 — prayers inline, then the impugned-order annexure sentences, all in one para.
     ...oaPara(mainRef, "Particulars of the Order(s) against which this OA has been filed",
       `By this Original Application, the ${p.Appl} ${p.prays} that this Hon’ble Tribunal may be pleased to ${oaPrayersInline(project)}${ioHtml ? " " + ioHtml : ""}`, numbering),
@@ -559,7 +561,7 @@ function buildMaChildren(project: DraftoProject, ma: OaMa, numbering: any[], opt
     ...createOaHeader(maHeaderPrefix(ma.kind)),
     ...createOaPartiesHeader(project),
     docTitle(`${isPt ? "PETITION FOR TRANSFER" : "MISCELLANEOUS APPLICATION"} UNDER ${provision.toUpperCase()} PRAYING THAT THIS HON’BLE TRIBUNAL MAY BE PLEASED TO ${maPraySubstance(project, ma).toUpperCase()}.`),
-    new Paragraph({ spacing: { before: 120 }, children: [smartTextRun({ text: "The Applicant most respectfully submits that:", bold: true })] }),
+    new Paragraph({ spacing: { before: 120 }, children: [smartTextRun({ text: `The ${p.Appl} most respectfully ${p.submits} that:`, bold: true })] }),
     ...maPara(`The accompanying OA has been filed praying that this Hon’ble Tribunal may be pleased to ${oaPrayersInline(project)} The contents of the OA are not being repeated herein for the sake of brevity and may kindly be read as part and parcel of this ${shortLabel}.`),
     ...maPara(`By this ${shortLabel}, the ${p.Appl} ${p.prays} that this Hon’ble Tribunal may be pleased to ${esc(maPraySubstance(project, ma))}.`),
     ...(ma.kind === "joinder" ? maPara("The Applicants submit that they have a common interest in the matter having regard to the cause of action and nature of relief prayed for.") : []),
@@ -588,7 +590,7 @@ function buildMaAffidavit(project: DraftoProject, ma: OaMa, numbering: any[], ap
       // Authority letters run in favour of Applicant No. 1, who therefore swears
       // for everyone; the authority is recited inline in the opening paragraph.
       + (sg.authorityLetters && (applicantIdx == null || applicantIdx === 0)
-          ? " I am authorized to swear this affidavit on behalf of the other Applicant(s) also."
+          ? ` I am authorized to swear this affidavit on behalf of the other ${plurals(project).OtherAppl} also.`
           : ""),
     `The accompanying ${ma.kind === "pt" ? "Petition for Transfer" : "Miscellaneous Application"} has been drafted under my instructions and the same has been read over to me and understood by me. I say that the averments made therein are true to the best of my knowledge and belief. Nothing material has been concealed therefrom and no part of it is false.`,
     "The accompanying annexures, if any, are true copies of their respective originals.",

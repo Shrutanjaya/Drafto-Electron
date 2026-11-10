@@ -34,6 +34,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui/resi
 import { pickFile } from "@/lib/utils/pick-file";
 import { format } from "date-fns";
 import { annexurePrefix, isAppeal } from "@/lib/court-family";
+import { countParties } from "@/lib/party-grammar";
 import {
   getIaCommonOpening,
   IA_COMMON_CLOSING,
@@ -275,11 +276,16 @@ export function IasTab() {
 
   const isCriminal = caseType === "Criminal";
   const isAppealProject = isAppeal(iasCourtType);
+  const watchedPetitioners = useWatch({ control: form.control, name: "petitioners" });
+  const watchedRespondents = useWatch({ control: form.control, name: "respondents" });
+  const multiPet = countParties(watchedPetitioners) > 1;
+  const multiRes = countParties(watchedRespondents) > 1;
   // Previews name the document they accompany, matching the generator.
   const iaDocShort = isAppealProject ? "Appeal" : "SLP";
   const iaDocLong = isAppealProject ? "Appeal" : "Special Leave Petition";
   const partyNoun = isAppealProject ? "Appellant" : "Petitioner";
-  const commonClosing = getIaCommonClosing(partyNoun);
+  const partyLabel = multiPet ? `${partyNoun}s` : partyNoun;
+  const commonClosing = getIaCommonClosing(partyNoun, multiPet, multiRes);
   const suspensionActive = useWatch({ control: form.control, name: "standardIas.suspensionOfSentence.active" });
 
   // Delay IA is "ready" (green) only once the user has supplied at least one
@@ -416,7 +422,7 @@ export function IasTab() {
   }, [listOfDates, annexureNumberingMap]);
 
   const ccReceiptDateStr = ccReceiptDate ? format(new Date(ccReceiptDate as any), "dd.MM.yyyy") : "";
-  const ccOpts: IaPreviewOpts = { ccApplied: hasAppliedForCC as any, ccReceiptDate: ccReceiptDateStr, ccReason: ccReason as string, io: ioText, docNoun: iaDocShort, partyNoun };
+  const ccOpts: IaPreviewOpts = { ccApplied: hasAppliedForCC as any, ccReceiptDate: ccReceiptDateStr, ccReason: ccReason as string, io: ioText, docNoun: iaDocShort, partyNoun, multiPet, multiRes };
 
   return (
     <TooltipProvider>
@@ -608,7 +614,7 @@ export function IasTab() {
                   <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong)]} />
                   <StandardBlock startNum={2} paras={[getIaLeadIn("exemptionCertifiedCopy", ccOpts)]} />
                   <StandardBlock startNum={3} paras={commonClosing} />
-                  <StandardPrayerBlock id="exemptionCertifiedCopy" num={5} opts={{ io: ioText, partyNoun }} />
+                  <StandardPrayerBlock id="exemptionCertifiedCopy" num={5} opts={{ io: ioText, partyNoun, multiPet, multiRes }} />
                 </div>
               )}
 
@@ -628,10 +634,10 @@ export function IasTab() {
                       )}
                     />
                   </div>
-                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("exemptionFromSurrendering", { io: ioText, docNoun: iaDocShort, partyNoun })]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("exemptionFromSurrendering", { io: ioText, docNoun: iaDocShort, partyNoun, multiPet, multiRes })]} />
                   <IaGroundTable name="standardIas.exemptionFromSurrendering.grounds" />
                   <StandardBlock startNum={3} paras={commonClosing} />
-                  <StandardPrayerBlock id="exemptionFromSurrendering" num={5} opts={{ io: ioText, partyNoun }} />
+                  <StandardPrayerBlock id="exemptionFromSurrendering" num={5} opts={{ io: ioText, partyNoun, multiPet, multiRes }} />
                 </div>
               )}
 
@@ -651,10 +657,10 @@ export function IasTab() {
                       )}
                     />
                   </div>
-                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("suspensionOfSentence", { io: ioText, docNoun: iaDocShort, partyNoun })]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("suspensionOfSentence", { io: ioText, docNoun: iaDocShort, partyNoun, multiPet, multiRes })]} />
                   <IaGroundTable name="standardIas.suspensionOfSentence.grounds" />
                   <StandardBlock startNum={3} paras={commonClosing} />
-                  <StandardPrayerBlock id="suspensionOfSentence" num={5} opts={{ io: ioText, partyNoun }} />
+                  <StandardPrayerBlock id="suspensionOfSentence" num={5} opts={{ io: ioText, partyNoun, multiPet, multiRes }} />
                 </div>
               )}
 
@@ -673,9 +679,9 @@ export function IasTab() {
                       </FormItem>
                     )}
                   />
-                  <StandardBlock startNum={2} paras={[getIaLeadIn("exemptionOfficialTranslation", { annexureList: otReason as string, otUserReason: otUserReason as string, partyNoun })]} />
+                  <StandardBlock startNum={2} paras={[getIaLeadIn("exemptionOfficialTranslation", { annexureList: otReason as string, otUserReason: otUserReason as string, partyNoun, multiPet, multiRes })]} />
                   <StandardBlock startNum={3} paras={commonClosing} />
-                  <StandardPrayerBlock id="exemptionOfficialTranslation" num={5} opts={{ annexureList: otReason as string, partyNoun }} />
+                  <StandardPrayerBlock id="exemptionOfficialTranslation" num={5} opts={{ annexureList: otReason as string, partyNoun, multiPet, multiRes }} />
                 </div>
               )}
 
@@ -688,7 +694,7 @@ export function IasTab() {
                       ? `Auto-included because ${adCount} document${adCount !== 1 ? "s are" : " is"} marked as Additional Document(s) in the List of Dates.`
                       : "This IA is included automatically only when an annexure is marked as an Additional Document (AD). None are at present, so it won't be included."}
                   </p>
-                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("additionalDocuments", { docNoun: iaDocShort, partyNoun })]} />
+                  <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("additionalDocuments", { docNoun: iaDocShort, partyNoun, multiPet, multiRes })]} />
                   {/* Live list of additional documents (lettered, gray) — exactly what the docx inserts here. */}
                   <div className="pl-4 space-y-1">
                     {adAnnexureEntries.length > 0 ? (
@@ -703,7 +709,7 @@ export function IasTab() {
                   </div>
                   <AamTable name="standardIas.additionalDocumentsGrounds" defaultRows={3} labelMode="numeric" numericStart={3} />
                   <StandardBlock startNum={3 + adGroundsCount} paras={commonClosing} />
-                  <StandardPrayerBlock id="additionalDocuments" num={5 + adGroundsCount} opts={{ adRange, partyNoun }} />
+                  <StandardPrayerBlock id="additionalDocuments" num={5 + adGroundsCount} opts={{ adRange, adCount, partyNoun, multiPet, multiRes }} />
                 </div>
               )}
 
@@ -729,7 +735,7 @@ export function IasTab() {
                   {/* Para 2: fixed lead sentence + user-fillable text (reproduced verbatim in the docx). */}
                   <div className="space-y-1">
                     <p className={STD_TEXT}>
-                      <span className="font-medium mr-1">2.</span>The present application is being filed by the {partyNoun}(s)
+                      <span className="font-medium mr-1">2.</span>The present application is being filed by the {partyLabel}
                     </p>
                     <FormField
                       control={form.control}

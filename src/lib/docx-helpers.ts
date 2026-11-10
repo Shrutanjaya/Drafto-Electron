@@ -21,6 +21,108 @@ import { format } from "date-fns";
 import { parseHtml } from "./html-to-docx";
 import { appealOrderRule, appealTitle } from "./appeal/appeal-provisions";
 import { isAppeal } from "./court-family";
+import { isHeaderPlural } from "./party-grammar";
+
+export interface CoverPageSpacing {
+  sizeHalfPt: number;
+  line: number;
+  headerLine: number;
+  headerAfter: number;
+  ioAfter: number;
+  paraAfter: number;
+  cellAfter: number;
+  beforePaperbook: number;
+}
+
+/**
+ * Computes adaptive spacing and font size for the Cover Page so that even when
+ * a petition has a long cause title, SCI rule header, lengthy impugned-order block,
+ * and multiple accompanying IAs, the cover page never spills onto a second page.
+ */
+export function computeCoverPageSpacing(opts: {
+  baseSizePt?: number;
+  marginTopTwips?: number;
+  marginBottomTwips?: number;
+  headerStyle?: "short" | "sci";
+  isAppeal?: boolean;
+  isScWp?: boolean;
+  ioText?: string;
+  petHeader?: string;
+  resHeader?: string;
+  withInterimRelief?: boolean;
+  iaList?: { prefix: string; title: string }[];
+  hasVolumeHeading?: boolean;
+}): CoverPageSpacing {
+  const baseSizePt = opts.baseSizePt ?? 14;
+  const topTwips = opts.marginTopTwips ?? 2160;
+  const bottomTwips = opts.marginBottomTwips ?? 1440;
+  // A4 height is 16,838 twips. Reserve 700 twips at the foot for the bottom-anchored
+  // "Advocate for the Petitioner: ..." frame plus safety headroom.
+  const availableTwips = Math.max(8000, 16838 - topTwips - bottomTwips - 700);
+
+  const headerTitleParas = opts.isScWp
+    ? (opts.headerStyle === "sci" ? 4 : 3)
+    : (opts.headerStyle === "sci" ? (opts.isAppeal ? 5 : 6) : 3);
+  const ioChars = opts.isScWp ? 0 : ((opts.ioText || "").length + (opts.isAppeal ? 32 : 10));
+  const ioLines = opts.isScWp ? 0 : Math.max(1, Math.ceil(ioChars / 58));
+
+  const petLines = Math.max(1, Math.ceil((opts.petHeader || "").length / 34));
+  const resLines = Math.max(1, Math.ceil((opts.resHeader || "").length / 34));
+  const iaList = opts.iaList || [];
+  const iaTotalLines = iaList.reduce((acc, ia) => acc + Math.max(1, Math.ceil((ia.title || "").length / 44)), 0);
+
+  const candidates: CoverPageSpacing[] = [
+    // 1. Standard (identical to classic spacious layout when content is light)
+    { sizeHalfPt: baseSizePt * 2, line: 360, headerLine: 240, headerAfter: 240, ioAfter: 360, paraAfter: 240, cellAfter: 120, beforePaperbook: 240 },
+    // 2. Moderate tightening
+    { sizeHalfPt: baseSizePt * 2, line: 300, headerLine: 240, headerAfter: 160, ioAfter: 200, paraAfter: 160, cellAfter: 60, beforePaperbook: 140 },
+    // 3. Snug
+    { sizeHalfPt: baseSizePt * 2, line: 260, headerLine: 240, headerAfter: 100, ioAfter: 120, paraAfter: 100, cellAfter: 20, beforePaperbook: 80 },
+    // 4. Compact (1pt smaller font, single-spaced)
+    { sizeHalfPt: (baseSizePt - 1) * 2, line: 240, headerLine: 240, headerAfter: 60, ioAfter: 80, paraAfter: 60, cellAfter: 0, beforePaperbook: 40 },
+    // 5. Ultra-compact (2pt smaller font, tight spacing for heavy IA lists)
+    { sizeHalfPt: Math.max(22, (baseSizePt - 2) * 2), line: 230, headerLine: 220, headerAfter: 40, ioAfter: 60, paraAfter: 40, cellAfter: 0, beforePaperbook: 20 },
+  ];
+
+  const estimateHeight = (c: CoverPageSpacing): number => {
+    const pt = c.sizeHalfPt / 2;
+    const singleLineTwips = pt * 24; // 1pt = 20 twips, 1.2 line box factor = 24 twips
+    const flowLineTwips = singleLineTwips * (c.line / 240);
+    const hdrLineTwips = singleLineTwips * (c.headerLine / 240);
+
+    let total = 0;
+    // Header title lines
+    total += headerTitleParas * (hdrLineTwips + c.headerAfter);
+    // Against / Impugned Order block
+    if (!opts.isScWp) {
+      total += ioLines * hdrLineTwips + c.ioAfter;
+    }
+    // "IN THE MATTER OF:"
+    total += flowLineTwips + c.paraAfter;
+    // Parties table (pet + Versus + res)
+    total += (petLines + 1 + resLines) * hdrLineTwips + 3 * c.cellAfter + c.paraAfter;
+    // Interim relief line
+    if (opts.withInterimRelief) {
+      total += flowLineTwips + c.paraAfter;
+    }
+    // "WITH:" + IA table
+    if (iaList.length > 0) {
+      total += flowLineTwips + c.paraAfter;
+      total += iaTotalLines * hdrLineTwips + iaList.length * 20 + c.paraAfter;
+    }
+    // Before PAPERBOOK (or VOLUME X) + PAPERBOOK + [For Index, please see inside]
+    total += c.beforePaperbook + (opts.hasVolumeHeading ? flowLineTwips + c.paraAfter : 0);
+    total += 2 * (flowLineTwips + c.paraAfter);
+    return total;
+  };
+
+  for (const cand of candidates) {
+    if (estimateHeight(cand) <= availableTwips) {
+      return cand;
+    }
+  }
+  return candidates[candidates.length - 1];
+}
 
 /**
  * Test whether a List of Dates row has non-blank particulars/event.
@@ -145,14 +247,19 @@ export const createSlpHeader = (
   // Absent, every SLP renders exactly as before.
   appeal?: { provision: string; provisionId?: string },
   pageBreakBefore = false,
+  coverSpacing?: CoverPageSpacing,
 ) => {
   const currentYear = new Date().getFullYear();
+  const sz = coverSpacing ? coverSpacing.sizeHalfPt : 28;
+  const hdrLine = coverSpacing ? coverSpacing.headerLine : 240;
+  const hdrAfter = coverSpacing ? coverSpacing.headerAfter : 240;
+  const ioAfter = coverSpacing ? coverSpacing.ioAfter : 360;
   const centered = (text: string, extra: Record<string, unknown> = {}, breakBefore = false) =>
     new Paragraph({
       pageBreakBefore: breakBefore || undefined,
       alignment: AlignmentType.CENTER,
-      spacing: { line: 240, after: 240 },
-      children: [smartTextRun({ text, size: 28, ...extra })],
+      spacing: { line: hdrLine, after: hdrAfter },
+      children: [smartTextRun({ text, size: sz, ...extra })],
     });
 
   const sciBlock = headerStyle === 'sci'
@@ -174,43 +281,43 @@ export const createSlpHeader = (
     new Paragraph({
       pageBreakBefore: pageBreakBefore || undefined,
       alignment: AlignmentType.CENTER,
-      spacing: { line: 240, after: 240 },
+      spacing: { line: hdrLine, after: hdrAfter },
       children: [
         smartTextRun({
           text: "IN THE SUPREME COURT OF INDIA",
-          size: 28, // 14pt
+          size: sz,
         }),
       ],
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { line: 240, after: 240 },
+      spacing: { line: hdrLine, after: hdrAfter },
       children: [
         smartTextRun({
           text: `${caseType} Appellate Jurisdiction`,
           italics: true,
-          size: 28, // 14pt
+          size: sz,
         }),
       ],
     }),
     ]),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { line: 240, after: 240 },
+      spacing: { line: hdrLine, after: hdrAfter },
       children: [
         smartTextRun({
           text: appeal
             ? `${appealTitle(caseType)} No. _______ of ${currentYear}`
             : `Special Leave Petition (${caseType}) No. _______ of ${currentYear}`,
           bold: true,
-          size: 28, // 14pt
+          size: sz,
         }),
       ],
     }),
     new Paragraph({
       alignment: AlignmentType.JUSTIFIED,
       indent: { left: 720, right: 720 }, // 0.5 inch indent
-      spacing: { line: 240, after: 360 }, // 18pt after
+      spacing: { line: hdrLine, after: ioAfter },
       children: [
         smartTextRun({
           // The appeal states the provision it is brought under, in square
@@ -218,6 +325,7 @@ export const createSlpHeader = (
           text: appeal
             ? `[Under ${appeal.provision} against${ioText}]`
             : `Against${ioText}`,
+          ...(coverSpacing ? { size: sz } : {}),
         }),
       ],
     }),
@@ -275,7 +383,12 @@ export const createIaHeader = (caseType: string, courtType?: string) => {
   ];
 };
 
-export const createPartiesHeader = (petHeader: string, resHeader: string, partyNoun: string = "Petitioner") => {
+export const createPartiesHeader = (
+  petHeader: string,
+  resHeader: string,
+  partyNoun: string = "Petitioner",
+  opts?: { multiPet?: boolean; multiRes?: boolean; coverSpacing?: CoverPageSpacing },
+) => {
   const noBorders = {
     top: { style: BorderStyle.NONE, size: 0, color: "auto" },
     bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
@@ -285,32 +398,40 @@ export const createPartiesHeader = (petHeader: string, resHeader: string, partyN
     insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
   };
 
+  const multiPet = opts?.multiPet ?? isHeaderPlural(petHeader);
+  const multiRes = opts?.multiRes ?? isHeaderPlural(resHeader);
+  const petLabel = `...${partyNoun}${multiPet ? "s" : ""}`;
+  const resLabel = `...Respondent${multiRes ? "s" : ""}`;
+  const cs = opts?.coverSpacing;
+  const runSz = cs ? { size: cs.sizeHalfPt } : {};
+  const cellParaSpacing = cs ? { line: cs.headerLine, after: cs.cellAfter, before: 0 } : undefined;
+
   return [
     new Paragraph({
       alignment: AlignmentType.JUSTIFIED,
-      children: [smartTextRun("IN THE MATTER OF:")],
+      ...(cs ? { spacing: { line: cs.line, after: cs.paraAfter, before: 0 } } : {}),
+      children: [smartTextRun({ text: "IN THE MATTER OF:", ...runSz })],
     }),
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
-      // Right column holds "...Petitioner(s)" / "...Appellant(s)" / "...Respondent(s)"; widened so the
-      // label fits on one line even in wider fonts (e.g. Arial) at the constrained
-      // size, avoiding a forced break that splits the closing bracket.
       columnWidths: [6300, 3700],
       borders: noBorders,
       rows: [
         new TableRow({
           children: [
             new TableCell({
-              children: [new Paragraph(petHeader)],
+              children: [new Paragraph({
+                ...(cellParaSpacing ? { spacing: cellParaSpacing } : {}),
+                children: [smartTextRun({ text: petHeader, ...runSz })],
+              })],
               borders: noBorders,
               verticalAlign: VerticalAlign.CENTER,
             }),
             new TableCell({
               children: [new Paragraph({
                 alignment: AlignmentType.RIGHT,
-                // Word joiners (U+2060) keep "(s)" from breaking onto a new line
-                // (some renderers split before the ")") so the label stays intact.
-                children: [smartTextRun(`...${partyNoun}⁠(⁠s⁠)`)],
+                ...(cellParaSpacing ? { spacing: cellParaSpacing } : {}),
+                children: [smartTextRun({ text: petLabel, ...runSz })],
               })],
               borders: noBorders,
               verticalAlign: VerticalAlign.CENTER,
@@ -323,7 +444,8 @@ export const createPartiesHeader = (petHeader: string, resHeader: string, partyN
               columnSpan: 2,
               children: [new Paragraph({
                 alignment: AlignmentType.CENTER,
-                children: [smartTextRun("Versus")],
+                ...(cellParaSpacing ? { spacing: cellParaSpacing } : {}),
+                children: [smartTextRun({ text: "Versus", ...runSz })],
               })],
               borders: noBorders,
             }),
@@ -332,14 +454,18 @@ export const createPartiesHeader = (petHeader: string, resHeader: string, partyN
         new TableRow({
           children: [
             new TableCell({
-              children: [new Paragraph(resHeader)],
+              children: [new Paragraph({
+                ...(cellParaSpacing ? { spacing: cellParaSpacing } : {}),
+                children: [smartTextRun({ text: resHeader, ...runSz })],
+              })],
               borders: noBorders,
               verticalAlign: VerticalAlign.CENTER,
             }),
             new TableCell({
               children: [new Paragraph({
                 alignment: AlignmentType.RIGHT,
-                children: [smartTextRun("...Respondent⁠(⁠s⁠)")],
+                ...(cellParaSpacing ? { spacing: cellParaSpacing } : {}),
+                children: [smartTextRun({ text: resLabel, ...runSz })],
               })],
               borders: noBorders,
               verticalAlign: VerticalAlign.CENTER,
@@ -351,13 +477,23 @@ export const createPartiesHeader = (petHeader: string, resHeader: string, partyN
   ];
 };
 
-export const createWithTable = (iaList: { prefix: string; title: string }[], withInterimRelief = false) => {
+export const createWithTable = (
+  iaList: { prefix: string; title: string }[],
+  withInterimRelief = false,
+  coverSpacing?: CoverPageSpacing,
+) => {
+  const runSz = coverSpacing ? { size: coverSpacing.sizeHalfPt } : {};
+  const flowSpacing = coverSpacing
+    ? { line: coverSpacing.line, after: coverSpacing.paraAfter, before: 0 }
+    : undefined;
+
   // Cover-page interim-relief notation, shown just above the "WITH:" list when the
   // SLP includes a prayer for interim relief (bold, centred, all caps).
   const interimReliefLine = withInterimRelief
     ? [new Paragraph({
         alignment: AlignmentType.CENTER,
-        children: [smartTextRun({ text: "WITH PRAYER FOR INTERIM RELIEF", bold: true })],
+        ...(flowSpacing ? { spacing: flowSpacing } : {}),
+        children: [smartTextRun({ text: "WITH PRAYER FOR INTERIM RELIEF", bold: true, ...runSz })],
       })]
     : [];
 
@@ -373,14 +509,14 @@ export const createWithTable = (iaList: { prefix: string; title: string }[], wit
     insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
   };
   
-  const paraSpacing = { line: 240, before: 0, after: 0 };
+  const paraSpacing = { line: coverSpacing ? coverSpacing.headerLine : 240, before: 0, after: 0 };
 
   const tableRows = iaList.map(ia => {
     return new TableRow({
       children: [
         new TableCell({
           children: [new Paragraph({
-            children: [smartTextRun({ text: ia.prefix, bold: true })],
+            children: [smartTextRun({ text: ia.prefix, bold: true, ...runSz })],
             alignment: AlignmentType.LEFT,
             spacing: paraSpacing,
           })],
@@ -391,7 +527,10 @@ export const createWithTable = (iaList: { prefix: string; title: string }[], wit
           },
         }),
         new TableCell({
-          children: [new Paragraph({ text: ia.title, spacing: paraSpacing })],
+          children: [new Paragraph({
+            children: [smartTextRun({ text: ia.title, ...runSz })],
+            spacing: paraSpacing,
+          })],
           borders: noBorders,
           width: {
             size: 5670, // 10cm in dxa
@@ -406,7 +545,8 @@ export const createWithTable = (iaList: { prefix: string; title: string }[], wit
     ...interimReliefLine,
     new Paragraph({
       alignment: AlignmentType.JUSTIFIED,
-      children: [smartTextRun("WITH: ")],
+      ...(flowSpacing ? { spacing: flowSpacing } : {}),
+      children: [smartTextRun({ text: "WITH: ", ...runSz })],
     }),
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },

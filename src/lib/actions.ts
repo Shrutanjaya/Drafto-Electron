@@ -1,6 +1,7 @@
 
 import { Packer } from "docx";
-import { createSlpHeader, createPartiesHeader, createWithTable, getPartyHeader, createAnnexureText, createIaAnnexureText, createFiledByTable, createIaHeader, base64ToBuffer, convertToSmartQuotes, smartTextRun, isLodRowNonEmpty } from "@/lib/docx-helpers";
+import { createSlpHeader, createPartiesHeader, createWithTable, getPartyHeader, createAnnexureText, createIaAnnexureText, createFiledByTable, createIaHeader, base64ToBuffer, convertToSmartQuotes, smartTextRun, isLodRowNonEmpty, computeCoverPageSpacing } from "@/lib/docx-helpers";
+import { getPartyGrammar, adaptPartyText } from "@/lib/party-grammar";
 import type { DraftoProject, Annexure } from "@/lib/schema";
 import { Document, AlignmentType, Paragraph, TextRun, PageBreak, Table, TableCell, TableRow, WidthType, VerticalAlign, Header, Footer, PageNumber, SectionType, ISectionOptions, BorderStyle, CheckBox, FrameAnchorType, HorizontalPositionAlign, VerticalPositionAlign, TabStopType } from "docx";
 import { differenceInDays, format } from "date-fns";
@@ -961,7 +962,8 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
     if (includeFir)     particularsList.push("FIR Details");
     if (includeService) particularsList.push("Proof of Service");
   }
-  particularsList.push("Memo of Parties", "Filing Memo", "Vakalatnama(s)");
+  const g = getPartyGrammar(projectData);
+  particularsList.push("Memo of Parties", "Filing Memo", g.vakalatnamaLabel);
 
 
   const indexTableRows = [
@@ -1089,11 +1091,32 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
     );
   }
 
+  const margins = getSlpMargins();
+  const baseSizePt = getOutputFormatting().font === 'Arial' ? 13 : 14;
+  const coverSpacing = computeCoverPageSpacing({
+    baseSizePt,
+    marginTopTwips: margins.top,
+    marginBottomTwips: margins.bottom,
+    headerStyle: getSlpLayout().headerStyle,
+    isAppeal: isAppeal(projectData.courtType),
+    ioText,
+    petHeader,
+    resHeader,
+    withInterimRelief: (!vo || vo.volumeNum === 1) && projectData.wantsInterimRelief,
+    iaList: (!vo || vo.volumeNum === 1) ? iaList : [],
+    hasVolumeHeading: !!(vo && vo.volumeNum > 1),
+  });
+  const coverSz = { size: coverSpacing.sizeHalfPt };
+
   // ── Cover page paragraph before "PAPERBOOK" ──────────────────────────────────
-  // Vol 1 (or single-volume): blank paragraph; Vol 2+: "VOLUME X" in bold caps
+  // Vol 1 (or single-volume): spacing absorbed into PAPERBOOK paragraph; Vol 2+: "VOLUME X" in bold caps
   const beforePaperbook = (!vo || vo.volumeNum === 1)
-    ? new Paragraph('')
-    : new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: `VOLUME ${toRomanNumeral(vo.volumeNum)}`, bold: true })] });
+    ? []
+    : [new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: coverSpacing.beforePaperbook, after: coverSpacing.paraAfter, line: coverSpacing.line },
+        children: [smartTextRun({ text: `VOLUME ${toRomanNumeral(vo.volumeNum)}`, bold: true, ...coverSz })],
+      })];
 
   // Each page of the front matter is its OWN section, so Word starts the next
   // one on a fresh page by itself.
@@ -1107,12 +1130,12 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
   // framed "Advocate for the Petitioner(s)" line off the cover page along with
   // it. A section break belongs to no paragraph and so has neither problem.
   const sectionBase = {
-    properties: { page: { margin: getSlpMargins() } },
+    properties: { page: { margin: margins } },
     headers: { default: new Header({ children: [] }) },
     footers: { default: new Footer({ children: [] }) },
   };
   const nextPage = {
-    properties: { type: SectionType.NEXT_PAGE, page: { margin: getSlpMargins() } },
+    properties: { type: SectionType.NEXT_PAGE, page: { margin: margins } },
     headers: { default: new Header({ children: [] }) },
     footers: { default: new Footer({ children: [] }) },
   };
@@ -1123,13 +1146,25 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
       { // Cover Page
         ...sectionBase,
         children: [
-          ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData)),
-          ...createPartiesHeader(petHeader, resHeader),
+          ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData), false, coverSpacing),
+          ...createPartiesHeader(petHeader, resHeader, g.baseNoun, { multiPet: g.multiPet, multiRes: g.multiRes, coverSpacing }),
           // IA table only for Volume I (or single-volume mode)
-          ...(!vo || vo.volumeNum === 1 ? createWithTable(iaList, projectData.wantsInterimRelief) : []),
-          beforePaperbook,
-          new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: 'PAPERBOOK', bold: true })] }),
-          new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: '[For Index, please see inside]', italics: true })] }),
+          ...(!vo || vo.volumeNum === 1 ? createWithTable(iaList, projectData.wantsInterimRelief, coverSpacing) : []),
+          ...beforePaperbook,
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: {
+              before: (!vo || vo.volumeNum === 1) ? coverSpacing.beforePaperbook : 0,
+              after: coverSpacing.paraAfter,
+              line: coverSpacing.line,
+            },
+            children: [smartTextRun({ text: 'PAPERBOOK', bold: true, ...coverSz })],
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 0, after: 0, line: coverSpacing.line },
+            children: [smartTextRun({ text: '[For Index, please see inside]', italics: true, ...coverSz })],
+          }),
           // Pin the "Advocate for the Petitioner(s)" line to the very bottom of the
           // cover page via a paragraph frame (framePr vAnchor=margin, yAlign=bottom),
           // so it sits at the foot of page 1 regardless of how much is above it.
@@ -1141,8 +1176,9 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
               width: 8000,
               height: 400,
             },
+            spacing: { before: 0, after: 0, line: 240 },
             alignment: AlignmentType.CENTER,
-            children: [smartTextRun({ text: `Advocate for the Petitioner(s): ${aorName}`, bold: true })],
+            children: [smartTextRun({ text: `Advocate for the ${g.Pet}: ${aorName}`, bold: true, ...coverSz })],
           }),
         ],
       },
@@ -1634,6 +1670,10 @@ export async function generateSlpDocx(
     const nonAdAnnexures = allAnnexures.filter(annex => !annex.isAdditionalDocument);
     const lastNonAdPNumber = nonAdAnnexures.length;
 
+    const g = getPartyGrammar(projectData);
+    const multiIo = (projectData.impugnedOrders?.length ?? 0) > 1;
+    const ioSubjectVerb = multiIo ? "The Impugned Orders are" : "The Impugned Order is";
+
     // Para 1A is an averment about intra-court appeals, and it belongs in the
     // petition only when the advocate has actually made that averment by ticking
     // one of the two options. Left untouched, the petition runs 1 → 2.
@@ -1642,12 +1682,12 @@ export async function generateSlpDocx(
     const para1AIndent = { indent: { left: 720, hanging: 360 } };
     if (intraCourtAppealStatus === 'no_appeal_lies') {
         para1A = new Paragraph({
-            text: "1A. The Impugned Order(s) is/are passed by a Ld. Single Judge of the High Court, but no intra-court appeal lies.",
+            text: `1A. ${ioSubjectVerb} passed by a Ld. Single Judge of the High Court, but no intra-court appeal lies.`,
             ...para1AIndent,
         });
     } else if (intraCourtAppealStatus === 'appeal_lies_but') {
         para1A = new Paragraph({
-            text: `1A. The Impugned Order(s) is/are passed by a Ld. Single Judge of the High Court and an intra-court appeal lies. However, ${intraCourtAppealReason || '[reason not provided]'}`,
+            text: `1A. ${ioSubjectVerb} passed by a Ld. Single Judge of the High Court and an intra-court appeal lies. However, ${intraCourtAppealReason || '[reason not provided]'}`,
             ...para1AIndent,
         });
     }
@@ -1774,7 +1814,7 @@ export async function generateSlpDocx(
     const interimGroundsRows = projectData.interimReliefGrounds
         .filter(ig => ig.particulars.trim() !== '')
         .map((ig, index) => {
-            const { paragraphs, numbering } = parseHtml(ig.particulars);
+            const { paragraphs, numbering } = parseHtml(adaptPartyText(ig.particulars, g));
             if (numbering.length > 0) {
                 allNumberingConfigs.push(...numbering);
             }
@@ -1886,7 +1926,7 @@ export async function generateSlpDocx(
             ...(interimGroundsTable ? [interimGroundsTable] : []),
         ];
         interimPrayersSection = [
-            ...headingWithText("PRAYERS FOR INTERIM RELIEF:", "In view of the foregoing submissions, the Petitioner most respectfully prays that pending the final outcome of the present SLP, this Hon'ble Court may be pleased to:", "slp-intro-list-8"),
+            ...headingWithText("PRAYERS FOR INTERIM RELIEF:", `In view of the foregoing submissions, the ${g.Pet} most respectfully ${g.prays} that pending the final outcome of the present SLP, this Hon'ble Court may be pleased to:`, "slp-intro-list-8"),
             ...(interimPrayersTable ? [interimPrayersTable] : []),
         ];
     } else {
@@ -1960,10 +2000,10 @@ export async function generateSlpDocx(
             ...headingWithText("GROUNDS:", "This Appeal is preferred on the following grounds taken without prejudice against each other:", "appeal-list-4"),
             ...groundsElements,
             new Paragraph({
-                text: convertToSmartQuotes(`The Appellant has not filed any other appeal or petition against${ioText}.`),
+                text: convertToSmartQuotes(`The ${g.Pet} ${g.has} not filed any other appeal or petition against${ioText}.`),
                 numbering: { reference: "appeal-list-5", level: 0 },
             }),
-            ...headingWithText("MAIN PRAYERS:", "In view of the foregoing submissions, the Appellant most respectfully prays that this Hon'ble Court may be pleased to:", "appeal-list-6"),
+            ...headingWithText("MAIN PRAYERS:", `In view of the foregoing submissions, the ${g.Pet} most respectfully ${g.prays} that this Hon'ble Court may be pleased to:`, "appeal-list-6"),
             mainPrayersTable,
         ]
         : [
@@ -1979,7 +2019,7 @@ export async function generateSlpDocx(
             // Civil by Order XXI (Rules 3(2) & 5).
             ...headingWithText(
                 `DECLARATION IN TERMS OF RULE ${projectData.caseType === 'Criminal' ? '2(2)' : '3(2)'}:`,
-                `No other petition seeking Special Leave to Appeal against${ioText} has been filed by the Petitioner(s).`,
+                `No other petition seeking Special Leave to Appeal against${ioText} has been filed by the ${g.Pet}.`,
                 "slp-intro-list-3",
             ),
             ...headingWithText(
@@ -1990,7 +2030,7 @@ export async function generateSlpDocx(
             ...headingWithText("GROUNDS:", "This Special Leave Petition is preferred on the following grounds taken without prejudice against each other:", "slp-intro-list-3"),
             ...groundsElements,
             ...interimGroundsSection,
-            ...headingWithText("MAIN PRAYERS:", "In view of the foregoing submissions, the Petitioner most respectfully prays that this Hon'ble Court may be pleased to:", "slp-intro-list-7"),
+            ...headingWithText("MAIN PRAYERS:", `In view of the foregoing submissions, the ${g.Pet} most respectfully ${g.prays} that this Hon'ble Court may be pleased to:`, "slp-intro-list-7"),
             mainPrayersTable,
             ...interimPrayersSection,
         ];
@@ -2049,19 +2089,19 @@ export async function generateSlpDocx(
             ...petitionBodyBlocks,
             new Paragraph({
                 alignment: AlignmentType.RIGHT,
-                children: [smartTextRun({ text: `And for this act of kindness, the humble ${partyLabel}(s) shall ever pray.`, italics: true })]
+                children: [smartTextRun({ text: `And for this act of kindness, the humble ${g.Pet} shall ever pray.`, italics: true })]
             }),
             ...(advocateDetailsTable ? [advocateDetailsTable, new Paragraph("")] : []),
             ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature, trailingParagraph: false }),
             ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData), true),
-            ...createPartiesHeader(petHeader, resHeader),
+            ...createPartiesHeader(petHeader, resHeader, g.baseNoun, { multiPet: g.multiPet, multiRes: g.multiRes }),
             new Paragraph({
                 alignment: AlignmentType.CENTER,
                 spacing: { after: 240 },
                 children: [smartTextRun({ text: "CERTIFICATE", bold: true })],
             }),
             new Paragraph({
-                children: [smartTextRun(`Certified that the ${certDocNoun} is confined only to the pleadings before the Court whose judgment is challenged and the other documents relied upon in those proceedings. No additional facts, documents or grounds have been taken or relied upon in the ${certDocNoun} except those facts/documents for which an application for permission to file the same has been filed. The documents/annexures attached to the ${certDocNoun} are necessary to answer the questions of law raised and/or to make out the grounds urged in the ${certDocNoun} for consideration of this Hon'ble Court. This certificate is given on the basis of instructions given by the ${partyLabel} whose affidavit is filed in support of the ${certDocNoun}.`)],
+                children: [smartTextRun(`Certified that the ${certDocNoun} is confined only to the pleadings before the Court whose judgment is challenged and the other documents relied upon in those proceedings. No additional facts, documents or grounds have been taken or relied upon in the ${certDocNoun} except those facts/documents for which an application for permission to file the same has been filed. The documents/annexures attached to the ${certDocNoun} are necessary to answer the questions of law raised and/or to make out the grounds urged in the ${certDocNoun} for consideration of this Hon'ble Court. This certificate is given on the basis of instructions given by the ${g.Pet} whose affidavit is filed in support of the ${certDocNoun}.`)],
                 spacing: { line: 240 },
                 alignment: AlignmentType.JUSTIFIED,
             }),
@@ -2301,8 +2341,9 @@ export async function generateIaDocx(
     // itself an Appeal throughout; an SLP keeps the wording it has always had.
     const iaDocShort = isAppeal(projectData.courtType) ? 'Appeal' : 'SLP';
     const iaDocLong = isAppeal(projectData.courtType) ? 'Appeal' : 'Special Leave Petition';
-    const partyNoun = isAppeal(projectData.courtType) ? 'Appellant' : 'Petitioner';
-    const partyNounPlural = `${partyNoun}(s)`;
+    const g = getPartyGrammar(projectData);
+    const partyNoun = g.baseNoun;
+    const partyNounPlural = g.Pet;
 
     // Paragraph 1 of every IA. Built here, ahead of the IA-specific paragraphs
     // below, because the numbering has to be handed out in document order.
@@ -2384,18 +2425,18 @@ export async function generateIaDocx(
                 break;
             case "exemptionCertifiedCopy":
                 iaTitle = standardIaList.find(ia => ia.id === iaIdentifier)?.title || iaTitle;
-                customPrayer = `Grant exemption to the ${partyNounPlural} from filing certified copy of${ioText}; and`;
+                customPrayer = `Grant exemption to the ${g.Pet} from filing certified copy of${ioText}; and`;
                 prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
                 
                 let certParaText = `This application seeks exemption from filing certified copy of${ioText}. `;
                 if (projectData.standardIas.exemptionCertifiedCopy.hasApplied === 'yes') {
                     const receiptDate = projectData.standardIas.exemptionCertifiedCopy.receiptDate;
                     const formattedDate = receiptDate ? format(new Date(receiptDate), "dd.MM.yyyy") : '[date]';
-                    certParaText += `It is most respectfully submitted that the ${partyNounPlural} have applied for a certified copy of${ioText}. Annexure-A is a true copy of the Receipt dated ${formattedDate} reflecting the application for certified copy made by/on behalf of the ${partyNounPlural}. `;
+                    certParaText += `It is most respectfully submitted that the ${g.Pet} ${g.has} applied for a certified copy of${ioText}. Annexure-A is a true copy of the Receipt dated ${formattedDate} reflecting the application for certified copy made by/on behalf of the ${g.Pet}. `;
                 } else {
-                    certParaText += `It is most respectfully submitted that the ${partyNounPlural} have not been able to apply for a certified copy of${ioText}. ${projectData.standardIas.exemptionCertifiedCopy.reasonForNotApplying || ''} `;
+                    certParaText += `It is most respectfully submitted that the ${g.Pet} ${g.has} not been able to apply for a certified copy of${ioText}. ${projectData.standardIas.exemptionCertifiedCopy.reasonForNotApplying || ''} `;
                 }
-                certParaText += `In the circumstances, it is prayed that an exemption from filing the certified copy may be granted. The ${partyNounPlural} undertake(s) to produce the certified copy as and when made available to the ${partyNounPlural} and/or directed by this Hon'ble Court.`;
+                certParaText += `In the circumstances, it is prayed that an exemption from filing the certified copy may be granted. The ${g.Pet} ${g.undertakes} to produce the certified copy as and when made available to the ${g.Pet} and/or directed by this Hon'ble Court.`;
                 
                 customTextParagraphs = [new Paragraph({ children: [smartTextRun(certParaText)], numbering: nextNumbering() })];
                 break;
@@ -2420,7 +2461,8 @@ export async function generateIaDocx(
                          adRange = `Annexures ${annexurePrefix(projectData.courtType)}-${first} to ${annexurePrefix(projectData.courtType)}-${last}`;
                      }
                  }
-                  customPrayer = `Permit the ${partyNounPlural} to place on record the additional document(s) marked as ${adRange}; and`;
+                  const adDocWord = adNumbers.length === 1 ? "document" : "documents";
+                  customPrayer = `Permit the ${g.Pet} to place on record the additional ${adDocWord} marked as ${adRange}; and`;
                 prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
                 
                 const createAdAnnexureText = (pNumber: number, annex: Annexure): (TextRun | string)[] => {
@@ -2533,7 +2575,7 @@ export async function generateIaDocx(
                 break;
             case "suspensionOfSentence":
                 iaTitle = standardIaList.find(ia => ia.id === iaIdentifier)?.title || iaTitle;
-                customPrayer = `Suspend the sentence imposed upon the ${partyNoun} by${ioText} and direct the ${partyNoun} to be released on bail during the pendency of the present Appeal; and`;
+                customPrayer = `Suspend the sentence imposed upon the ${g.Pet} by${ioText} and direct the ${g.Pet} to be released on bail during the pendency of the present Appeal; and`;
                 prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
                 const suspensionGrounds = projectData.standardIas.suspensionOfSentence?.grounds || [];
 
@@ -2584,7 +2626,7 @@ export async function generateIaDocx(
 
                 customTextParagraphs = [
                     new Paragraph({
-                        text: `The present application is filed by the ${partyNounPlural} under S.389 of the Code of Criminal Procedure, 1973 seeking suspension of sentence imposed on them by${ioText}.`,
+                        text: `The present application is filed by the ${g.Pet} under S.389 of the Code of Criminal Procedure, 1973 seeking suspension of sentence imposed on ${g.multiPet ? "them" : `the ${g.Pet}`} by${ioText}.`,
                         numbering: nextNumbering(),
                     }),
                     suspensionGroundsTable
@@ -2793,7 +2835,7 @@ export async function generateIaDocx(
             properties: { page: { margin: getSlpMargins() } },
             children: [
                 ...createIaHeader(projectData.caseType, projectData.courtType),
-                ...createPartiesHeader(petHeader, resHeader, partyNoun),
+                ...createPartiesHeader(petHeader, resHeader, partyNoun, { multiPet: g.multiPet, multiRes: g.multiRes }),
                 new Paragraph({
                     alignment: AlignmentType.CENTER,
                     children: [smartTextRun({ text: iaTitle.toUpperCase(), bold: true })]
@@ -2817,7 +2859,7 @@ export async function generateIaDocx(
                 openingParagraph,
                 ...customTextParagraphs,
                  new Paragraph({
-                    text: convertToSmartQuotes(`No prejudice would be caused to the Respondent(s) if this application were allowed. On the other hand, irreparable injury would be caused to the ${partyNounPlural} if the application were not allowed.`),
+                    text: convertToSmartQuotes(`No prejudice would be caused to the ${g.Res} if this application were allowed. On the other hand, irreparable injury would be caused to the ${g.Pet} if the application were not allowed.`),
                     numbering: nextNumbering(),
                 }),
                 new Paragraph({
@@ -2834,7 +2876,7 @@ export async function generateIaDocx(
                 prayerTable,
                 new Paragraph({
                     alignment: AlignmentType.RIGHT,
-                    children: [smartTextRun({ text: "And for this act of kindness, the humble Petitioner(s) shall ever pray.", italics: true })]
+                    children: [smartTextRun({ text: `And for this act of kindness, the humble ${g.Pet} shall ever pray.`, italics: true })]
                 }),
                 ...createFiledByTable(advocate.filingDate, advocate.aorName || "[AoR Name]", { includeSignature }),
             ]
@@ -2847,6 +2889,7 @@ export async function generateIaDocx(
 }
 
 export async function generateFilingMemoDocx(projectData: DraftoProject, includeSignature = false) {
+    const g = getPartyGrammar(projectData);
     const petHeader = getPartyHeader(projectData.petitioners);
     const resHeader = getPartyHeader(projectData.respondents);
     const iaList = getIaList(projectData);
@@ -2881,7 +2924,7 @@ export async function generateFilingMemoDocx(projectData: DraftoProject, include
         new TableRow({
             children: [
                 new TableCell({ children: [new Paragraph({ text: `${iaList.length + 3}.`, alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
-                new TableCell({ children: [new Paragraph({ text: "Vakalatnama(s)", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+                new TableCell({ children: [new Paragraph({ text: g.vakalatnamaLabel, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
                 new TableCell({ children: [new Paragraph({ text: "", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
                 new TableCell({ children: [new Paragraph({ text: "", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
             ]
@@ -2926,6 +2969,7 @@ export async function generateFilingMemoDocx(projectData: DraftoProject, include
 }
 
 export async function generateVakalatnamaDocx(projectData: DraftoProject) {
+    const g = getPartyGrammar(projectData);
     const petHeader = getPartyHeader(projectData.petitioners);
     const resHeader = getPartyHeader(projectData.respondents);
     const { caseType, advocate } = projectData;
@@ -3058,8 +3102,8 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
                 })],
             }),
             new Paragraph({ text: "", style: "VakaNormal" }),
-            new Paragraph({ text: "☐ This Vakalatnama has been signed by the Petitioner(s) in my presence. I have identified the Petitioner(s) and accepted this Vakalatnama.", style: "VakaNormal" }),
-            new Paragraph({ text: "☐ This Vakalatnama has not been signed by the Petitioner(s) in my presence. However, I have satisfied myself as to the due execution of this Vakalatnama and accepted it. The Petitioner(s) have been identified by the following Notary/Advocate: _______________.", style: "VakaNormal" }),
+            new Paragraph({ text: `☐ This Vakalatnama has been signed by the ${g.Pet} in my presence. I have identified the ${g.Pet} and accepted this Vakalatnama.`, style: "VakaNormal" }),
+            new Paragraph({ text: `☐ This Vakalatnama has not been signed by the ${g.Pet} in my presence. However, I have satisfied myself as to the due execution of this Vakalatnama and accepted it. The ${g.Pet} ${g.has} been identified by the following Notary/Advocate: _______________.`, style: "VakaNormal" }),
             new Paragraph({ text: "", style: "VakaNormal" }),
             new Paragraph({ 
                 children: [
@@ -3075,7 +3119,7 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
             new Paragraph({ text: "    Supreme Court of India", style: "VakaNormal" }),
             new Paragraph({ text: "    New Delhi", style: "VakaNormal" }),
             new Paragraph({ text: "Sir,", style: "VakaNormal" }),
-            new Paragraph({ text: "    Please enter my appearance on behalf on the Petitioner(s) in the aforesaid matter.", style: "VakaNormal" }),
+            new Paragraph({ text: `    Please enter my appearance on behalf of the ${g.Pet} in the aforesaid matter.`, style: "VakaNormal" }),
             new Paragraph({ text: "", style: "VakaNormal" }),
             new Table({
                 width: { size: 100, type: WidthType.PERCENTAGE },
@@ -3091,7 +3135,7 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
                                     style: "VakaNormal", 
                                     alignment: AlignmentType.RIGHT 
                                 }),
-                                new Paragraph({ text: "Advocate for the Petitioner(s)", style: "VakaNormal", alignment: AlignmentType.RIGHT }),
+                                new Paragraph({ text: `Advocate for the ${g.Pet}`, style: "VakaNormal", alignment: AlignmentType.RIGHT }),
                             ],
                             borders: noBorders,
                         }),
@@ -3146,18 +3190,19 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
 
     const presentlyAtPart = deponent.location?.trim() ? `, presently at ${deponent.location.trim()}` : '';
     const deponentIntro = `I, ${deponent.name || '[Name]'}, ${deponent.relationship} ${deponent.fatherName || '[Father/Husband Name]'}, aged ${deponent.age || '__'} years, resident of ${deponent.address || '[Address]'}${presentlyAtPart}, do hereby solemnly state and affirm as under:`;
-    const partyNoun = isAppeal(projectData.courtType) ? 'Appellant' : 'Petitioner';
-    const partyNounPlural = `${partyNoun}(s)`;
+    const g = getPartyGrammar(projectData);
+    const partyNoun = g.baseNoun;
+    const otherPartyLabel = g.OtherPet;
 
     // 1. SLP / Appeal Affidavit
     const slpAffidavitChildren = [
         ...createSlpHeader(caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData)),
         new Paragraph(""),
-        ...createPartiesHeader(petHeader, resHeader, partyNoun),
+        ...createPartiesHeader(petHeader, resHeader, partyNoun, { multiPet: g.multiPet, multiRes: g.multiRes }),
         new Paragraph({ children: [new TextRun({ text: "AFFIDAVIT", bold: true })], alignment: AlignmentType.CENTER }),
         new Paragraph(deponentIntro),
         new Paragraph({
-            text: `I am the ${deponent.role || '[Role]'} in the present case. As such, I am fully conversant with the facts of the case and hence capable to swear to this Affidavit${petitioners.length > 1 ? ` on behalf of myself and the other ${partyNounPlural} as well` : ""}.`,
+            text: `I am the ${deponent.role || '[Role]'} in the present case. As such, I am fully conversant with the facts of the case and hence capable to swear to this Affidavit${g.multiPet ? ` on behalf of myself and the other ${otherPartyLabel} as well` : ""}.`,
             numbering: { reference: "affidavit-numbering", level: 0 }
         }),
         new Paragraph({
@@ -3190,11 +3235,11 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
         const iaAffidavitChildren = [
             ...createIaHeader(caseType, projectData.courtType),
             new Paragraph(""),
-            ...createPartiesHeader(petHeader, resHeader, partyNoun),
+            ...createPartiesHeader(petHeader, resHeader, partyNoun, { multiPet: g.multiPet, multiRes: g.multiRes }),
             new Paragraph({ children: [new TextRun({ text: "AFFIDAVIT", bold: true })], alignment: AlignmentType.CENTER }),
             new Paragraph(deponentIntro),
             new Paragraph({
-                text: `I am the ${deponent.role || '[Role]'} in the present case. As such, I am fully conversant with the facts of the case and hence capable to swear to this Affidavit${petitioners.length > 1 ? ` on behalf of myself and the other ${partyNounPlural} as well` : ""}.`,
+                text: `I am the ${deponent.role || '[Role]'} in the present case. As such, I am fully conversant with the facts of the case and hence capable to swear to this Affidavit${g.multiPet ? ` on behalf of myself and the other ${otherPartyLabel} as well` : ""}.`,
                 numbering: { reference: "affidavit-numbering", level: 0 }
             }),
             new Paragraph({
@@ -3626,7 +3671,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         if (meta.id === 'firDetails') return 'FIR Details';
         if (meta.id === 'memoOfParties') return 'Memo of Parties';
         if (meta.id === 'filingMemo') return 'Filing Memo';
-        if (meta.id === 'vakalatnama') return 'Vakalatnama(s)';
+        if (meta.id === 'vakalatnama') return getPartyGrammar(projectData).vakalatnamaLabel;
         
         return null;
     };
@@ -4456,7 +4501,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 _pl.push([smartTextRun({ text: ia.prefix, bold: true }), convertToSmartQuotes(`: ${ia.title}`)]);
                 _allIaAnn.filter(a => a.iaId === ia.id).forEach(a => { const n = _iaAnnMap.get(a.id); if (n) _pl.push(createIaAnnexureText(n, a, true)); });
             });
-            _pl.push('Filing Memo', 'Vakalatnama(s)');
+            _pl.push('Filing Memo', getPartyGrammar(projectData).vakalatnamaLabel);
             ciParticularsListForVolume = _pl;
         } else {
             // Temporarily call generateCiDocx without volumeOptions to get the particularsList
@@ -4526,7 +4571,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 if (!optionalDocIds || optionalDocIds.has('firDetails'))         _pl.push('FIR Details');
                 if (!optionalDocIds || optionalDocIds.has('proofOfService'))     _pl.push('Proof of Service');
             }
-            _pl.push('Memo of Parties', 'Filing Memo', 'Vakalatnama(s)');
+            _pl.push('Memo of Parties', 'Filing Memo', getPartyGrammar(projectData).vakalatnamaLabel);
             ciParticularsListForVolume = _pl;
         }
     }

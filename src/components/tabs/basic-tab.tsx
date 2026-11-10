@@ -26,6 +26,7 @@ import { DateInput } from "../custom/date-input";
 import { UseFirstPartyButton } from "@/components/custom/use-first-party-button";
 import { isAppeal } from "@/lib/court-family";
 import { appealProvisionsFor, APPEAL_PROVISION_OTHER } from "@/lib/appeal/appeal-provisions";
+import { countParties } from "@/lib/party-grammar";
 
 const highCourts = [
     "Allahabad High Court at Allahabad",
@@ -381,7 +382,7 @@ export function BasicTab() {
               onClick={() => setSelectedSection('parties')}
             />
             <NavRow
-              label="Impugned Order(s)"
+              label={(impugnedOrdersWatch?.length ?? 0) > 1 ? "Impugned Orders" : "Impugned Order"}
               active={impugnedActive}
               selected={selectedSection === 'impugned'}
               onClick={() => setSelectedSection('impugned')}
@@ -429,14 +430,14 @@ export function BasicTab() {
                   <ResizablePanelGroup direction="horizontal" className="h-[300px] rounded-lg border" autoSaveId="basic-tab-parties-panels">
                     <ResizablePanel defaultSize={50}>
                       <div className="flex flex-col h-full p-1">
-                        <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Petitioners</h4>
+                        <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">{isAppealProject ? (countParties(petitionersWatch) > 1 ? "Appellants" : "Appellant") : (countParties(petitionersWatch) > 1 ? "Petitioners" : "Petitioner")}</h4>
                         <div className="flex-grow overflow-auto"><VaadiTable name="petitioners" /></div>
                       </div>
                     </ResizablePanel>
                     <ResizableHandle withHandle />
                     <ResizablePanel defaultSize={50}>
                       <div className="flex flex-col h-full p-1">
-                        <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Respondents</h4>
+                        <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">{countParties(respondentsWatch) > 1 ? "Respondents" : "Respondent"}</h4>
                         <div className="flex-grow overflow-auto"><VaadiTable name="respondents" /></div>
                       </div>
                     </ResizablePanel>
@@ -447,7 +448,7 @@ export function BasicTab() {
 
             {selectedSection === 'impugned' && (
               <>
-                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Impugned Order(s)</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{(impugnedOrdersWatch?.length ?? 0) > 1 ? "Impugned Orders" : "Impugned Order"}</h4>
                 <div className="space-y-1">
                   {fields.map((item, index) => (
                     <div key={item.id} className="relative group">
@@ -545,7 +546,7 @@ export function BasicTab() {
                                 }}
                               />
                             </FormControl>
-                            <FormLabel className="font-normal text-xs">The Impugned Order(s) is/are passed by a Ld. Single Judge of the High Court, but no intra-court appeal lies.</FormLabel>
+                            <FormLabel className="font-normal text-xs">{(impugnedOrdersWatch?.length ?? 0) > 1 ? "The Impugned Orders are" : "The Impugned Order is"} passed by a Ld. Single Judge of the High Court, but no intra-court appeal lies.</FormLabel>
                           </FormItem>
                         )}
                       />
@@ -562,7 +563,7 @@ export function BasicTab() {
                                 }}
                               />
                             </FormControl>
-                            <FormLabel className="font-normal text-xs">The Impugned Order(s) is/are passed by a Ld. Single Judge of the High Court and an intra-court appeal lies. However,</FormLabel>
+                            <FormLabel className="font-normal text-xs">{(impugnedOrdersWatch?.length ?? 0) > 1 ? "The Impugned Orders are" : "The Impugned Order is"} passed by a Ld. Single Judge of the High Court and an intra-court appeal lies. However,</FormLabel>
                           </FormItem>
                         )}
                       />

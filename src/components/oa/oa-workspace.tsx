@@ -118,6 +118,14 @@ export function OaWorkspace() {
   const interimReliefs = useWatch({ control: form.control, name: "oa.interimReliefs" });
   const postalOrders = useWatch({ control: form.control, name: "oa.postalOrders" });
   const petitioners = useWatch({ control: form.control, name: "petitioners" });
+  const respondents = useWatch({ control: form.control, name: "respondents" });
+  const respondentCount = (respondents || []).filter((r: any) => String(r?.name ?? "").trim()).length || (respondents?.length || 1);
+  const multiAppl = ((petitioners || []).filter((p: any) => String(p?.name ?? "").trim()).length || (petitioners?.length || 1)) > 1;
+  const applNoun = multiAppl ? "Applicants" : "Applicant";
+  const applIs = multiAppl ? "are" : "is";
+  const applDeclares = multiAppl ? "declare" : "declares";
+  const applPossessive = multiAppl ? "Applicants’" : "Applicant’s";
+  const resNoun = respondentCount > 1 ? "Respondents" : "Respondent";
 
   // ── Applications (MAs / PT) ─────────────────────────────────────────────────
   const applicantCount = (petitioners || []).filter((p: any) => String(p?.name ?? "").trim()).length;
@@ -210,7 +218,7 @@ export function OaWorkspace() {
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Para 2 — Jurisdiction</p>
         <FormField control={form.control} name="oa.jurisdictionPosted" render={({ field }) => (
           <div className="flex items-start gap-2"><Checkbox id="oa-jur-posted" checked={field.value} onCheckedChange={field.onChange} className="mt-0.5" />
-            <label htmlFor="oa-jur-posted" className="text-xs">The Applicant is posted for the time being within the jurisdiction of this Hon’ble Tribunal.</label></div>
+            <label htmlFor="oa-jur-posted" className="text-xs">The {applNoun} {applIs} posted for the time being within the jurisdiction of this Hon’ble Tribunal.</label></div>
         )} />
         <FormField control={form.control} name="oa.jurisdictionPostedNote" render={({ field }) => (
           <Textarea {...field} rows={1} placeholder="Optional rider…" className="text-xs" />
@@ -231,13 +239,13 @@ export function OaWorkspace() {
             <div className="flex items-start gap-2">
               <RadioGroupItem value="noDelay" id="lim-none" className="mt-0.5" />
               <label htmlFor="lim-none" className="text-xs leading-snug">
-                The Applicant declares that there is no delay in filing of the present OA and the same is within limitation.
+                The {applNoun} {applDeclares} that there is no delay in filing of the present OA and the same is within limitation.
               </label>
             </div>
             <div className="flex items-start gap-2">
               <RadioGroupItem value="delay" id="lim-delay" className="mt-0.5" />
               <label htmlFor="lim-delay" className="text-xs leading-snug">
-                The Applicant declares that there is a delay of{" "}
+                The {applNoun} {applDeclares} that there is a delay of{" "}
                 <span className="font-semibold">{delayDays?.trim() || "__"}</span> days in filing of this OA and an
                 application for condonation of delay of the said period is being filed along with this OA.
               </label>
@@ -245,8 +253,8 @@ export function OaWorkspace() {
             <div className="flex items-start gap-2">
               <RadioGroupItem value="abundantCaution" id="lim-caution" className="mt-0.5" />
               <label htmlFor="lim-caution" className="text-xs leading-snug">
-                The Applicant declares that there is no delay in filing of the present OA and the same is within
-                limitation. However, by way of abundant caution and without prejudice to the Applicant’s aforesaid
+                The {applNoun} {applDeclares} that there is no delay in filing of the present OA and the same is within
+                limitation. However, by way of abundant caution and without prejudice to the {applPossessive} aforesaid
                 stance, an application for condonation of delay is being filed along with this OA.
               </label>
             </div>
@@ -377,11 +385,11 @@ export function OaWorkspace() {
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
-            <p className="mb-1 text-xs font-medium">Applicant(s)</p>
+            <p className="mb-1 text-xs font-medium">{applNoun}</p>
             <p className="mb-1 text-[11px] text-muted-foreground">Each Applicant’s own particulars are used on the last page, vakalatnama and affidavit they sign.</p>
             <VaadiTable name="petitioners" showPosition={false} showThrough throughPlaceholder={APPLICANT_THROUGH_PLACEHOLDER} compactAdd showDeponentDetails />
           </div>
-          <div><p className="mb-1 text-xs font-medium">Respondent(s)</p><VaadiTable name="respondents" showPosition={false} showThrough throughPlaceholder={RESPONDENT_THROUGH_PLACEHOLDER} compactAdd /></div>
+          <div><p className="mb-1 text-xs font-medium">{resNoun}</p><VaadiTable name="respondents" showPosition={false} showThrough throughPlaceholder={RESPONDENT_THROUGH_PLACEHOLDER} compactAdd /></div>
         </div>
       </TabsContent>
 

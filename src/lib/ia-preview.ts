@@ -42,23 +42,26 @@ export function getIaCommonOpening(io: string = IO, docNoun: string = "Special L
 }
 
 // Custom-IA Para 2 lead sentence; the user's free text is appended after it.
-export const CUSTOM_IA_PARA2_LEAD = "The present application is being filed by the Petitioner(s)";
+export const CUSTOM_IA_PARA2_LEAD = "The present application is being filed by the Petitioner";
 
-export function getCustomIaPara2(para2?: string, partyNoun: string = "Petitioner"): string {
-  const lead = `The present application is being filed by the ${partyNoun}(s)`;
+export function getCustomIaPara2(para2?: string, partyNoun: string = "Petitioner", multiPet = false): string {
+  const pet = multiPet ? `${partyNoun}s` : partyNoun;
+  const lead = `The present application is being filed by the ${pet}`;
   const extra = (para2 || "").trim();
   return extra ? `${lead} ${extra}` : lead;
 }
 
 // Common closing paragraphs, inserted after the IA's specific content.
 export const IA_COMMON_CLOSING: string[] = [
-  "No prejudice would be caused to the Respondent(s) if this application were allowed. On the other hand, irreparable injury would be caused to the Petitioner(s) if the application were not allowed.",
+  "No prejudice would be caused to the Respondent if this application were allowed. On the other hand, irreparable injury would be caused to the Petitioner if the application were not allowed.",
   "This application is filed in good faith and in the interests of justice.",
 ];
 
-export function getIaCommonClosing(partyNoun: string = "Petitioner"): string[] {
+export function getIaCommonClosing(partyNoun: string = "Petitioner", multiPet = false, multiRes = false): string[] {
+  const pet = multiPet ? `${partyNoun}s` : partyNoun;
+  const res = multiRes ? "Respondents" : "Respondent";
   return [
-    `No prejudice would be caused to the Respondent(s) if this application were allowed. On the other hand, irreparable injury would be caused to the ${partyNoun}(s) if the application were not allowed.`,
+    `No prejudice would be caused to the ${res} if this application were allowed. On the other hand, irreparable injury would be caused to the ${pet} if the application were not allowed.`,
     "This application is filed in good faith and in the interests of justice.",
   ];
 }
@@ -75,6 +78,9 @@ export interface IaPreviewOpts {
   docNoun?: string;
   /** "Appellant" for statutory appeal; defaults to "Petitioner". */
   partyNoun?: string;
+  multiPet?: boolean;
+  multiRes?: boolean;
+  adCount?: number;
   delayDays?: number | string;
   annexureList?: string; // OT — e.g. "Annexure P-3"
   otUserReason?: string; // OT — optional user-entered reason
@@ -91,17 +97,20 @@ export function getIaLeadIn(id: string, o: IaPreviewOpts = {}): string {
   const io = o.io || IO;
   const docNoun = o.docNoun || "SLP";
   const partyNoun = o.partyNoun || "Petitioner";
+  const pet = o.multiPet ? `${partyNoun}s` : partyNoun;
+  const has = o.multiPet ? "have" : "has";
+  const undertakes = o.multiPet ? "undertake" : "undertakes";
   switch (id) {
     case "condonationOfDelay":
       return `This application, seeking condonation of delay of ${delay} days in filing the accompanying ${docNoun}, is preferred on the following grounds:`;
     case "exemptionCertifiedCopy": {
       let t = `This application seeks exemption from filing certified copy of ${io}. `;
       if (o.ccApplied === "yes") {
-        t += `It is most respectfully submitted that the ${partyNoun}(s) have applied for a certified copy of ${io}. Annexure-A is a true copy of the Receipt dated ${o.ccReceiptDate || "[date]"} reflecting the application for certified copy made by/on behalf of the ${partyNoun}(s). `;
+        t += `It is most respectfully submitted that the ${pet} ${has} applied for a certified copy of ${io}. Annexure-A is a true copy of the Receipt dated ${o.ccReceiptDate || "[date]"} reflecting the application for certified copy made by/on behalf of the ${pet}. `;
       } else {
-        t += `It is most respectfully submitted that the ${partyNoun}(s) have not been able to apply for a certified copy of ${io}. ${o.ccReason ? o.ccReason + " " : ""}`;
+        t += `It is most respectfully submitted that the ${pet} ${has} not been able to apply for a certified copy of ${io}. ${o.ccReason ? o.ccReason + " " : ""}`;
       }
-      t += `In the circumstances, it is prayed that an exemption from filing the certified copy may be granted. The ${partyNoun}(s) undertake(s) to produce the certified copy as and when made available to the ${partyNoun}(s) and/or directed by this Hon'ble Court.`;
+      t += `In the circumstances, it is prayed that an exemption from filing the certified copy may be granted. The ${pet} ${undertakes} to produce the certified copy as and when made available to the ${pet} and/or directed by this Hon'ble Court.`;
       return t;
     }
     case "additionalDocuments":
@@ -113,7 +122,7 @@ export function getIaLeadIn(id: string, o: IaPreviewOpts = {}): string {
     case "exemptionFromSurrendering":
       return `This application, seeking exemption from surrendering pursuant to ${io}, is preferred on the following grounds:`;
     case "suspensionOfSentence":
-      return `The present application is filed by the ${partyNoun}(s) under S.389 of the Code of Criminal Procedure, 1973 seeking suspension of sentence imposed on them by ${io}.`;
+      return `The present application is filed by the ${pet} under S.389 of the Code of Criminal Procedure, 1973 seeking suspension of sentence imposed on ${o.multiPet ? "them" : `the ${pet}`} by ${io}.`;
     case "custom":
       return "The present application is filed on the following grounds:";
     default:
@@ -127,19 +136,21 @@ export function getIaPrayer(id: string, o: IaPreviewOpts = {}): string {
   const io = o.io || IO;
   const docNoun = o.docNoun || "SLP";
   const partyNoun = o.partyNoun || "Petitioner";
+  const pet = o.multiPet ? `${partyNoun}s` : partyNoun;
+  const adDocWord = o.adCount === 1 ? "document" : "documents";
   switch (id) {
     case "condonationOfDelay":
       return `Condone the delay of ${delay} days in filing the accompanying ${docNoun} against ${io}; and`;
     case "exemptionCertifiedCopy":
-      return `Grant exemption to the ${partyNoun}(s) from filing certified copy of ${io}; and`;
+      return `Grant exemption to the ${pet} from filing certified copy of ${io}; and`;
     case "additionalDocuments":
-      return `Permit the ${partyNoun}(s) to place on record the additional document(s) marked as ${o.adRange || "[additional annexures]"}; and`;
+      return `Permit the ${pet} to place on record the additional ${adDocWord} marked as ${o.adRange || "[additional annexures]"}; and`;
     case "exemptionOfficialTranslation":
-      return `Grant exemption to the ${partyNoun}(s) from filing Official Translation(s) of ${o.annexureList || "the annexures"}; and`;
+      return `Grant exemption to the ${pet} from filing Official Translation(s) of ${o.annexureList || "the annexures"}; and`;
     case "exemptionFromSurrendering":
-      return `Grant exemption to the ${partyNoun}(s) from surrendering pursuant to ${io}; and`;
+      return `Grant exemption to the ${pet} from surrendering pursuant to ${io}; and`;
     case "suspensionOfSentence":
-      return `Suspend the sentence imposed upon the ${partyNoun} by ${io} and direct the ${partyNoun} to be released on bail during the pendency of the present Appeal; and`;
+      return `Suspend the sentence imposed upon the ${pet} by ${io} and direct the ${pet} to be released on bail during the pendency of the present Appeal; and`;
     default:
       return "";
   }

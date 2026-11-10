@@ -11,7 +11,10 @@ import {
   createPartiesHeader,
   createWithTable,
   isLodRowNonEmpty,
+  computeCoverPageSpacing,
+  type CoverPageSpacing,
 } from "@/lib/docx-helpers";
+import { getPartyGrammar } from "@/lib/party-grammar";
 import { parseHtml, setDocxExportContext, buildDocxExportContext, type ListGeom } from "@/lib/html-to-docx";
 import { cascadeFor, enumLabel, type EnumStyle } from "@/lib/wp/wp-numbering";
 import type { WpNumbering } from "@/lib/wp/wp-settings";
@@ -204,16 +207,19 @@ export function applyScWpFactsCascade(numbering: any[], style: EnumStyle = "lowe
   }
 }
 
-export const createScWpHeader = (caseType: string) => {
+export const createScWpHeader = (caseType: string, coverSpacing?: CoverPageSpacing) => {
   const currentYear = new Date().getFullYear();
   const f = getScWpOutputFormatting();
-  const headerSize = Math.round(f.sizePt * 2);
+  const headerSize = coverSpacing ? coverSpacing.sizeHalfPt : Math.round(f.sizePt * 2);
   const prefs = getScWpDraftingPreferences();
+  const lineSpacing = coverSpacing ? coverSpacing.headerLine : 240;
+  const afterNormal = coverSpacing ? coverSpacing.headerAfter : 240;
+  const afterUnder = coverSpacing ? coverSpacing.ioAfter : 360;
 
   const paragraphs: Paragraph[] = [
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { line: 240, after: 240 },
+      spacing: { line: lineSpacing, after: afterNormal },
       children: [
         smartTextRun({
           text: "IN THE SUPREME COURT OF INDIA",
@@ -227,7 +233,7 @@ export const createScWpHeader = (caseType: string) => {
     paragraphs.push(
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        spacing: { line: 240, after: 240 },
+        spacing: { line: lineSpacing, after: afterNormal },
         children: [
           smartTextRun({
             text: "[S.C.R., Order XXXVIII Rule 1(1)]",
@@ -241,7 +247,7 @@ export const createScWpHeader = (caseType: string) => {
   paragraphs.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { line: 240, after: 240 },
+      spacing: { line: lineSpacing, after: afterNormal },
       children: [
         smartTextRun({
           text: `${caseType} Original Jurisdiction`,
@@ -252,7 +258,7 @@ export const createScWpHeader = (caseType: string) => {
     }),
     new Paragraph({
       alignment: AlignmentType.CENTER,
-      spacing: { line: 240, after: 240 },
+      spacing: { line: lineSpacing, after: afterNormal },
       children: [
         smartTextRun({
           text: `Writ Petition (${caseType === "Criminal" ? "Crl." : "Civil"}) No. _______ of ${currentYear}`,
@@ -264,7 +270,7 @@ export const createScWpHeader = (caseType: string) => {
     new Paragraph({
       alignment: AlignmentType.CENTER,
       indent: { left: 720, right: 720 },
-      spacing: { line: 240, after: 360 },
+      spacing: { line: lineSpacing, after: afterUnder },
       children: [
         smartTextRun({
           text: "[Under Article 32 of the Constitution of India]",
@@ -584,7 +590,8 @@ export async function generateScWpCiDocx(
     });
   });
 
-  particularsList.push("Filing Memo", "Vakalatnama(s)");
+  const g = getPartyGrammar(projectData);
+  particularsList.push("Filing Memo", g.vakalatnamaLabel);
 
   // 4 columns: S. No., Particulars, Page, Remarks
   const colWidths = [1000, 6000, 1500, 1500];
@@ -764,14 +771,35 @@ function createRecordOfProceedings(): (Paragraph | Table)[] {
     );
   }
 
+  const margins = getScWpMargins();
+  const baseSizePt = getScWpOutputFormatting().font === "Arial" ? 13 : 14;
+  const coverSpacing = computeCoverPageSpacing({
+    baseSizePt,
+    marginTopTwips: margins.top,
+    marginBottomTwips: margins.bottom,
+    headerStyle: getScWpDraftingPreferences().headerStyle,
+    isAppeal: false,
+    ioText: "[Under Article 32 of the Constitution of India]",
+    petHeader,
+    resHeader,
+    withInterimRelief: false,
+    iaList: (!vo || vo.volumeNum === 1) ? iaList : [],
+    hasVolumeHeading: !!(vo && vo.volumeNum > 1),
+  });
+  const coverSz = { size: coverSpacing.sizeHalfPt };
+
   const beforePaperbook = (!vo || vo.volumeNum === 1)
-    ? new Paragraph("")
-    : new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: `VOLUME ${toRomanNumeral(vo.volumeNum)}`, bold: true })] });
+    ? []
+    : [new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { before: coverSpacing.beforePaperbook, after: coverSpacing.paraAfter, line: coverSpacing.line },
+        children: [smartTextRun({ text: `VOLUME ${toRomanNumeral(vo.volumeNum)}`, bold: true, ...coverSz })],
+      })];
 
   const sectionBase: Partial<ISectionOptions> = {
     properties: {
       type: SectionType.NEXT_PAGE,
-      page: { margin: getScWpMargins() },
+      page: { margin: margins },
     },
     headers: { default: new Header({ children: [] }) },
     footers: { default: new Footer({ children: [] }) },
@@ -786,12 +814,24 @@ function createRecordOfProceedings(): (Paragraph | Table)[] {
         // 1. Cover Page
         ...sectionBase,
         children: [
-          ...createScWpHeader(projectData.caseType),
-          ...createPartiesHeader(petHeader, resHeader),
-          ...createWithTable(iaList, false),
-          beforePaperbook,
-          new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: "PAPERBOOK", bold: true })] }),
-          new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: "[For Index, please see inside]", italics: true })] }),
+          ...createScWpHeader(projectData.caseType, coverSpacing),
+          ...createPartiesHeader(petHeader, resHeader, g.baseNoun, { multiPet: g.multiPet, multiRes: g.multiRes, coverSpacing }),
+          ...(!vo || vo.volumeNum === 1 ? createWithTable(iaList, false, coverSpacing) : []),
+          ...beforePaperbook,
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: {
+              before: (!vo || vo.volumeNum === 1) ? coverSpacing.beforePaperbook : 0,
+              after: coverSpacing.paraAfter,
+              line: coverSpacing.line,
+            },
+            children: [smartTextRun({ text: "PAPERBOOK", bold: true, ...coverSz })],
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 0, after: 0, line: coverSpacing.line },
+            children: [smartTextRun({ text: "[For Index, please see inside]", italics: true, ...coverSz })],
+          }),
           new Paragraph({
             frame: {
               type: "alignment",
@@ -800,8 +840,9 @@ function createRecordOfProceedings(): (Paragraph | Table)[] {
               width: 8000,
               height: 400,
             },
+            spacing: { before: 0, after: 0, line: 240 },
             alignment: AlignmentType.CENTER,
-            children: [smartTextRun({ text: `Advocate for the Petitioner(s): ${aorName}`, bold: true })],
+            children: [smartTextRun({ text: `Advocate for the ${g.Pet}: ${aorName}`, bold: true, ...coverSz })],
           }),
         ],
       },
@@ -989,6 +1030,7 @@ export async function generateScWpPetitionDocx(
   });
 
   // 4. Salutation to CJI & Companion Justices
+  const g = getPartyGrammar(projectData);
   const scWpF = getScWpOutputFormatting();
   const salutationParagraphs = [
     new Paragraph({ children: [smartTextRun({ text: "To,", italics: true })], spacing: { line: 240, after: 0 } }),
@@ -998,7 +1040,7 @@ export async function generateScWpPetitionDocx(
     new Paragraph({
       style: "Normal",
       spacing: { line: Math.round(scWpF.lineSpacing * 240), after: Math.round(scWpF.afterPt * 20) },
-      children: [smartTextRun({ text: "The Petitioner most respectfully submits that:", bold: true })],
+      children: [smartTextRun({ text: `The ${g.Pet} most respectfully ${g.submits} that:`, bold: true })],
     }),
   ];
 
@@ -1192,7 +1234,7 @@ export async function generateScWpPetitionDocx(
       }),
       new Paragraph({
         children: [
-          smartTextRun({ text: "Nature and extent of Personal interest, if any, of the Petitioners: ", bold: true, size: pilSize }),
+          smartTextRun({ text: `Nature and extent of Personal interest, if any, of the ${isMultiple ? "Petitioners" : "Petitioner"}: `, bold: true, size: pilSize }),
           smartTextRun({
             text: isMultiple
               ? "The Petitioners declare that they have no personal interest in the present matter, and this petition is geared solely towards public interest."
@@ -1288,22 +1330,22 @@ export async function generateScWpPetitionDocx(
   // 8. Paras 4–7: boilerplate
   const para4 = new Paragraph({
     numbering: { reference: paraRef(4), level: 0 },
-    children: [smartTextRun("This Hon’ble Court has the necessary jurisdiction to entertain this Writ Petition as the Respondents are situated within, and the cause of action has arisen within, the territorial jurisdiction of this Hon’ble Court.")],
+    children: [smartTextRun(`This Hon’ble Court has the necessary jurisdiction to entertain this Writ Petition as the ${g.Res} ${g.resIs} situated within, and the cause of action has arisen within, the territorial jurisdiction of this Hon’ble Court.`)],
   });
 
   const para5 = new Paragraph({
     numbering: { reference: paraRef(5), level: 0 },
-    children: [smartTextRun("The Petitioner has no other equally efficacious alternate remedy available than to approach this Hon’ble Court.")],
+    children: [smartTextRun(`The ${g.Pet} ${g.has} no other equally efficacious alternate remedy available than to approach this Hon’ble Court.`)],
   });
 
   const para6 = new Paragraph({
     numbering: { reference: paraRef(6), level: 0 },
-    children: [smartTextRun("The Petitioner has not filed any other Writ Petition or proceeding before this Hon’ble Court or any other Court seeking the same or similar relief.")],
+    children: [smartTextRun(`The ${g.Pet} ${g.has} not filed any other Writ Petition or proceeding before this Hon’ble Court or any other Court seeking the same or similar relief.`)],
   });
 
   const para7 = new Paragraph({
     numbering: { reference: paraRef(7), level: 0 },
-    children: [smartTextRun("The Petitioner craves leave of this Hon’ble Court to produce additional documents and/or affidavits and to add, alter or amend this Writ Petition at a later stage of the proceedings, if required.")],
+    children: [smartTextRun(`The ${g.Pet} ${g.craves} leave of this Hon’ble Court to produce additional documents and/or affidavits and to add, alter or amend this Writ Petition at a later stage of the proceedings, if required.`)],
   });
 
   // 9. Para 8: PRAYERS (from Relief(s) in UI)
@@ -1343,7 +1385,7 @@ export async function generateScWpPetitionDocx(
   const closingParagraph = new Paragraph({
     alignment: AlignmentType.RIGHT,
     spacing: { before: 240, after: 240 },
-    children: [smartTextRun({ text: "And for this act of kindness, the Petitioner as in duty bound shall ever pray.", italics: true })],
+    children: [smartTextRun({ text: `And for this act of kindness, the ${g.Pet} as in duty bound shall ever pray.`, italics: true })],
   });
 
   const { advocate } = projectData;
@@ -1452,6 +1494,7 @@ export async function generateScWpAffidavitsDocx(projectData: DraftoProject) {
     }],
   };
 
+  const g = getPartyGrammar(projectData);
   const presentlyAtPart = deponent?.location?.trim() ? `, presently at ${deponent.location.trim()}` : "";
   const deponentIntro = `I, ${deponent?.name || "[Name]"}, ${deponent?.relationship || "son of"} ${deponent?.fatherName || "[Father/Husband Name]"}, aged ${deponent?.age || "__"} years, resident of ${deponent?.address || "[Address]"}${presentlyAtPart}, do hereby solemnly state and affirm as under:`;
 
@@ -1459,11 +1502,11 @@ export async function generateScWpAffidavitsDocx(projectData: DraftoProject) {
   const wpAffidavitChildren = [
     ...createScWpHeader(caseType),
     new Paragraph(""),
-    ...createPartiesHeader(petHeader, resHeader),
+    ...createPartiesHeader(petHeader, resHeader, g.baseNoun, { multiPet: g.multiPet, multiRes: g.multiRes }),
     new Paragraph({ children: [smartTextRun({ text: "AFFIDAVIT", bold: true })], alignment: AlignmentType.CENTER }),
     new Paragraph(deponentIntro),
     new Paragraph({
-      text: `I am the ${deponent?.role || "[Role]"} in the present case. As such, I am fully conversant with the facts of the case and hence capable to swear to this Affidavit${petitioners.length > 1 ? " on behalf of myself and the other Petitioner(s) as well" : ""}.`,
+      text: `I am the ${deponent?.role || "[Role]"} in the present case. As such, I am fully conversant with the facts of the case and hence capable to swear to this Affidavit${g.multiPet ? ` on behalf of myself and the other ${g.OtherPet} as well` : ""}.`,
       numbering: { reference: "scwp-affidavit-numbering", level: 0 },
     }),
     new Paragraph({
@@ -1497,11 +1540,11 @@ export async function generateScWpAffidavitsDocx(projectData: DraftoProject) {
     const iaAffidavitChildren = [
       ...createScWpIaHeader(caseType),
       new Paragraph(""),
-      ...createPartiesHeader(petHeader, resHeader),
+      ...createPartiesHeader(petHeader, resHeader, g.baseNoun, { multiPet: g.multiPet, multiRes: g.multiRes }),
       new Paragraph({ children: [smartTextRun({ text: "AFFIDAVIT", bold: true })], alignment: AlignmentType.CENTER }),
       new Paragraph(deponentIntro),
       new Paragraph({
-        text: `I am the ${deponent?.role || "[Role]"} in the accompanying Application. As such, I am fully conversant with the facts of the case and hence capable to swear to this Affidavit${petitioners.length > 1 ? " on behalf of myself and the other Petitioner(s) as well" : ""}.`,
+        text: `I am the ${deponent?.role || "[Role]"} in the accompanying Application. As such, I am fully conversant with the facts of the case and hence capable to swear to this Affidavit${g.multiPet ? ` on behalf of myself and the other ${g.OtherPet} as well` : ""}.`,
         numbering: { reference: "scwp-affidavit-numbering", level: 0 },
       }),
       new Paragraph({
@@ -1544,6 +1587,7 @@ export async function generateScWpAffidavitsDocx(projectData: DraftoProject) {
 
 // ─── Filing Memo for SC WP ──────────────────────────────────────────────────
 export async function generateScWpFilingMemoDocx(projectData: DraftoProject, includeSignature = false) {
+  const g = getPartyGrammar(projectData);
   const petHeader = getPartyHeader(projectData.petitioners);
   const resHeader = getPartyHeader(projectData.respondents);
   const iaList = getScWpIaList(projectData);
@@ -1578,7 +1622,7 @@ export async function generateScWpFilingMemoDocx(projectData: DraftoProject, inc
     new TableRow({
       children: [
         new TableCell({ children: [new Paragraph({ text: `${iaList.length + 3}.`, alignment: AlignmentType.CENTER, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
-        new TableCell({ children: [new Paragraph({ text: "Vakalatnama(s)", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
+        new TableCell({ children: [new Paragraph({ text: g.vakalatnamaLabel, spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
         new TableCell({ children: [new Paragraph({ text: "", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
         new TableCell({ children: [new Paragraph({ text: "", spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.CENTER, margins: defaultCellMargins }),
       ],
@@ -1591,7 +1635,7 @@ export async function generateScWpFilingMemoDocx(projectData: DraftoProject, inc
       properties: { page: { margin: getScWpMargins() } },
       children: [
         ...createScWpHeader(projectData.caseType),
-        ...createPartiesHeader(petHeader, resHeader),
+        ...createPartiesHeader(petHeader, resHeader, g.baseNoun, { multiPet: g.multiPet, multiRes: g.multiRes }),
         new Paragraph({ children: [smartTextRun({ text: "FILING MEMO", bold: true })], alignment: AlignmentType.CENTER }),
         new Table({
           width: { size: 100, type: WidthType.PERCENTAGE },
@@ -1700,6 +1744,7 @@ export async function generateScWpIaDocx(
     return parts;
   };
 
+  const g = getPartyGrammar(projectData);
   const isPilDoc = isPil(projectData.courtType);
   const wpDocNoun = isPilDoc ? "Writ Petition (PIL)" : "Writ Petition";
   const openingParagraph = new Paragraph({
@@ -1726,12 +1771,12 @@ export async function generateScWpIaDocx(
       translatedListText = "certain annexures";
     }
 
-    const customPrayer = `Grant exemption to the Petitioner(s) from filing official translation of ${translatedListText}; and`;
+    const customPrayer = `Grant exemption to the ${g.Pet} from filing official translation of ${translatedListText}; and`;
     prayerParagraphs.push(new Paragraph({ children: [smartTextRun(customPrayer)], style: "Normal" }));
 
     const otReason = (projectData.standardIas?.exemptionOfficialTranslation?.reason || "").trim();
     const otReasonClause = otReason ? ` ${otReason}` : ` ${translatedListText}`;
-    const customText = `This application seeks exemption from filing official translation of${otReasonClause}. It is respectfully submitted that true and correct translations of the said documents have been placed on record. The Petitioner undertakes to file official translations as and when directed by this Hon'ble Court.`;
+    const customText = `This application seeks exemption from filing official translation of${otReasonClause}. It is respectfully submitted that true and correct translations of the said documents have been placed on record. The ${g.Pet} ${g.undertakes} to file official translations as and when directed by this Hon'ble Court.`;
 
     customTextParagraphs = [
       new Paragraph({
@@ -1786,8 +1831,8 @@ export async function generateScWpIaDocx(
 
       const para2Extra = (customIa.para2 || "").trim();
       const para2Text = para2Extra
-        ? `The present application is being filed by the Petitioner(s) ${para2Extra}`
-        : "The present application is being filed by the Petitioner(s)";
+        ? `The present application is being filed by the ${g.Pet} ${para2Extra}`
+        : `The present application is being filed by the ${g.Pet}`;
 
       customTextParagraphs = [
         new Paragraph({ text: convertToSmartQuotes(para2Text), numbering: nextNumbering() }),
@@ -1856,7 +1901,7 @@ export async function generateScWpIaDocx(
       properties: { page: { margin: getScWpMargins() } },
       children: [
         ...createScWpIaHeader(projectData.caseType),
-        ...createPartiesHeader(petHeader, resHeader),
+        ...createPartiesHeader(petHeader, resHeader, g.baseNoun, { multiPet: g.multiPet, multiRes: g.multiRes }),
         new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun({ text: iaTitle.toUpperCase(), bold: true })] }),
         new Paragraph({
           alignment: AlignmentType.LEFT,
@@ -1874,7 +1919,7 @@ export async function generateScWpIaDocx(
         openingParagraph,
         ...customTextParagraphs,
         new Paragraph({
-          text: convertToSmartQuotes("No prejudice would be caused to the Respondent(s) if this application were allowed. On the other hand, irreparable injury would be caused to the Petitioner(s) if the application were not allowed."),
+          text: convertToSmartQuotes(`No prejudice would be caused to the ${g.Res} if this application were allowed. On the other hand, irreparable injury would be caused to the ${g.Pet} if the application were not allowed.`),
           numbering: nextNumbering(),
         }),
         new Paragraph({
@@ -1891,7 +1936,7 @@ export async function generateScWpIaDocx(
         prayerTable,
         new Paragraph({
           alignment: AlignmentType.RIGHT,
-          children: [smartTextRun({ text: "And for this act of kindness, the humble Petitioner(s) shall ever pray.", italics: true })],
+          children: [smartTextRun({ text: `And for this act of kindness, the humble ${g.Pet} shall ever pray.`, italics: true })],
         }),
         ...createFiledByTable(advocate?.filingDate as any, advocate?.aorName || "[AoR Name]", { includeSignature, isScWp: true }),
       ],

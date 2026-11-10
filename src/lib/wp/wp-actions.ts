@@ -19,6 +19,7 @@ import {
 } from "docx";
 import { format } from "date-fns";
 import { getPartyHeader, smartTextRun, convertToSmartQuotes, isLodRowNonEmpty } from "@/lib/docx-helpers";
+import { getPartyGrammar, adaptPartyText } from "@/lib/party-grammar";
 import { parseHtml, setDocxExportContext, buildDocxExportContext } from "@/lib/html-to-docx";
 import { groundsSequence, getGroundsHeadingStyle, groundsHeadingRuns, groundsHeadingHang } from "@/lib/grounds-headings";
 import type { DraftoProject, Annexure } from "@/lib/schema";
@@ -264,6 +265,7 @@ function centeredBold(text: string, spacing?: { before?: number; after?: number 
 // ── Notice of Motion ────────────────────────────────────────────────────────
 
 export async function generateWpNoticeOfMotion(project: DraftoProject, includeSignature = false) {
+  const g = getPartyGrammar(project);
   const { petHeader, resHeader } = partyHeaders(project);
   const listing = project.wp.listingDate ? format(new Date(project.wp.listingDate), "dd.MM.yyyy") : "________";
   const doc = wpDoc([
@@ -284,6 +286,7 @@ export async function generateWpNoticeOfMotion(project: DraftoProject, includeSi
 // ── Urgency Application ─────────────────────────────────────────────────────
 
 export async function generateWpUrgencyApplication(project: DraftoProject, includeSignature = false) {
+  const g = getPartyGrammar(project);
   const { petHeader, resHeader } = partyHeaders(project);
   const doc = wpDoc([
     ...createWpHeader(project.caseType),
@@ -300,6 +303,7 @@ export async function generateWpUrgencyApplication(project: DraftoProject, inclu
 // ── Memo of Parties ─────────────────────────────────────────────────────────
 
 export async function generateWpMemoOfParties(project: DraftoProject, includeSignature = false) {
+  const g = getPartyGrammar(project);
   const { petHeader, resHeader } = partyHeaders(project);
 
   const headerRow = new TableRow({ children: [
@@ -411,6 +415,7 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
   setDocxExportContext(buildDocxExportContext(project));
   const includeAffidavit = opts?.includeAffidavit ?? true;
   const includeSignature = opts?.includeSignature ?? false;
+  const g = getPartyGrammar(project);
   const { petHeader, resHeader } = partyHeaders(project);
   const article = project.wp.articleBasis;
   const reliefs = reliefItems(project);
@@ -460,7 +465,7 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
     ...htmlListItems(reliefsTopRef, reliefs, numbering),
     // Salutation (indented, italic)
     ...createSalutation(["To", "The Hon’ble Chief Justice of the Delhi High Court", "And His Companion Justices of the Hon’ble High Court of Delhi"]),
-    new Paragraph({ children: [smartTextRun({ text: "The Petitioner most respectfully submits that:", bold: true })] }),
+    new Paragraph({ children: [smartTextRun({ text: `The ${g.Pet} most respectfully ${g.submits} that:`, bold: true })] }),
     // 1. Intro — the prayers verbatim inline (all of them, residuary included),
     // then the impugned order/document annexure sentence(s).
     ...para1.paragraphs,
@@ -471,10 +476,10 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
     listItemRuns(groundsRef, [smartTextRun({ text: "GROUNDS", bold: true }), ": This writ petition is filed on the following grounds which are taken in addition and without prejudice to each other:"]),
     ...groundsParagraphs,
     // 4–7 boilerplate
-    listItem(boilerplateRef, "This Hon’ble Court has the necessary jurisdiction to entertain this Writ Petition as the Respondents are situated within, and the cause of action has arisen within, the territorial jurisdiction of this Hon’ble Court.", { before: 120 }),
-    listItem(boilerplateRef, "The Petitioner has no other equally efficacious alternate remedy available to approach this Hon’ble Court.", { before: 120 }),
-    listItem(boilerplateRef, "The Petitioner has not filed any other Writ Petition or proceeding before the Hon’ble Supreme Court or before this Hon’ble Court or any other Court seeking the same or similar relief.", { before: 120 }),
-    listItem(boilerplateRef, "The Petitioner craves leave of this Hon’ble Court to produce additional documents and/or affidavits and to add, alter or amend this Writ Petition at a later stage of the proceedings, if required.", { before: 120 }),
+    listItem(boilerplateRef, `This Hon’ble Court has the necessary jurisdiction to entertain this Writ Petition as the ${g.Res} ${g.resIs} situated within, and the cause of action has arisen within, the territorial jurisdiction of this Hon’ble Court.`, { before: 120 }),
+    listItem(boilerplateRef, `The ${g.Pet} ${g.has} no other equally efficacious alternate remedy available to approach this Hon’ble Court.`, { before: 120 }),
+    listItem(boilerplateRef, `The ${g.Pet} ${g.has} not filed any other Writ Petition or proceeding before the Hon’ble Supreme Court or before this Hon’ble Court or any other Court seeking the same or similar relief.`, { before: 120 }),
+    listItem(boilerplateRef, `The ${g.Pet} ${g.craves} leave of this Hon’ble Court to produce additional documents and/or affidavits and to add, alter or amend this Writ Petition at a later stage of the proceedings, if required.`, { before: 120 }),
     // 8. Prayers
     listItemRuns(prayersParaRef, [smartTextRun({ text: "PRAYERS:", bold: true }), " In view of the foregoing submissions, it is respectfully prayed that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and:"]),
     ...htmlListItems(prayersRef, reliefs, numbering),
@@ -495,6 +500,7 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
 // Standalone petition affidavit (used by the PDF path so an uploaded signed
 // affidavit can replace it).
 export async function generateWpAffidavit(project: DraftoProject) {
+  const g = getPartyGrammar(project);
   const { petHeader, resHeader } = partyHeaders(project);
   const nb = numberer();
   const children = buildAffidavitChildren(project, "petition", petHeader, resHeader, nb.defs);
@@ -585,6 +591,7 @@ function buildAffidavitChildren(
 // ── Vakalatnama (Delhi HC) ──────────────────────────────────────────────────
 
 export async function generateWpVakalatnama(project: DraftoProject) {
+  const g = getPartyGrammar(project);
   const { petHeader, resHeader } = partyHeaders(project);
   const adv = wpAdvocate(project);
   const advName = [adv.name, adv.firm].filter(Boolean).join(", ") || "[Advocate]";
@@ -686,7 +693,8 @@ interface CmSpec {
 function activeCms(project: DraftoProject): CmSpec[] {
   const cms: CmSpec[] = [];
   const c = project.wp.cms;
-  const mid = (arr: Array<{ particulars?: string }> | undefined) => (arr || []).map(b => b.particulars || "").filter(htmlHasText);
+  const g = getPartyGrammar(project);
+  const mid = (arr: Array<{ particulars?: string }> | undefined) => (arr || []).map(b => adaptPartyText(b.particulars || "", g)).filter(htmlHasText);
 
   // The Stay application is generated when it is switched on. It used to need a
   // separate "this writ has impugned orders" flag as well, which could be left
@@ -706,7 +714,7 @@ function activeCms(project: DraftoProject): CmSpec[] {
     cms.push({
       key: "lengthySynopsis",
       title: c.lengthySynopsis.title?.trim() || WP_STD_CM_TITLES.lengthySynopsis,
-      para2: "This application is being filed praying that this Hon’ble Court be pleased to permit the Petitioner to file a lengthy Synopsis and List of Dates.",
+      para2: `This application is being filed praying that this Hon’ble Court be pleased to permit the ${g.Pet} to file a lengthy Synopsis and List of Dates.`,
       middle: mid(c.lengthySynopsis.body),
       prayers: mid(c.lengthySynopsis.prayers),
       annexures: [],
@@ -716,7 +724,7 @@ function activeCms(project: DraftoProject): CmSpec[] {
     cms.push({
       key: "exemptionCopies",
       title: c.exemptionCopies.title?.trim() || WP_STD_CM_TITLES.exemptionCopies,
-      para2: "This application is being filed praying that this Hon’ble Court be pleased to exempt the Petitioner from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition.",
+      para2: `This application is being filed praying that this Hon’ble Court be pleased to exempt the ${g.Pet} from filing legible/clear copies, certified copies or true typed copies of the annexures to the writ petition.`,
       middle: mid(c.exemptionCopies.body),
       prayers: mid(c.exemptionCopies.prayers),
       annexures: [],
@@ -776,15 +784,15 @@ function renderCmChildren(project: DraftoProject, cm: CmSpec, petHeader: string,
     ...createWpHeader(project.caseType, { cm: true }),
     ...createWpPartiesHeader(petHeader, resHeader),
     new Paragraph({ spacing: { before: 240 }, alignment: AlignmentType.JUSTIFIED, indent: { left: 720, right: 720 }, children: [smartTextRun({ text: (cm.title || "").toUpperCase(), bold: true })] }),
-    new Paragraph({ children: [smartTextRun("The Petitioner most respectfully submits that:")] }),
+    new Paragraph({ children: [smartTextRun(`The ${getPartyGrammar(project).Pet} most respectfully ${getPartyGrammar(project).submits} that:`)] }),
     // 1. frozen opening (writ-petition reference)
     listItem(mainRef, CM_PARA1, { before: 60 }),
     // 2. "This application is being filed praying that…"
-    ...htmlListItems(mainRef, [cm.para2].filter(htmlHasText), numbering),
+    ...htmlListItems(mainRef, [adaptPartyText(cm.para2, getPartyGrammar(project))].filter(htmlHasText), numbering),
     // 3..n editable middle paras
     ...htmlListItems(mainRef, cm.middle, numbering),
     // frozen good-faith / no-prejudice closing
-    listItem(mainRef, CM_GOODFAITH, { before: 60 }),
+    listItem(mainRef, `This application is filed in good faith and in the interest of justice. No prejudice would be caused to the ${getPartyGrammar(project).Res} if this application were allowed.`, { before: 60 }),
     // PRAYERS lead-in + editable lettered prayers (last = residuary)
     listItemRuns(mainRef, [smartTextRun({ text: "PRAYERS:", bold: true }), " In view of the foregoing averments, it is most respectfully prayed that this Hon’ble Court may be pleased to:"]),
     ...htmlListItems(nb.styled(num.prayers), cm.prayers, numbering),
@@ -799,6 +807,7 @@ function renderCmChildren(project: DraftoProject, cm: CmSpec, petHeader: string,
 }
 
 export async function generateWpCms(project: DraftoProject) {
+  const g = getPartyGrammar(project);
   const { petHeader, resHeader } = partyHeaders(project);
   const cms = activeCms(project);
   if (cms.length === 0) return pack(wpDoc([new Paragraph("")]), "WP-CMs.docx");
@@ -815,6 +824,7 @@ export async function generateWpCms(project: DraftoProject) {
 
 // A single CM as its own docx (used by the PDF assembler for per-CM bookmarks).
 export async function generateWpSingleCm(project: DraftoProject, cmIndex: number, includeSignature = false, omitAffidavit = false) {
+  const g = getPartyGrammar(project);
   const { petHeader, resHeader } = partyHeaders(project);
   const cm = activeCms(project)[cmIndex];
   if (!cm) return pack(wpDoc([new Paragraph("")]), `WP-CM-${cmIndex + 1}.docx`);
@@ -866,6 +876,7 @@ export function wpIndexItems(project: DraftoProject): { key: string; runs: (Text
 }
 
 export async function generateWpIndex(project: DraftoProject, pageRanges?: Record<string, string>, includeSignature = false) {
+  const g = getPartyGrammar(project);
   const { petHeader, resHeader } = partyHeaders(project);
   const items = wpIndexItems(project);
 
