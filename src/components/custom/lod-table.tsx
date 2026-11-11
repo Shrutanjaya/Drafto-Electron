@@ -21,14 +21,13 @@ import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { PlusCircle, Trash2, FileText, GripVertical, Info, FileUp, Plus, Heading } from "lucide-react"
-import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
-import { AnnexureDialog } from "../dialogs/annexure-dialog"
+import { InlineAnnexuresStrip, AddAnnexureButton } from "./inline-annexures"
 import { BadhiyaBox } from "./badhiya-box"
 import { annexureNumbering } from "@/lib/annexure-numbering"
 import { annexPrefixFor } from "@/lib/annex-prefix"
 import { factsAnnexureSentenceParts } from "@/lib/wp/wp-facts"
 import { annexureRowsOf, annexureModeOf } from "@/lib/wp/facts-mode"
+import { FIND_REVEAL_EVENT, getPendingReveal } from "@/lib/find-reveal"
 import {
   DEFAULT_GROUNDS_HEADING_STYLE,
   HEADING_STYLE_OPTIONS,
@@ -290,9 +289,10 @@ function LoDTableInner({
 
   const [showAnnexureSentences, setShowAnnexureSentences] = useState<boolean>(() => {
     if (typeof window !== "undefined" && window.localStorage) {
-      return window.localStorage.getItem("drafto-show-annexure-sentences") === "true";
+      const stored = window.localStorage.getItem("drafto-show-annexure-sentences");
+      if (stored !== null) return stored === "true";
     }
-    return false;
+    return true;
   });
 
   const toggleShowAnnexureSentences = (checked: boolean) => {
@@ -302,7 +302,17 @@ function LoDTableInner({
     }
   };
 
-  const switchId = useMemo(() => `show-annex-sentences-${name.replace(/[^a-zA-Z0-9]/g, "-")}`, [name]);
+  // If a Find & Replace reveal targets an annexure, auto-show the annexure cards
+  useEffect(() => {
+    const onReveal = () => {
+      const p = getPendingReveal();
+      if (p?.annexureLodIndex !== undefined) {
+        setShowAnnexureSentences(true);
+      }
+    };
+    window.addEventListener(FIND_REVEAL_EVENT, onReveal);
+    return () => window.removeEventListener(FIND_REVEAL_EVENT, onReveal);
+  }, []);
 
   // One shared rule (see lib/annexure-numbering.ts): position decides the
   // number, the tool's group rule decides the grouping. Reads from the authoritative
@@ -326,20 +336,6 @@ function LoDTableInner({
   const hasAnyAnnexures = useMemo(() => {
     return allLods.some((lod: any) => getRowAnnexures(lod).length > 0);
   }, [allLods, name]);
-
-  const getAnnexureLabel = (lodId: string) => {
-    const targetLod = allLods.find(lod => lod.id === lodId);
-    const annexuresInRow = getRowAnnexures(targetLod);
-    if (annexuresInRow.length === 0) return <FileText className="h-4 w-4" />;
-    
-    const numbers = annexuresInRow
-      .map(annex => annexureNumberingMap.get(annex.id))
-      .filter(Boolean); // filter out undefined if any
-
-    if (numbers.length === 0) return <FileText className="h-4 w-4" />;
-    
-    return `${prefix}-${numbers.join(', ')}`;
-  }
   
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -368,7 +364,7 @@ function LoDTableInner({
 
   const InsertHeadingStrip = ({ at }: { at: number }) => (
     <TableRow className="border-none">
-      <TableCell colSpan={hideDate ? 4 : 5} className="p-0">
+      <TableCell colSpan={hideDate ? 3 : 4} className="p-0">
         <button
           type="button"
           onClick={() => insertHeadingAt(at)}
@@ -391,19 +387,34 @@ function LoDTableInner({
           {allowHeadings && <FactsHeadingStyleControl />}
         </div>
         {(!hideAnnexures || hasAnyAnnexures) && (
-          <div className="flex items-center gap-2">
-            <Switch
-              id={switchId}
-              checked={showAnnexureSentences}
-              onCheckedChange={toggleShowAnnexureSentences}
-              className="scale-75 origin-right"
-            />
-            <Label
-              htmlFor={switchId}
-              className="text-xs text-muted-foreground font-normal cursor-pointer select-none"
-            >
-              Show Annexure Sentences
-            </Label>
+          <div className="flex items-center gap-1.5 text-xs select-none">
+            <span className="text-muted-foreground font-normal">Annexures:</span>
+            <div className="inline-flex items-center rounded-md border border-input/60 bg-muted/40 p-0.5 text-[11px] leading-none">
+              <button
+                type="button"
+                onClick={() => toggleShowAnnexureSentences(true)}
+                className={cn(
+                  "rounded px-2 py-0.5 font-medium transition-all cursor-pointer",
+                  showAnnexureSentences
+                    ? "bg-background text-primary shadow-xs font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Show
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleShowAnnexureSentences(false)}
+                className={cn(
+                  "rounded px-2 py-0.5 font-medium transition-all cursor-pointer",
+                  !showAnnexureSentences
+                    ? "bg-background text-foreground shadow-xs font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Hide
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -439,25 +450,6 @@ function LoDTableInner({
                   </TableHead>
                   )}
                   <TableHead className="text-center p-0 text-xs">Particulars</TableHead>
-                  {!hideAnnexures && (
-                  <TableHead className="w-[20px] text-center p-0 text-xs">
-                    <span className="inline-flex items-center gap-0.5">
-                      Annex
-                      <TooltipProvider delayDuration={300}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button type="button" className="inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus:outline-none">
-                              <Info className="h-3 w-3" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="bottom" className="max-w-[240px] text-xs text-center">
-                            Please mark annexures in chronological order. Check the AD box if the annexure was not part of the record of the High Court.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </span>
-                  </TableHead>
-                  )}
                   <TableHead className="w-[20px] text-center p-0 text-xs"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -503,7 +495,6 @@ function LoDTableInner({
                                 )}
                               />
                             </TableCell>
-                            {!hideAnnexures && <TableCell className="p-0" />}
                             <TableCell className="align-top pt-1 p-0 text-center">
                               <Button
                                 type="button"
@@ -545,6 +536,14 @@ function LoDTableInner({
                               </FormItem>
                             )}
                           />
+                          {!hideAnnexures && showAnnexureSentences && (
+                            <AddAnnexureButton
+                              lodIndex={index}
+                              rowsName={name}
+                              annexureNumberingMap={annexureNumberingMap}
+                              annexPrefix={prefix}
+                            />
+                          )}
                         </TableCell>
                         )}
                         <TableCell className="align-top p-0">
@@ -564,38 +563,29 @@ function LoDTableInner({
                               </FormItem>
                             )}
                           />
-                          {showAnnexureSentences && hasAnnexures && (
-                            <div className="px-2 py-1.5 space-y-1 bg-muted/25 rounded border border-dashed border-border/60 my-1 mx-1 select-text">
-                              {rowAnnexures.map((annex: any) => {
-                                const pNumber = annexureNumberingMap.get(annex.id);
-                                if (pNumber === undefined) return null;
-                                const { label, rest } = factsAnnexureSentenceParts(pNumber, annex, prefix);
-                                return (
-                                  <p key={annex.id} className="text-xs text-neutral-600 dark:text-neutral-400 font-normal leading-relaxed">
-                                    <span className="font-semibold text-neutral-700 dark:text-neutral-300">{label}</span>
-                                    <span>{rest}</span>
-                                  </p>
-                                );
-                              })}
+
+                          {/* Inline Annexures Editor directly below Particulars */}
+                          {!hideAnnexures && showAnnexureSentences && (
+                            <div className="px-1 pb-1">
+                              <InlineAnnexuresStrip
+                                lodIndex={index}
+                                rowsName={name}
+                                annexureNumberingMap={annexureNumberingMap}
+                                annexPrefix={prefix}
+                              />
+                              {hideDate && (
+                                <div className="pt-1">
+                                  <AddAnnexureButton
+                                    lodIndex={index}
+                                    rowsName={name}
+                                    annexureNumberingMap={annexureNumberingMap}
+                                    annexPrefix={prefix}
+                                  />
+                                </div>
+                              )}
                             </div>
                           )}
                         </TableCell>
-                        {!hideAnnexures && (
-                        <TableCell className="align-top pt-1 p-0 text-center">
-                          <AnnexureDialog lodIndex={index} annexureNumberingMap={annexureNumberingMap} rowsName={name}>
-                            <Button 
-                              variant="ghost"
-                              size="sm" 
-                              className={cn(
-                                "h-7 justify-center border-0 text-xs w-full",
-                                hasAnnexures && "bg-accent/20 text-accent-foreground dark:text-green-200 hover:bg-accent/30"
-                              )}
-                            >
-                              {getAnnexureLabel(item.id)}
-                            </Button>
-                          </AnnexureDialog>
-                        </TableCell>
-                        )}
                         <TableCell className="align-top pt-1 p-0 text-center">
                           <Button
                             type="button"
@@ -614,7 +604,7 @@ function LoDTableInner({
                   {allowHeadings && fields.length > 0 && <InsertHeadingStrip at={fields.length} />}
                    {fields.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={5} className="h-24 text-center text-muted-foreground p-0">
+                        <TableCell colSpan={hideDate ? 3 : 4} className="h-24 text-center text-muted-foreground p-0">
                           No items.
                         </TableCell>
                       </TableRow>
