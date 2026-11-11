@@ -69,6 +69,7 @@ import {
 import { generateOaPdf } from "@/lib/oa/oa-pdf";
 import { OaPdfGenerationDialog } from "./dialogs/oa-pdf-generation-dialog";
 import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
+import { NotificationsPopover } from "./custom/notifications-popover";
 import { newBlankProject } from "@/lib/project-defaults";
 import { stemOf, cleanProjectName } from "@/lib/project-name";
 import { getIaList } from "@/lib/ia-list-utils";
@@ -91,6 +92,7 @@ import { allowsCourtType, forumOf, FORUM_LABEL, type CourtType } from "@/lib/ent
 import { ENTITLEMENT_ENABLED } from "@/lib/entitlement/entitlement-enabled";
 import { ToastAction } from "@/components/ui/toast";
 import { incrementGenerationCount } from "@/lib/firebase/usage-service";
+import { MayurButton } from "@/components/custom/mayur-button";
 
 /** The court a document type belongs to, in the words a lawyer would use. */
 function courtLabel(courtType: string | undefined): string {
@@ -118,6 +120,37 @@ const bumpStaleAdvocateDates = (data: any) => {
     if (d && d < today) next[key] = today;
   });
   data.advocate = next;
+};
+
+/**
+ * Sanitizes enum fields in loaded project data that may have been wrapped in <p>...</p>
+ * tags by earlier drafts or AI operations before schema validation runs.
+ */
+const sanitizeLoadedProjectEnums = (data: any) => {
+  if (!data || typeof data !== "object") return;
+  const strip = (s: any) =>
+    typeof s === "string" ? s.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim() : s;
+
+  if (data.deponent && typeof data.deponent === "object") {
+    if (typeof data.deponent.relationship === "string") {
+      data.deponent.relationship = strip(data.deponent.relationship);
+    }
+    if (typeof data.deponent.role === "string") {
+      data.deponent.role = strip(data.deponent.role);
+    }
+  }
+
+  if (Array.isArray(data.listOfDates)) {
+    for (const row of data.listOfDates) {
+      if (Array.isArray(row?.annexures)) {
+        for (const annex of row.annexures) {
+          if (typeof annex?.copyType === "string") {
+            annex.copyType = strip(annex.copyType);
+          }
+        }
+      }
+    }
+  }
 };
 
 /**
@@ -394,121 +427,37 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   // Reads the .path property that pickFile() attaches to every File object,
   // strips the binary File from the serialised data, and saves the path string.
   const extractFilePaths = (data: any): any => {
-    // Deep-clone via JSON, which drops non-serialisable File objects to undefined/null.
-    const cloned = JSON.parse(JSON.stringify(data, (_key, value) =>
-      value instanceof File ? undefined : value
-    ));
-
     const getPath = (f: any): string | undefined =>
       f instanceof File ? (f as any).path ?? undefined : undefined;
 
-    // listOfDates annexures
-    for (let i = 0; i < (data.listOfDates ?? []).length; i++) {
-      for (let j = 0; j < (data.listOfDates[i].annexures ?? []).length; j++) {
-        const annex = data.listOfDates[i].annexures[j];
-        const p = getPath(annex.file);
-        if (p) cloned.listOfDates[i].annexures[j].filePath = p;
-        const tp = getPath(annex.typedOrTranslatedFile);
-        if (tp) cloned.listOfDates[i].annexures[j].typedOrTranslatedFilePath = tp;
-        // Colly constituent files (Delhi HC writ petitions)
-        for (let k = 0; k < (annex.collyDocuments ?? []).length; k++) {
-          const cp = getPath(annex.collyDocuments[k].file);
-          if (cp) cloned.listOfDates[i].annexures[j].collyDocuments[k].filePath = cp;
+    const FILE_PAIRS: Array<[string, string]> = [
+      ["file", "filePath"],
+      ["typedOrTranslatedFile", "typedOrTranslatedFilePath"],
+      ["userFile", "userFilePath"],
+      ["receiptFile", "receiptFilePath"],
+      ["appendixFile", "appendixFilePath"],
+    ];
+
+    const walk = (node: any): any => {
+      if (node instanceof File) return undefined;
+      if (node instanceof Date) return node.toISOString();
+      if (Array.isArray(node)) return node.map(walk);
+      if (node && typeof node === "object") {
+        const out: Record<string, any> = {};
+        for (const [k, v] of Object.entries(node)) {
+          if (v instanceof File) continue;
+          out[k] = walk(v);
         }
-      }
-    }
-
-    // wp.factsRows annexures
-    for (let i = 0; i < (data.wp?.factsRows ?? []).length; i++) {
-      for (let j = 0; j < (data.wp.factsRows[i].annexures ?? []).length; j++) {
-        const annex = data.wp.factsRows[i].annexures[j];
-        const p = getPath(annex.file);
-        if (p && cloned.wp?.factsRows?.[i]?.annexures?.[j]) cloned.wp.factsRows[i].annexures[j].filePath = p;
-        const tp = getPath(annex.typedOrTranslatedFile);
-        if (tp && cloned.wp?.factsRows?.[i]?.annexures?.[j]) cloned.wp.factsRows[i].annexures[j].typedOrTranslatedFilePath = tp;
-        for (let k = 0; k < (annex.collyDocuments ?? []).length; k++) {
-          const cp = getPath(annex.collyDocuments[k].file);
-          if (cp && cloned.wp?.factsRows?.[i]?.annexures?.[j]?.collyDocuments?.[k])
-            cloned.wp.factsRows[i].annexures[j].collyDocuments[k].filePath = cp;
+        for (const [fileKey, pathKey] of FILE_PAIRS) {
+          const p = getPath(node[fileKey]);
+          if (p) out[pathKey] = p;
         }
+        return out;
       }
-    }
+      return node;
+    };
 
-    // oa.factsRows annexures
-    for (let i = 0; i < (data.oa?.factsRows ?? []).length; i++) {
-      for (let j = 0; j < (data.oa.factsRows[i].annexures ?? []).length; j++) {
-        const annex = data.oa.factsRows[i].annexures[j];
-        const p = getPath(annex.file);
-        if (p && cloned.oa?.factsRows?.[i]?.annexures?.[j]) cloned.oa.factsRows[i].annexures[j].filePath = p;
-        const tp = getPath(annex.typedOrTranslatedFile);
-        if (tp && cloned.oa?.factsRows?.[i]?.annexures?.[j]) cloned.oa.factsRows[i].annexures[j].typedOrTranslatedFilePath = tp;
-        for (let k = 0; k < (annex.collyDocuments ?? []).length; k++) {
-          const cp = getPath(annex.collyDocuments[k].file);
-          if (cp && cloned.oa?.factsRows?.[i]?.annexures?.[j]?.collyDocuments?.[k])
-            cloned.oa.factsRows[i].annexures[j].collyDocuments[k].filePath = cp;
-        }
-      }
-    }
-
-    // customIas grounds annexures
-    for (let i = 0; i < (data.customIas ?? []).length; i++) {
-      for (let j = 0; j < (data.customIas[i].grounds ?? []).length; j++) {
-        for (let k = 0; k < (data.customIas[i].grounds[j].annexures ?? []).length; k++) {
-          const annex = data.customIas[i].grounds[j].annexures[k];
-          const p = getPath(annex.file);
-          if (p) cloned.customIas[i].grounds[j].annexures[k].filePath = p;
-        }
-      }
-    }
-
-    // WP filing uploads (Court Fee, Proof of Service, signed Affidavit/Vakalatnama)
-    for (const k of ['courtFee', 'proofOfService', 'signedAffidavit', 'signedVakalatnama'] as const) {
-      const p = getPath(data.wp?.uploads?.[k]?.file);
-      if (p && cloned.wp?.uploads?.[k]) cloned.wp.uploads[k].filePath = p;
-    }
-
-    // WP custom-CM ground annexures (A-series)
-    for (let i = 0; i < (data.wp?.customCms ?? []).length; i++) {
-      for (let j = 0; j < (data.wp.customCms[i].grounds ?? []).length; j++) {
-        for (let k = 0; k < (data.wp.customCms[i].grounds[j].annexures ?? []).length; k++) {
-          const p = getPath(data.wp.customCms[i].grounds[j].annexures[k].file);
-          if (p) cloned.wp.customCms[i].grounds[j].annexures[k].filePath = p;
-        }
-      }
-    }
-
-    // standardIas grounds annexures
-    for (const key of ['condonationOfDelay', 'condonationOfDelayInRefiling', 'exemptionFromSurrendering'] as const) {
-      const grounds = data.standardIas?.[key]?.grounds ?? [];
-      for (let i = 0; i < grounds.length; i++) {
-        for (let j = 0; j < (grounds[i].annexures ?? []).length; j++) {
-          const annex = grounds[i].annexures[j];
-          const p = getPath(annex.file);
-          if (p) cloned.standardIas[key].grounds[i].annexures[j].filePath = p;
-          const tp = getPath(annex.typedOrTranslatedFile);
-          if (tp) cloned.standardIas[key].grounds[i].annexures[j].typedOrTranslatedFilePath = tp;
-        }
-      }
-    }
-
-    // PDF merge items
-    for (let i = 0; i < (data.pdfMergeItems ?? []).length; i++) {
-      const p = getPath(data.pdfMergeItems[i].userFile);
-      if (p) cloned.pdfMergeItems[i].userFilePath = p;
-    }
-
-    // Appendix documents
-    for (let i = 0; i < (data.appendixItems ?? []).length; i++) {
-      const p = getPath(data.appendixItems[i].file);
-      if (p && cloned.appendixItems?.[i]) cloned.appendixItems[i].filePath = p;
-    }
-
-    // Certified copy receipt
-    const rp = getPath(data.standardIas?.exemptionCertifiedCopy?.receiptFile);
-    if (rp && cloned.standardIas?.exemptionCertifiedCopy)
-      cloned.standardIas.exemptionCertifiedCopy.receiptFilePath = rp;
-
-    return cloned;
+    return JSON.parse(JSON.stringify(walk(data)));
   };
   
   // ── The name shown in the header ─────────────────────────────────────────
@@ -675,6 +624,22 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   // Keep the ref current so the OS file-open listener always calls the latest handleLoadFromPath
   useEffect(() => { handleLoadFromPathRef.current = handleLoadFromPath; });
 
+  // Listen for programmatic save requests (e.g. before app restart/update)
+  useEffect(() => {
+    const handleSaveRequest = async (e: Event) => {
+      const customEvent = e as CustomEvent<{ callback?: () => void }>;
+      try {
+        await handleSaveRef.current();
+      } catch (err) {
+        console.error("Save before restart failed:", err);
+      } finally {
+        customEvent.detail?.callback?.();
+      }
+    };
+    window.addEventListener("drafto-save-project", handleSaveRequest);
+    return () => window.removeEventListener("drafto-save-project", handleSaveRequest);
+  }, []);
+
   const handleLoad = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -689,6 +654,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
             await restoreFilesFromPaths(data);
           }
           
+          sanitizeLoadedProjectEnums(data);
           const validatedData = draftoProjectSchema.parse(data);
           bumpStaleAdvocateDates(validatedData);
           form.reset(validatedData);
@@ -717,6 +683,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         await restoreFilesFromPaths(data);
       }
       
+      sanitizeLoadedProjectEnums(data);
       const validatedData = draftoProjectSchema.parse(data);
       bumpStaleAdvocateDates(validatedData);
       form.reset(validatedData);
@@ -761,6 +728,7 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
       const content = await window.electron.loadProjectFromPath(filePath);
       const data = JSON.parse(content);
       if (window.electron.readFileByPath) await restoreFilesFromPaths(data);
+      sanitizeLoadedProjectEnums(data);
       const validatedData = draftoProjectSchema.parse(data);
       bumpStaleAdvocateDates(validatedData);
       form.reset(validatedData);
@@ -841,121 +809,43 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     const needsTypedOrTranslated = (copyType: string) =>
       copyType === 'true and typed copy' || copyType === 'true and translated copy';
 
-    // listOfDates annexures
-    for (let li = 0; li < (data.listOfDates ?? []).length; li++) {
-      for (let ai = 0; ai < (data.listOfDates[li].annexures ?? []).length; ai++) {
-        const annex = data.listOfDates[li].annexures[ai];
-        if (annex.filePath && !(annex.file instanceof File))
-          annex.file = await tryRestore(annex.filePath, `lod[${li}].annex[${ai}].file`);
-        if (needsTypedOrTranslated(annex.copyType) && annex.typedOrTranslatedFilePath && !(annex.typedOrTranslatedFile instanceof File))
-          annex.typedOrTranslatedFile = await tryRestore(annex.typedOrTranslatedFilePath, `lod[${li}].annex[${ai}].typedOrTranslatedFile`);
-        // Colly constituent files (Delhi HC writ petitions)
-        for (let ci = 0; ci < (annex.collyDocuments ?? []).length; ci++) {
-          const cd = annex.collyDocuments[ci];
-          if (cd.filePath && !(cd.file instanceof File))
-            cd.file = await tryRestore(cd.filePath, `lod[${li}].annex[${ai}].colly[${ci}].file`);
+    const FILE_PAIRS: Array<[string, string]> = [
+      ["file", "filePath"],
+      ["typedOrTranslatedFile", "typedOrTranslatedFilePath"],
+      ["userFile", "userFilePath"],
+      ["receiptFile", "receiptFilePath"],
+      ["appendixFile", "appendixFilePath"],
+    ];
+
+    const walkRestore = async (node: any, pathTrace: string): Promise<void> => {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) {
+        for (let i = 0; i < node.length; i++) {
+          await walkRestore(node[i], `${pathTrace}[${i}]`);
+        }
+        return;
+      }
+      for (const [fileKey, pathKey] of FILE_PAIRS) {
+        if (
+          fileKey === "typedOrTranslatedFile" &&
+          typeof node.copyType === "string" &&
+          !needsTypedOrTranslated(node.copyType)
+        ) {
+          continue;
+        }
+        const fp = node[pathKey];
+        if (typeof fp === "string" && fp && !(node[fileKey] instanceof File)) {
+          node[fileKey] = await tryRestore(fp, `${pathTrace}.${fileKey}`);
         }
       }
-    }
-
-    // wp.factsRows annexures
-    for (let li = 0; li < (data.wp?.factsRows ?? []).length; li++) {
-      for (let ai = 0; ai < (data.wp.factsRows[li].annexures ?? []).length; ai++) {
-        const annex = data.wp.factsRows[li].annexures[ai];
-        if (annex.filePath && !(annex.file instanceof File))
-          annex.file = await tryRestore(annex.filePath, `wp.factsRows[${li}].annex[${ai}].file`);
-        if (needsTypedOrTranslated(annex.copyType) && annex.typedOrTranslatedFilePath && !(annex.typedOrTranslatedFile instanceof File))
-          annex.typedOrTranslatedFile = await tryRestore(annex.typedOrTranslatedFilePath, `wp.factsRows[${li}].annex[${ai}].typedOrTranslatedFile`);
-        for (let ci = 0; ci < (annex.collyDocuments ?? []).length; ci++) {
-          const cd = annex.collyDocuments[ci];
-          if (cd.filePath && !(cd.file instanceof File))
-            cd.file = await tryRestore(cd.filePath, `wp.factsRows[${li}].annex[${ai}].colly[${ci}].file`);
+      for (const [k, v] of Object.entries(node)) {
+        if (v && typeof v === "object" && !(v instanceof File) && !(v instanceof Date)) {
+          await walkRestore(v, pathTrace ? `${pathTrace}.${k}` : k);
         }
       }
-    }
+    };
 
-    // oa.factsRows annexures
-    for (let li = 0; li < (data.oa?.factsRows ?? []).length; li++) {
-      for (let ai = 0; ai < (data.oa.factsRows[li].annexures ?? []).length; ai++) {
-        const annex = data.oa.factsRows[li].annexures[ai];
-        if (annex.filePath && !(annex.file instanceof File))
-          annex.file = await tryRestore(annex.filePath, `oa.factsRows[${li}].annex[${ai}].file`);
-        if (needsTypedOrTranslated(annex.copyType) && annex.typedOrTranslatedFilePath && !(annex.typedOrTranslatedFile instanceof File))
-          annex.typedOrTranslatedFile = await tryRestore(annex.typedOrTranslatedFilePath, `oa.factsRows[${li}].annex[${ai}].typedOrTranslatedFile`);
-        for (let ci = 0; ci < (annex.collyDocuments ?? []).length; ci++) {
-          const cd = annex.collyDocuments[ci];
-          if (cd.filePath && !(cd.file instanceof File))
-            cd.file = await tryRestore(cd.filePath, `oa.factsRows[${li}].annex[${ai}].colly[${ci}].file`);
-        }
-      }
-    }
-
-    // WP filing uploads
-    for (const k of ['courtFee', 'proofOfService', 'signedAffidavit', 'signedVakalatnama'] as const) {
-      const u = data.wp?.uploads?.[k];
-      if (u?.filePath && !(u.file instanceof File)) u.file = await tryRestore(u.filePath, `wp.uploads.${k}.file`);
-    }
-
-    // WP custom-CM ground annexures (A-series)
-    for (let ii = 0; ii < (data.wp?.customCms ?? []).length; ii++) {
-      for (let gi = 0; gi < (data.wp.customCms[ii].grounds ?? []).length; gi++) {
-        for (let ai = 0; ai < (data.wp.customCms[ii].grounds[gi].annexures ?? []).length; ai++) {
-          const annex = data.wp.customCms[ii].grounds[gi].annexures[ai];
-          if (annex.filePath && !(annex.file instanceof File))
-            annex.file = await tryRestore(annex.filePath, `wp.customCm[${ii}].ground[${gi}].annex[${ai}].file`);
-        }
-      }
-    }
-
-    // customIas grounds annexures
-    for (let ii = 0; ii < (data.customIas ?? []).length; ii++) {
-      for (let gi = 0; gi < (data.customIas[ii].grounds ?? []).length; gi++) {
-        for (let ai = 0; ai < (data.customIas[ii].grounds[gi].annexures ?? []).length; ai++) {
-          const annex = data.customIas[ii].grounds[gi].annexures[ai];
-          if (annex.filePath && !(annex.file instanceof File))
-            annex.file = await tryRestore(annex.filePath, `customIa[${ii}].ground[${gi}].annex[${ai}].file`);
-          if (needsTypedOrTranslated(annex.copyType) && annex.typedOrTranslatedFilePath && !(annex.typedOrTranslatedFile instanceof File))
-            annex.typedOrTranslatedFile = await tryRestore(annex.typedOrTranslatedFilePath, `customIa[${ii}].ground[${gi}].annex[${ai}].typedOrTranslatedFile`);
-        }
-      }
-    }
-
-    // standardIas grounds annexures
-    for (const key of ['condonationOfDelay', 'condonationOfDelayInRefiling', 'exemptionFromSurrendering'] as const) {
-      const grounds = data.standardIas?.[key]?.grounds ?? [];
-      for (let gi = 0; gi < grounds.length; gi++) {
-        for (let ai = 0; ai < (grounds[gi].annexures ?? []).length; ai++) {
-          const annex = grounds[gi].annexures[ai];
-          if (annex.filePath && !(annex.file instanceof File))
-            annex.file = await tryRestore(annex.filePath, `standardIas.${key}.ground[${gi}].annex[${ai}].file`);
-          if (needsTypedOrTranslated(annex.copyType) && annex.typedOrTranslatedFilePath && !(annex.typedOrTranslatedFile instanceof File))
-            annex.typedOrTranslatedFile = await tryRestore(annex.typedOrTranslatedFilePath, `standardIas.${key}.ground[${gi}].annex[${ai}].typedOrTranslated`);
-        }
-      }
-    }
-
-    // PDF merge items
-    for (let pi = 0; pi < (data.pdfMergeItems ?? []).length; pi++) {
-      const item = data.pdfMergeItems[pi];
-      if (item.userFilePath && !(item.userFile instanceof File))
-        item.userFile = await tryRestore(item.userFilePath, `pdfMergeItem[${pi}].userFile`);
-    }
-
-    // Appendix documents (older projects carry a single appendixFile/-Path pair;
-    // lib/appendix.ts folds those into the list when it is read)
-    for (let i = 0; i < (data.appendixItems ?? []).length; i++) {
-      const item = data.appendixItems[i];
-      if (item.filePath && !(item.file instanceof File))
-        item.file = await tryRestore(item.filePath, `appendixItems[${i}].file`);
-    }
-    if (data.appendixFilePath && !(data.appendixFile instanceof File))
-      data.appendixFile = await tryRestore(data.appendixFilePath, "appendixFile");
-
-    // Certified copy receipt
-    const receipt = data.standardIas?.exemptionCertifiedCopy;
-    if (receipt?.receiptFilePath && !(receipt.receiptFile instanceof File))
-      data.standardIas.exemptionCertifiedCopy.receiptFile =
-        await tryRestore(receipt.receiptFilePath, "receipt.receiptFile");
+    await walkRestore(data, "project");
 
     if (missing.length > 0) {
       toast({
@@ -1507,6 +1397,8 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         onCommit={commitProjectName}
       />
       <div className="flex items-center gap-1">
+        <MayurButton section="master" variant="master" />
+        <Separator orientation="vertical" className="h-6" />
         <Button variant="ghost" size="icon" title="Undo" onClick={undo} disabled={!canUndo}><Undo /></Button>
         <Button variant="ghost" size="icon" title="Redo" onClick={redo} disabled={!canRedo}><Redo /></Button>
 
@@ -1677,6 +1569,8 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         })()}
 
         <Separator orientation="vertical" className="h-6" />
+
+        <NotificationsPopover />
 
         <SettingsDialog>
           <Button variant="ghost" size="sm" className="relative">

@@ -35,6 +35,7 @@ import { pickFile } from "@/lib/utils/pick-file";
 import { format } from "date-fns";
 import { annexurePrefix, isAppeal } from "@/lib/court-family";
 import { countParties } from "@/lib/party-grammar";
+import { MayurButton } from "@/components/custom/mayur-button";
 import {
   getIaCommonOpening,
   IA_COMMON_CLOSING,
@@ -508,7 +509,10 @@ export function IasTab() {
               {/* ── Condonation of Delay (Mandatory / Auto) ── */}
               {selectedId === "delay" && (
                 <div className="space-y-3">
-                  <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{`Application for condonation of delay of ${delay > 0 ? delay : "__"} days in filing the ${isAppealProject ? "Appeal" : "SLP"}`}</h4>
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{`Application for condonation of delay of ${delay > 0 ? delay : "__"} days in filing the ${isAppealProject ? "Appeal" : "SLP"}`}</h4>
+                    <MayurButton section="ia:delay" />
+                  </div>
 
                   {isAppealProject && (
                     <div className="rounded-md border p-2.5 text-xs space-y-1.5 bg-muted/40 dark:bg-muted/20">
@@ -556,20 +560,23 @@ export function IasTab() {
               {/* ── Condonation of Delay in Refiling — Configurable ── */}
               {selectedId === "delayRefiling" && (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">
                       {`Application for condonation of delay of ${delayRefilingDisplay} days in refiling the ${isAppealProject ? "Appeal" : "SLP"}`}
                     </h4>
-                    <FormField
-                      control={form.control}
-                      name="standardIas.condonationOfDelayInRefiling.active"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center gap-1.5 space-y-0">
-                          <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="delay-refiling-active" /></FormControl>
-                          <FormLabel htmlFor="delay-refiling-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
-                        </FormItem>
-                      )}
-                    />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <FormField
+                        control={form.control}
+                        name="standardIas.condonationOfDelayInRefiling.active"
+                        render={({ field }) => (
+                          <FormItem className="flex items-center gap-1.5 space-y-0">
+                            <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="delay-refiling-active" /></FormControl>
+                            <FormLabel htmlFor="delay-refiling-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
+                          </FormItem>
+                        )}
+                      />
+                      <MayurButton section="ia:delayRefiling" />
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -622,18 +629,21 @@ export function IasTab() {
               {/* ── Exemption (Certified Copy) — Configurable ── */}
               {selectedId === "cc" && (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{titleFor("exemptionCertifiedCopy")}</h4>
-                    <FormField
-                      control={form.control}
-                      name="standardIas.exemptionCertifiedCopy.active"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center gap-1.5 space-y-0">
-                          <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="cc-active" /></FormControl>
-                          <FormLabel htmlFor="cc-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
-                        </FormItem>
-                      )}
-                    />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <FormField
+                        control={form.control}
+                        name="standardIas.exemptionCertifiedCopy.active"
+                        render={({ field }) => (
+                          <FormItem className="flex items-center gap-1.5 space-y-0">
+                            <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="cc-active" /></FormControl>
+                            <FormLabel htmlFor="cc-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
+                          </FormItem>
+                        )}
+                      />
+                      <MayurButton section="ia:cc" />
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <FormField
@@ -694,18 +704,21 @@ export function IasTab() {
               {/* ── Exemption from Surrendering — Configurable (Criminal only) ── */}
               {selectedId === "surrender" && isCriminal && (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{titleFor("exemptionFromSurrendering")}</h4>
-                    <FormField
-                      control={form.control}
-                      name="standardIas.exemptionFromSurrendering.active"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center gap-1.5 space-y-0">
-                          <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="surr-active" /></FormControl>
-                          <FormLabel htmlFor="surr-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
-                        </FormItem>
-                      )}
-                    />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <FormField
+                        control={form.control}
+                        name="standardIas.exemptionFromSurrendering.active"
+                        render={({ field }) => (
+                          <FormItem className="flex items-center gap-1.5 space-y-0">
+                            <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="surr-active" /></FormControl>
+                            <FormLabel htmlFor="surr-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
+                          </FormItem>
+                        )}
+                      />
+                      <MayurButton section="ia:surrender" />
+                    </div>
                   </div>
                   <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("exemptionFromSurrendering", { io: ioText, docNoun: iaDocShort, partyNoun, multiPet, multiRes })]} />
                   <IaGroundTable name="standardIas.exemptionFromSurrendering.grounds" />
@@ -717,18 +730,21 @@ export function IasTab() {
               {/* ── Suspension of Sentence — criminal appeals only ── */}
               {selectedId === "susp" && isAppealProject && isCriminal && (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{titleFor("suspensionOfSentence")}</h4>
-                    <FormField
-                      control={form.control}
-                      name="standardIas.suspensionOfSentence.active"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center gap-1.5 space-y-0">
-                          <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="susp-active" /></FormControl>
-                          <FormLabel htmlFor="susp-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
-                        </FormItem>
-                      )}
-                    />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <FormField
+                        control={form.control}
+                        name="standardIas.suspensionOfSentence.active"
+                        render={({ field }) => (
+                          <FormItem className="flex items-center gap-1.5 space-y-0">
+                            <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="susp-active" /></FormControl>
+                            <FormLabel htmlFor="susp-active" className="text-xs font-normal cursor-pointer">Include</FormLabel>
+                          </FormItem>
+                        )}
+                      />
+                      <MayurButton section="ia:susp" />
+                    </div>
                   </div>
                   <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong), getIaLeadIn("suspensionOfSentence", { io: ioText, docNoun: iaDocShort, partyNoun, multiPet, multiRes })]} />
                   <IaGroundTable name="standardIas.suspensionOfSentence.grounds" />
@@ -740,7 +756,10 @@ export function IasTab() {
               {/* ── Official Translation — Mandatory / Auto (optional reason) ── */}
               {selectedId === "ot" && (
                 <div className="space-y-3">
-                  <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{`Application for exemption from filing Official Translation(s) of ${otReason || "the annexures"}`}</h4>
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{`Application for exemption from filing Official Translation(s) of ${otReason || "the annexures"}`}</h4>
+                    <MayurButton section="ia:ot" />
+                  </div>
                   <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong)]} />
                   <FormField
                     control={form.control}
@@ -761,7 +780,10 @@ export function IasTab() {
               {/* ── Additional Documents — Mandatory / Auto (grounds editable) ── */}
               {selectedId === "ad" && (
                 <div className="space-y-3">
-                  <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{titleFor("additionalDocuments")}</h4>
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{titleFor("additionalDocuments")}</h4>
+                    <MayurButton section="ia:ad" />
+                  </div>
                   <p className="text-xs text-muted-foreground italic">
                     {adActive
                       ? `Auto-included because ${adCount} document${adCount !== 1 ? "s are" : " is"} marked as Additional Document(s) in the List of Dates.`
@@ -789,21 +811,27 @@ export function IasTab() {
               {/* ── Custom IAs ── */}
               {customIaFields.map((field, index) => selectedId === field.id && (
                 <div key={field.id} className="space-y-3">
-                  <FormField
-                    control={form.control}
-                    name={`customIas.${index}.title`}
-                    render={({ field: tf }) => (
-                      <FormItem>
-                        <FormControl>
-                          <Input
-                            {...tf}
-                            className="text-sm font-semibold border-0 border-b rounded-none bg-transparent focus-visible:ring-0 px-0 h-auto"
-                            placeholder="Application for..."
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <FormField
+                      control={form.control}
+                      name={`customIas.${index}.title`}
+                      render={({ field: tf }) => (
+                        <FormItem className="flex-1">
+                          <FormControl>
+                            <Input
+                              {...tf}
+                              className="text-sm font-semibold border-0 border-b rounded-none bg-transparent focus-visible:ring-0 px-0 h-auto"
+                              placeholder="Application for..."
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <MayurButton
+                      section={`ia:custom:${index}`}
+                      label={form.watch(`customIas.${index}.title`) || `Custom IA #${index + 1}`}
+                    />
+                  </div>
                   <StandardBlock startNum={1} paras={[getIaCommonOpening(ioText, iaDocLong)]} />
                   {/* Para 2: fixed lead sentence + user-fillable text (reproduced verbatim in the docx). */}
                   <div className="space-y-1">

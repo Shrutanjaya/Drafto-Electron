@@ -66,10 +66,27 @@ function at(values: any, path: string): unknown {
   return path.split(".").reduce<any>((acc, k) => (acc == null ? acc : acc[k]), values);
 }
 
-const isEmpty = (v: unknown): boolean =>
-  v == null ||
-  (typeof v === "string" && v.replace(/<[^>]*>/g, "").trim() === "") ||
-  (Array.isArray(v) && v.length === 0);
+export const isEmpty = (v: unknown): boolean => {
+  if (v == null) return true;
+  if (typeof v === "string") return v.replace(/<[^>]*>/g, "").trim() === "";
+  if (typeof v === "boolean" || typeof v === "number") return false;
+  if (Array.isArray(v)) {
+    if (v.length === 0) return true;
+    return v.every((item) => {
+      if (item == null) return true;
+      if (typeof item === "object") {
+        const keys = Object.keys(item).filter((k) => k !== "id");
+        return keys.every((k) => isEmpty((item as any)[k]));
+      }
+      return isEmpty(item);
+    });
+  }
+  if (typeof v === "object") {
+    const keys = Object.keys(v).filter((k) => k !== "id");
+    return keys.length === 0 || keys.every((k) => isEmpty((v as any)[k]));
+  }
+  return false;
+};
 
 /**
  * Render the sections being read as context. Deliberately the *current* values —

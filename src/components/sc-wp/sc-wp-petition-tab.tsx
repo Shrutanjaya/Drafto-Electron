@@ -24,6 +24,7 @@ import { Columns2, LayoutList, Sparkles, ListPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FactsSection } from "@/components/custom/facts-section";
 import { isPil } from "@/lib/court-family";
+import { MayurButton } from "@/components/custom/mayur-button";
 
 type ScWpPetitionSection = 'synopsis' | 'listOfDates' | 'reliefs' | 'facts' | 'grounds' | 'appendix';
 const EDITOR_SECTIONS: ScWpPetitionSection[] = ['synopsis', 'listOfDates', 'reliefs', 'facts', 'grounds', 'appendix'];
@@ -220,6 +221,11 @@ export function ScWpPetitionTab() {
             <ResizablePanel defaultSize={75} minSize={60}>
               <div className="flex flex-col h-full p-2 space-y-2">
                 <div className="flex items-center gap-1 shrink-0">
+                  {selectedSection === 'synopsis' && <MayurButton section="synopsis" />}
+                  {selectedSection === 'listOfDates' && <MayurButton section="lod" />}
+                  {selectedSection === 'reliefs' && <MayurButton section="reliefs" />}
+                  {selectedSection === 'facts' && <MayurButton section="facts" />}
+                  {selectedSection === 'grounds' && <MayurButton section="grounds" />}
                   <div className="flex-grow"></div>
                   {EDITOR_SECTIONS.includes(selectedSection) && <EditorToolbar />}
                   <ViewToggle mode={viewMode} onChange={setViewMode} />
@@ -246,10 +252,20 @@ export function ScWpPetitionTab() {
       <div className="flex flex-col h-[calc(100vh-160px)]">
         <div className="flex items-center gap-1 mb-1">
           <SectionDialog label="Relief(s)" title="Relief(s) / Prayers" active={reliefsActive}>
-            {reliefsEditor}
+            <div className="space-y-2">
+              <div className="flex justify-end">
+                <MayurButton section="reliefs" />
+              </div>
+              {reliefsEditor}
+            </div>
           </SectionDialog>
           <SectionDialog label="Facts" title="Facts (transposed from List of Dates)" active={factsActive}>
-            <div className="h-[600px] flex flex-col">{factsEditor}</div>
+            <div className="h-[600px] flex flex-col space-y-2">
+              <div className="flex justify-end">
+                <MayurButton section="facts" />
+              </div>
+              <div className="flex-grow min-h-0 flex flex-col">{factsEditor}</div>
+            </div>
           </SectionDialog>
           <AppendixDialog />
           <div className="flex-grow"></div>
@@ -260,7 +276,10 @@ export function ScWpPetitionTab() {
         <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId="sc-wp-petition-split-panels">
           <ResizablePanel defaultSize={50}>
             <div className="flex flex-col h-full p-1">
-              <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">List of Dates</h4>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">List of Dates</h4>
+                <MayurButton section="lod" />
+              </div>
               <div className="flex-grow overflow-auto">
                 <LoDTable />
               </div>
@@ -269,7 +288,10 @@ export function ScWpPetitionTab() {
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={30}>
             <div className="flex flex-col h-full p-1">
-              <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Grounds</h4>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Grounds</h4>
+                <MayurButton section="grounds" />
+              </div>
               <div className="flex-grow overflow-auto">
                 <AamTable name="grounds" defaultRows={10} allowHeadings />
               </div>
@@ -278,7 +300,10 @@ export function ScWpPetitionTab() {
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={20}>
             <div className="flex flex-col h-full p-1">
-              <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Synopsis</h4>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Synopsis</h4>
+                <MayurButton section="synopsis" />
+              </div>
               <div className="flex-grow overflow-auto">
                 {synopsisEditor}
               </div>

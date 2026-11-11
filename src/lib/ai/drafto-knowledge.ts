@@ -100,7 +100,7 @@ A Drafto project is ${modeText.docName}, split across these tabs. Below is the c
 ${fieldMap}
 
 ## How to respond
-Write a brief one-line confirmation, then a SINGLE fenced \`\`\`json code block containing an object of this exact shape (the draft content goes inside it, NOT in the chat text):
+Respond with a SINGLE fenced \`\`\`json code block containing an object of this exact shape. Your entire response must begin with \`\`\`json. Any explanation or summary message MUST be inside the "message" property of the JSON object, NOT as raw text outside the block:
 
 \`\`\`json
 {
@@ -134,7 +134,7 @@ If (and only if) the user wants source documents split out and attached — or y
 - A document that spans a whole single-document file just uses that file's full page range.
 
 Rules for the JSON:
-- ALWAYS wrap the proposal in a \`\`\`json fenced code block. Put it LAST in your reply (a brief one-line explanation may come before it).
+- ALWAYS wrap the proposal in a \`\`\`json fenced code block. Begin your response directly with \`\`\`json without any preambles or commentary.
 - The JSON MUST be strictly valid and parseable. This is critical: your field values contain double quotes, HTML tags and multiple lines, so inside every string value you MUST escape each double-quote as \\" and each line break as \\n. Never put a raw (unescaped) double-quote or a literal line break inside a JSON string. No trailing commas, no comments, no stray text inside the code block.
 - Use ONLY the \`path\` values listed above. Any other path will be rejected.
 - Scalar fields use \`"value"\`. List fields use \`"items"\` (an array of row objects).

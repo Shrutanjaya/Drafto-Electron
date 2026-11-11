@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Header } from "@/components/header";
 import { Workspace } from "@/components/workspace";
 import { FindReplaceBar } from "@/components/custom/find-replace-bar";
-import { AiChatPanel } from "@/components/custom/ai-chat-panel";
+import { MayurProvider } from "@/components/custom/mayur-button";
 import { BriefingNotePrompt } from "@/components/dialogs/briefing-note-prompt";
 import { FieldRevealProvider } from "@/components/custom/field-reveal-provider";
 import { EntitlementProvider, useEntitlement, useCanDraft } from "@/providers/entitlement-provider";
@@ -72,25 +72,26 @@ function DraftoClientInner() {
   return (
     <FormProvider {...form}>
       <FieldRevealProvider>
-        <Card className="border-2 shadow-xl">
-          <AutoUpdateBanner />
-          <EntitlementBanner uncoveredCourtType={covered ? null : courtType} />
-          <EarlyBirdOfferDialog />
-          <Header undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo} />
-          <main>
-            {/* Read-only lapse enforcement: lock editing across both the SC and
-                HC interfaces while still allowing reading, selecting, scrolling,
-                and tab/section navigation. Nothing is disabled or blurred. */}
-            <ReadOnlyLock active={readOnly}>
-              <ErrorBoundary fallbackTitle="Error in Workspace">
-                <Workspace />
-              </ErrorBoundary>
-            </ReadOnlyLock>
-          </main>
-        </Card>
-        <FindReplaceBar />
-        <AiChatPanel />
-        <BriefingNotePrompt />
+        <MayurProvider>
+          <Card className="border-2 shadow-xl">
+            <AutoUpdateBanner />
+            <EntitlementBanner uncoveredCourtType={covered ? null : courtType} />
+            <EarlyBirdOfferDialog />
+            <Header undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo} />
+            <main>
+              {/* Read-only lapse enforcement: lock editing across both the SC and
+                  HC interfaces while still allowing reading, selecting, scrolling,
+                  and tab/section navigation. Nothing is disabled or blurred. */}
+              <ReadOnlyLock active={readOnly}>
+                <ErrorBoundary fallbackTitle="Error in Workspace">
+                  <Workspace />
+                </ErrorBoundary>
+              </ReadOnlyLock>
+            </main>
+          </Card>
+          <FindReplaceBar />
+          <BriefingNotePrompt />
+        </MayurProvider>
       </FieldRevealProvider>
     </FormProvider>
   );

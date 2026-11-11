@@ -228,7 +228,7 @@ function LoDTableInner({
   allowHeadings = false,
 }: { name?: string; hideDate?: boolean; hideAnnexures?: boolean; allowHeadings?: boolean } = {}) {
   const form = useFormContext<DraftoProject>()
-  const { fields, append, remove, move, insert } = useFieldArray({
+  const { fields, append, remove, move, insert, replace } = useFieldArray({
     control: form.control,
     name: name as "listOfDates",
   })
@@ -236,6 +236,20 @@ function LoDTableInner({
   const [dateColWidth, setDateColWidth] = useState(75);
 
   const allLods = useWatch({ control: form.control, name: name as "listOfDates" }) || [];
+
+  // Reload the field array when notified of an external bulk update (e.g. Mayur or import)
+  useEffect(() => {
+    const handleTableReload = (e: any) => {
+      if (!e?.detail?.path || e.detail.path === name) {
+        const latest = form.getValues(name as "listOfDates");
+        if (latest && Array.isArray(latest)) {
+          replace(latest);
+        }
+      }
+    };
+    window.addEventListener("drafto-table-reload", handleTableReload);
+    return () => window.removeEventListener("drafto-table-reload", handleTableReload);
+  }, [form, name, replace]);
 
   // Pin the column to exactly one "dd.mm.yyyy" (plus the cell's horizontal
   // padding). Longer entries wrap inside this fixed width instead of widening

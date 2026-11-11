@@ -200,10 +200,24 @@ export function AamTable(props: AamTableProps) {
 
 function AamTableInner({ name, defaultRows = 10, disabled = false, labelMode = "alpha", numericStart = 1, allowHeadings = false }: AamTableProps) {
   const form = useFormContext<DraftoProject>()
-  const { fields, append, remove, move, insert } = useFieldArray({
+  const { fields, append, remove, move, insert, replace } = useFieldArray({
     control: form.control,
     name: name,
   })
+
+  // Reload the field array when notified of an external bulk update (e.g. Mayur or import)
+  useEffect(() => {
+    const handleTableReload = (e: any) => {
+      if (!e?.detail?.path || e.detail.path === name) {
+        const latest = form.getValues(name as any);
+        if (latest && Array.isArray(latest)) {
+          replace(latest);
+        }
+      }
+    };
+    window.addEventListener("drafto-table-reload", handleTableReload);
+    return () => window.removeEventListener("drafto-table-reload", handleTableReload);
+  }, [form, name, replace]);
 
   // Id of a just-inserted row whose editor should grab focus. Cleared implicitly
   // once matched (ids are unique, so it focuses exactly one row, once).

@@ -15,6 +15,8 @@ export function AutoUpdateBanner() {
   const [version, setVersion] = useState<string | null>(null);
   const [errorDismissed, setErrorDismissed] = useState(false);
 
+  const [installing, setInstalling] = useState(false);
+
   useEffect(() => {
     if (!window.electron) return;
 
@@ -54,7 +56,25 @@ export function AutoUpdateBanner() {
   }, []);
 
   const handleRestartNow = () => {
-    window.electron?.auInstall?.();
+    if (installing) return;
+    setInstalling(true);
+
+    // Save active draft to disk before restarting
+    const saveEvent = new CustomEvent("drafto-save-project", {
+      detail: {
+        callback: () => {
+          setTimeout(() => {
+            window.electron?.auInstall?.();
+          }, 300);
+        },
+      },
+    });
+    window.dispatchEvent(saveEvent);
+
+    // Fallback in case event is not caught
+    setTimeout(() => {
+      window.electron?.auInstall?.();
+    }, 2000);
   };
 
   const handleRetry = async () => {
@@ -85,9 +105,10 @@ export function AutoUpdateBanner() {
           size="sm"
           variant="secondary"
           className="h-7 shrink-0 font-semibold shadow-sm"
+          disabled={installing}
           onClick={handleRestartNow}
         >
-          Update ready — restart now
+          {installing ? "Saving & restarting…" : "Update ready — restart now"}
         </Button>
       </div>
     );

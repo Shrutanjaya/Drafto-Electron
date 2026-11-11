@@ -41,7 +41,7 @@ import { getIaList } from "@/lib/ia-list-utils";
 import { isScWpFamily, annexurePrefix } from "@/lib/court-family";
 import { getScWpIaList } from "@/lib/sc-wp/sc-wp-actions";
 import { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures";
-import { annexureRowsOf } from "@/lib/wp/facts-mode";
+import { annexureRowsOf, annexureModeOf, factsRowsOf, factsRowsPath } from "@/lib/wp/facts-mode";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { useEntitlement, useExportPermission } from "@/providers/entitlement-provider";
@@ -312,7 +312,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             });
         });
         
-        const activeLodRows = isScWp ? annexureRowsOf(projectData as DraftoProject) : (projectData.listOfDates || []);
+        const activeLodRows = annexureRowsOf(projectData as DraftoProject);
         const allAnnexures: (Annexure & {lodId: string})[] = activeLodRows.flatMap(lod => (lod.annexures || []).map(a => ({...a, lodId: lod.id})));
         
         const annexureNumberingMap = new Map<string, number>();
@@ -471,7 +471,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                 const isTyped = withoutPrefix.endsWith('_typed');
                 const annexureId = isTyped ? withoutPrefix.substring(0, withoutPrefix.length - '_typed'.length) : withoutPrefix;
                 
-                const allAnnexures = mainForm.getValues('listOfDates').flatMap(l => l.annexures || []);
+                const allAnnexures = annexureRowsOf(mainForm.getValues()).flatMap(l => l.annexures || []);
                 const annex = allAnnexures.find(a => a.id === annexureId);
                 
                 let prePopulatedFile: File | null = null;
@@ -679,9 +679,13 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             const annexureId = isTyped
                 ? withoutPrefix.substring(0, withoutPrefix.length - '_typed'.length)
                 : withoutPrefix;
-            const lods = mainForm.getValues('listOfDates') || [];
+            const currentVals = mainForm.getValues();
+            const targetPath = (annexureModeOf(currentVals) === 'facts' && factsRowsOf(currentVals).length > 0)
+                ? factsRowsPath(currentVals.courtType)
+                : 'listOfDates';
+            const lods = (mainForm.getValues(targetPath as any) || []) as any[];
             mainForm.setValue(
-                'listOfDates',
+                targetPath as any,
                 lods.map((lod: any) => ({
                     ...lod,
                     annexures: (lod.annexures || []).map((annex: any) =>

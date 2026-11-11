@@ -492,7 +492,21 @@ function buildScWpMasterIndexTableRows(
       else if (sNo === 5) pageNum = "A5";
       else if (sNo === 6) pageNum = "A6";
       else if (sNo === 7) pageNum = "NS1-NS_";
-      else pageNum = pageRanges?.get(sNo) ?? "";
+      else if (splitInfo && splitInfo.v1 === v) {
+        const parsed = pageRanges?.get(sNo);
+        if (parsed) {
+          const full = parsed.split("-").map(s => s.trim());
+          pageNum = full.length >= 2 ? `${full[0]}-${splitInfo.splitPage - 1}` : parsed;
+        }
+      } else if (splitInfo && splitInfo.v2 === v) {
+        const parsed = pageRanges?.get(sNo);
+        if (parsed) {
+          const full = parsed.split("-").map(s => s.trim());
+          pageNum = full.length >= 2 ? `${splitInfo.splitPage}-${full[full.length - 1]}` : parsed;
+        }
+      } else {
+        pageNum = pageRanges?.get(sNo) ?? "";
+      }
 
       rows.push(
         new TableRow({
@@ -1510,7 +1524,7 @@ export async function generateScWpAffidavitsDocx(projectData: DraftoProject) {
       numbering: { reference: "scwp-affidavit-numbering", level: 0 },
     }),
     new Paragraph({
-      text: `I have read and understood the contents of the accompanying ${isPil(projectData.courtType) ? "Writ Petition (PIL)" : "Writ Petition"} including Synopsis and List of Dates from Page B to Page ___ and ${isPil(projectData.courtType) ? "Writ Petition (PIL)" : "Writ Petition"} at Paragraphs 1 to 8, and the contents of all accompanying applications/ IAs. I say that the contents thereof are true and correct to the best of my knowledge and belief.`,
+      text: `I have read and understood the contents of the accompanying ${isPil(projectData.courtType) ? "Writ Petition (PIL)" : "Writ Petition"} including Synopsis and List of Dates from Page B to Page ___ and ${isPil(projectData.courtType) ? "Writ Petition (PIL)" : "Writ Petition"} at Paragraphs 1 to ${isPil(projectData.courtType) ? 13 : 8}, and the contents of all accompanying applications/ IAs. I say that the contents thereof are true and correct to the best of my knowledge and belief.`,
       numbering: { reference: "scwp-affidavit-numbering", level: 0 },
     }),
     new Paragraph({

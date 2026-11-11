@@ -282,8 +282,8 @@ export function getAppealLimitation(
  */
 export function appealOrderRule(caseType: string, provisionId?: string): string {
   if (caseType === "Criminal") return "Order XX Rule 2(1)";
-  if (provisionId === "advocates_38") return "Order XXIII Rule 1";
-  if (provisionId === "cpa_67" || provisionId === "cpa_23") return "Order XXIV Rule 1";
+  if (provisionId === "advocates-38" || provisionId === "advocates_38") return "Order XXIII Rule 1";
+  if (provisionId === "consumer-67" || provisionId === "consumer-23" || provisionId === "cpa_67" || provisionId === "cpa_23") return "Order XXIV Rule 1";
   if (provisionId === "hc_cert" || provisionId === "hc_certificate") return "Order XIX Rule 3(1)";
   // All other statutory civil appeals from tribunals/authorities are governed by
   // Order XIX Rule 40 of Supreme Court Rules, 2013 (which extends Order XIX to other Acts).

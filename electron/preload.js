@@ -31,17 +31,22 @@ contextBridge.exposeInMainWorld("electron", {
   // Utilities
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
 
-  // AI Plugin (Beta)
-  aiCheckPrerequisites: (opts) => ipcRenderer.invoke("ai-check-prerequisites", opts),
-  aiRun: (opts) => ipcRenderer.invoke("ai-run", opts),
-  aiCancel: () => ipcRenderer.invoke("ai-cancel"),
-  aiScanFolder: (folderPath) => ipcRenderer.invoke("ai-scan-folder", folderPath),
-  aiSelectSourceFiles: () => ipcRenderer.invoke("ai-select-source-files"),
-  aiScanFiles: (filePaths) => ipcRenderer.invoke("ai-scan-files", filePaths),
-  aiSplitDocuments: (opts) => ipcRenderer.invoke("ai-split-documents", opts),
-  aiLogin: (opts) => ipcRenderer.invoke("ai-login", opts),
-  aiInstallClaude: () => ipcRenderer.invoke("ai-install-claude"),
-  relaunchApp: () => ipcRenderer.invoke("relaunch-app"),
+  // Mayur (Multi-LLM AI Assistant)
+  aiGetKeysStatus:     ()           => ipcRenderer.invoke("ai-get-keys-status"),
+  aiSaveKey:           (opts)       => ipcRenderer.invoke("ai-save-key", opts),
+  aiFetchModels:       (opts)       => ipcRenderer.invoke("ai-fetch-models", opts),
+  aiSelectDraftFile:   ()           => ipcRenderer.invoke("ai-select-draft-file"),
+  aiExtractDraft:      (filePath)   => ipcRenderer.invoke("ai-extract-draft", filePath),
+  aiCheckPrerequisites: (opts)      => ipcRenderer.invoke("ai-check-prerequisites", opts),
+  aiRun:               (opts)       => ipcRenderer.invoke("ai-run", opts),
+  aiCancel:            ()           => ipcRenderer.invoke("ai-cancel"),
+  aiScanFolder:        (folderPath) => ipcRenderer.invoke("ai-scan-folder", folderPath),
+  aiSelectSourceFiles: ()           => ipcRenderer.invoke("ai-select-source-files"),
+  aiScanFiles:         (filePaths)  => ipcRenderer.invoke("ai-scan-files", filePaths),
+  aiSplitDocuments:    (opts)       => ipcRenderer.invoke("ai-split-documents", opts),
+  aiLogin:             (opts)       => ipcRenderer.invoke("ai-login", opts),
+  aiInstallClaude:     ()           => ipcRenderer.invoke("ai-install-claude"),
+  relaunchApp:         ()           => ipcRenderer.invoke("relaunch-app"),
   // Live installer output. Returns a disposer to remove the listener.
   onAiInstallLog: (cb) => {
     const h = (_e, msg) => cb(msg);

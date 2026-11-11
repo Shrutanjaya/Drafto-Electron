@@ -16,6 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { AamTable } from "@/components/custom/aam-table";
 import { oaMaSchema, type DraftoProject } from "@/lib/schema";
 import { maProvision, maFirstPrayer } from "@/lib/oa/oa-actions";
+import { MayurButton } from "@/components/custom/mayur-button";
 
 const STD_TEXT = "text-xs leading-relaxed text-neutral-500 dark:text-neutral-400";
 const RESIDUARY = "Pass such other/further orders as this Hon’ble Tribunal may deem fit and proper in the facts and circumstances of the case.";
@@ -258,7 +259,10 @@ export function OaApplications() {
                 <div className="space-y-3">
                   {/* Header: title + order / remove controls */}
                   <div className="flex items-start justify-between gap-2">
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">{KIND_LABEL[ma.kind]}</h4>
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">{KIND_LABEL[ma.kind]}</h4>
+                      <MayurButton section={`ma:${idx}`} label={KIND_LABEL[ma.kind]} />
+                    </div>
                     <span className="flex shrink-0 items-center gap-0.5">
                       <Button type="button" size="icon" variant="ghost" className="h-6 w-6" disabled={idx === 0} onClick={() => moveMaById(ma.id, -1)} title="Move earlier"><ArrowUp className="h-3.5 w-3.5" /></Button>
                       <Button type="button" size="icon" variant="ghost" className="h-6 w-6" disabled={idx === mas.length - 1} onClick={() => moveMaById(ma.id, 1)} title="Move later"><ArrowDown className="h-3.5 w-3.5" /></Button>

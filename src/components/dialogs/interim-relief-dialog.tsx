@@ -16,6 +16,7 @@ import {
 import { FormControl, FormField, FormItem, FormLabel } from "../ui/form"
 import { Checkbox } from "../ui/checkbox"
 import { AamTable } from "../custom/aam-table"
+import { MayurButton } from "../custom/mayur-button"
 
 export function InterimReliefContent() {
   const form = useFormContext<DraftoProject>()
@@ -101,12 +102,15 @@ export function InterimReliefDialog() {
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">Interim Relief</Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[800px]">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-[800px] max-h-[85vh] flex flex-col">
+        <DialogHeader className="flex flex-row items-center justify-between pr-6 space-y-0 shrink-0">
           <DialogTitle>Interim Relief</DialogTitle>
+          <MayurButton section="interim" />
         </DialogHeader>
-        <InterimReliefContent />
-        <DialogFooter>
+        <div className="py-1 overflow-y-auto flex-1 min-h-0 pr-1">
+          <InterimReliefContent />
+        </div>
+        <DialogFooter className="shrink-0 pt-2">
           <DialogClose asChild>
             <Button type="button" size="sm">Done</Button>
           </DialogClose>

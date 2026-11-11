@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DateInput } from "@/components/custom/date-input";
 import { UseFirstPartyButton } from "@/components/custom/use-first-party-button";
+import { MayurButton } from "@/components/custom/mayur-button";
 
 const getPartyHeader = (parties: VaadiTableItem[] | undefined): string => {
   if (!parties || parties.length === 0 || !parties[0]?.name) return "";
@@ -149,28 +150,31 @@ export function ScWpBasicTab() {
 
             {selectedSection === 'parties' && (
               <div className="flex flex-col h-full space-y-2">
-                <div className="flex items-center gap-2 p-2 rounded-md border text-xs bg-muted/40">
-                  <span>This is a</span>
-                  <FormField
-                    control={form.control}
-                    name="caseType"
-                    render={({ field }) => (
-                      <FormItem className="inline-block">
-                        <Select onValueChange={field.onChange} value={field.value || "Civil"}>
-                          <FormControl>
-                            <SelectTrigger className="h-7 px-2 w-[110px]">
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="Civil">Civil</SelectItem>
-                            <SelectItem value="Criminal">Criminal</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </FormItem>
-                    )}
-                  />
-                  <span>Writ Petition under Article 32 of the Constitution of India</span>
+                <div className="flex items-center justify-between gap-2 p-2 rounded-md border text-xs bg-muted/40">
+                  <div className="flex items-center gap-2">
+                    <span>This is a</span>
+                    <FormField
+                      control={form.control}
+                      name="caseType"
+                      render={({ field }) => (
+                        <FormItem className="inline-block">
+                          <Select onValueChange={field.onChange} value={field.value || "Civil"}>
+                            <FormControl>
+                              <SelectTrigger className="h-7 px-2 w-[110px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="Civil">Civil</SelectItem>
+                              <SelectItem value="Criminal">Criminal</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </FormItem>
+                      )}
+                    />
+                    <span>Writ Petition under Article 32 of the Constitution of India</span>
+                  </div>
+                  <MayurButton section="parties" />
                 </div>
 
                 <ResizablePanelGroup direction="horizontal" className="flex-grow min-h-[360px] rounded-lg border" autoSaveId="sc-wp-parties-panels">
@@ -233,7 +237,10 @@ export function ScWpBasicTab() {
               <>
                 <div className="flex items-center justify-between gap-2">
                   <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Deponent</h4>
-                  <UseFirstPartyButton />
+                  <div className="flex items-center gap-1.5">
+                    <UseFirstPartyButton />
+                    <MayurButton section="deponent" />
+                  </div>
                 </div>
                 <Card>
                   <CardContent className="p-2">

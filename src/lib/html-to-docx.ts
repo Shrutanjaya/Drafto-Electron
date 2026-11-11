@@ -117,13 +117,33 @@ interface ParagraphSpacing {
 // Decode HTML entities to their actual characters
 function decodeHtmlEntities(text: string): string {
     return text
-        .replace(/&nbsp;/g, ' ')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&apos;/g, "'");
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&ndash;/gi, '–')
+        .replace(/&mdash;/gi, '—')
+        .replace(/&lsquo;/gi, '‘')
+        .replace(/&rsquo;/gi, '’')
+        .replace(/&ldquo;/gi, '“')
+        .replace(/&rdquo;/gi, '”')
+        .replace(/&hellip;/gi, '…')
+        .replace(/&sect;/gi, '§')
+        .replace(/&para;/gi, '¶')
+        .replace(/&bull;/gi, '•')
+        .replace(/&deg;/gi, '°')
+        .replace(/&copy;/gi, '©')
+        .replace(/&reg;/gi, '®')
+        .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+            const code = parseInt(hex, 16);
+            return Number.isFinite(code) ? String.fromCodePoint(code) : _;
+        })
+        .replace(/&#(\d+);/g, (_, dec) => {
+            const code = parseInt(dec, 10);
+            return Number.isFinite(code) ? String.fromCodePoint(code) : _;
+        })
+        .replace(/&quot;/gi, '"')
+        .replace(/&apos;/gi, "'")
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&amp;/gi, '&');
 }
 
 // HTML void elements: they never have a closing tag, so the parser must not push
@@ -166,27 +186,31 @@ function htmlToTree(html: string): (SimpleNode | string)[] {
         }
 
         const [fullMatch, isClosing, tagName, attrsStr] = match;
+        const lowerTag = tagName.toLowerCase();
         const attributes: { [key: string]: string } = {};
         if (attrsStr) {
-            attrsStr.trim().replace(/([a-zA-Z-]+)="([^"]*)"/g, (_, key, value) => {
-                attributes[key] = value;
+            attrsStr.trim().replace(/([a-zA-Z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g, (_, key, v1, v2) => {
+                attributes[key] = v1 ?? v2 ?? '';
                 return '';
             });
         }
 
         if (isClosing) {
-            if (stack.length > 1) {
-                stack.pop();
+            for (let sIdx = stack.length - 1; sIdx >= 1; sIdx--) {
+                if (stack[sIdx].tagName === lowerTag) {
+                    stack.length = sIdx;
+                    break;
+                }
             }
         } else {
-            const newNode: SimpleNode = { tagName: tagName.toLowerCase(), attributes, children: [] };
+            const newNode: SimpleNode = { tagName: lowerTag, attributes, children: [] };
             stack[stack.length - 1].children.push(newNode);
             // Void (self-closing) elements have no closing tag, so they must not be
             // pushed onto the stack. TipTap tables emit <colgroup><col>…</colgroup>;
             // an unclosed <col> previously corrupted the stack so the matching
             // </table> popped a <col> instead of the table, burying — and dropping —
             // every block that followed the table (e.g. text after a table in a box).
-            if (!VOID_ELEMENTS.has(newNode.tagName)) {
+            if (!VOID_ELEMENTS.has(newNode.tagName) && !/\/\s*$/.test(attrsStr || '')) {
                 stack.push(newNode);
             }
         }

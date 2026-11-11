@@ -18,6 +18,7 @@ import { Button } from "../ui/button";
 import { PlusCircle, Trash2 } from "lucide-react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui/resizable";
 import { cn } from "@/lib/utils";
+import { MayurButton } from "@/components/custom/mayur-button";
 
 type LpSection = 'basicInfo' | 'legalProvisions' | 'linkedMatters' | 'optionalCategories';
 
@@ -112,6 +113,10 @@ export function ListingProformaTab() {
       {/* Right detail */}
       <ResizablePanel defaultSize={78} minSize={64}>
         <div className="h-full overflow-y-auto p-3 space-y-4">
+          <div className="flex items-center justify-between gap-2 pb-1 border-b">
+            <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Listing Proforma</h4>
+            <MayurButton section="proforma" />
+          </div>
 
           {/* ── Basic Information ── */}
           {selectedSection === 'basicInfo' && (

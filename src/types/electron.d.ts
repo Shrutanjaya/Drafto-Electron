@@ -84,7 +84,34 @@ interface ElectronAPI {
   // Utilities
   openExternal: (url: string) => Promise<void>;
 
-  // AI Plugin (Beta)
+  // Mayur (Multi-LLM AI Assistant)
+  aiGetKeysStatus: () => Promise<Record<"gemini" | "anthropic" | "openai", {
+    hasKey: boolean;
+    masked: string;
+    models: { id: string; label: string }[];
+    updatedAt: string | null;
+  }>>;
+  aiSaveKey: (opts: { provider: "gemini" | "anthropic" | "openai"; apiKey: string }) => Promise<{
+    ok: boolean;
+    hasKey?: boolean;
+    masked?: string;
+    models?: { id: string; label: string }[];
+    error?: string;
+  }>;
+  aiFetchModels: (opts: { provider: "gemini" | "anthropic" | "openai"; apiKey?: string }) => Promise<{
+    ok: boolean;
+    models: { id: string; label: string }[];
+    error?: string;
+  }>;
+  aiSelectDraftFile: () => Promise<string | null>;
+  aiExtractDraft: (filePath: string) => Promise<{
+    ok: boolean;
+    fileName?: string;
+    format?: "docx" | "pdf";
+    richText?: string;
+    tokens?: number;
+    error?: string;
+  }>;
   aiCheckPrerequisites: (opts?: { customClaudePath?: string }) => Promise<AiPrerequisites>;
   aiRun: (opts: AiRunOptions) => Promise<AiRunResult>;
   aiCancel: () => Promise<{ ok: boolean }>;
@@ -150,11 +177,17 @@ interface AiRunResult {
   error?: string;
   needsLogin?: boolean;
   cancelled?: boolean;
+  truncated?: boolean;
   partialText?: string;
   sessionId?: string | null;
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: number | null;
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
 }
 
 interface AiToolProbe {

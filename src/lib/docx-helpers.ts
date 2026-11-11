@@ -586,7 +586,7 @@ const getFiledBySignature = (isScWp = false): { data: Uint8Array; widthPx: numbe
 export const createFiledByTable = (
     filingDate: Date,
     aorName: string,
-    opts?: { fontSizePt?: number; lineSpacing?: number; paraSpacingPt?: number; includeSignature?: boolean; isScWp?: boolean; trailingParagraph?: boolean }
+    opts?: { fontSizePt?: number; lineSpacing?: number; paraSpacingPt?: number; includeSignature?: boolean; isScWp?: boolean; trailingParagraph?: boolean; partyNoun?: string }
 ) => {
     const formattedDate = filingDate ? format(new Date(filingDate), "dd.MM.yyyy") : "";
     const noBorders = {
@@ -661,7 +661,7 @@ export const createFiledByTable = (
                                 new Paragraph({
                                     alignment: AlignmentType.RIGHT,
                                     children: [
-                                        fbRun("Advocate for the Petitioner")
+                                        fbRun(`Advocate for the ${opts?.partyNoun || "Petitioner"}`)
                                     ],
                                     spacing: paraSpacing,
                                 })

@@ -13,6 +13,7 @@ import {
   type LeafField,
 } from "./field-catalog";
 import { jsonrepair } from "jsonrepair";
+import { stripHtml } from "./clean-html";
 
 // The raw shape we ask the LLM to emit (see drafto-knowledge.ts).
 export interface RawOperation {
@@ -57,6 +58,7 @@ export interface ValidationResult {
   valid: SafeOp[];
   rejected: RejectedOp[];
   message?: string;
+  hadTruncatedItem?: boolean;
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}/;
@@ -72,6 +74,11 @@ function coerceLeaf(
   switch (kind) {
     case "boolean": {
       if (typeof value === "boolean") return { ok: true, value };
+      if (typeof value === "string") {
+        const lower = value.toLowerCase().trim();
+        if (lower === "true" || lower === "yes") return { ok: true, value: true };
+        if (lower === "false" || lower === "no") return { ok: true, value: false };
+      }
       if (value === "true" || value === "false") return { ok: true, value: value === "true" };
       return { ok: false, reason: `${label}: expected true/false` };
     }
@@ -81,12 +88,15 @@ function coerceLeaf(
       return { ok: false, reason: `${label}: expected a number` };
     }
     case "enum": {
-      const s = String(value);
+      const s = (typeof value === "string" ? stripHtml(value) : String(value)).trim();
       if (enumValues && enumValues.includes(s)) return { ok: true, value: s };
+      // Case-insensitive fallback
+      const matching = enumValues?.find((e) => e.toLowerCase() === s.toLowerCase());
+      if (matching) return { ok: true, value: matching };
       return { ok: false, reason: `${label}: "${s}" is not one of ${enumValues?.join(" / ")}` };
     }
     case "date": {
-      const s = String(value).trim();
+      const s = (typeof value === "string" ? stripHtml(value) : String(value)).trim();
       if (ISO_DATE.test(s) && !Number.isNaN(Date.parse(s))) return { ok: true, value: s };
       return { ok: false, reason: `${label}: expected an ISO date (yyyy-mm-dd)` };
     }
@@ -130,11 +140,141 @@ function validateListItem(
   return { ok: true, item };
 }
 
+/**
+ * Normalizes list row items emitted by models that might be bare strings,
+ * or use slight key variations (e.g. "question", "text", "ground" instead of "particulars").
+ */
+function normalizeListItems(items: unknown[], desc: CatalogEntry): Record<string, unknown>[] {
+  const primaryKey = desc.itemFields?.[0]?.key || "particulars";
+  return items
+    .map((it): Record<string, unknown> | null => {
+      if (typeof it === "string") {
+        return { [primaryKey]: it };
+      }
+      if (it && typeof it === "object" && !Array.isArray(it)) {
+        const obj = { ...(it as Record<string, unknown>) };
+        if (!("particulars" in obj)) {
+          if ("question" in obj) obj.particulars = obj.question;
+          else if ("ground" in obj) obj.particulars = obj.ground;
+          else if ("text" in obj) obj.particulars = obj.text;
+          else if ("prayer" in obj) obj.particulars = obj.prayer;
+        }
+        return obj;
+      }
+      return null;
+    })
+    .filter((it): it is Record<string, unknown> => it !== null);
+}
+
+/**
+ * Normalizes scalar values where the model wrapped a string/number in a sub-object
+ * like { text: "..." } or { content: "..." } or provided an array of paragraphs.
+ */
+function normalizeScalarValue(val: unknown): unknown {
+  if (val && typeof val === "object" && !Array.isArray(val)) {
+    const obj = val as Record<string, unknown>;
+    if (typeof obj.value === "string" || typeof obj.value === "boolean" || typeof obj.value === "number") return obj.value;
+    if (typeof obj.text === "string") return obj.text;
+    if (typeof obj.content === "string") return obj.content;
+    if (typeof obj.html === "string") return obj.html;
+  }
+  if (Array.isArray(val) && val.every((item) => typeof item === "string")) {
+    return val.join("\n");
+  }
+  return val;
+}
+
+/**
+ * Recursively unwrap nested objects emitted by LLMs into individual dotted leaf operations.
+ * For example, if an LLM emits:
+ * { path: "listingProforma", value: { general: { mainCategory: "..." }, legalProvisions: [...] } }
+ * or { path: "deponent", value: { name: "...", relationship: "son of" } }
+ * this flattens them into exact catalog paths like "listingProforma.general.mainCategory", "deponent.name", etc.
+ */
+function flattenRawOps(rawOps: RawOperation[]): RawOperation[] {
+  const result: RawOperation[] = [];
+
+  function expand(path: string, val: unknown) {
+    if (val === null || val === undefined) return;
+    const desc = getFieldDescriptor(path);
+    if (desc) {
+      if (desc.isList) {
+        const rawItems = Array.isArray(val) ? val : [];
+        result.push({ kind: "list", path, items: normalizeListItems(rawItems, desc) });
+      } else {
+        result.push({ kind: "scalar", path, value: normalizeScalarValue(val) });
+      }
+      return;
+    }
+    // If it's an array without a matching descriptor, we cannot unpack further
+    if (Array.isArray(val)) {
+      result.push({ kind: "list", path, items: val as Record<string, unknown>[] });
+      return;
+    }
+    // If it's an object, recurse into subkeys
+    if (typeof val === "object") {
+      for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+        const subPath = path ? `${path}.${k}` : k;
+        expand(subPath, v);
+      }
+      return;
+    }
+    // Primitive but unrecognized path
+    result.push({ kind: "scalar", path, value: val });
+  }
+
+  for (const op of rawOps) {
+    if (!op || typeof op.path !== "string") continue;
+    const desc = getFieldDescriptor(op.path);
+    if (desc) {
+      if (desc.isList) {
+        const rawItems = Array.isArray(op.items)
+          ? op.items
+          : Array.isArray(op.value)
+          ? op.value
+          : [];
+        result.push({ kind: "list", path: op.path, items: normalizeListItems(rawItems, desc) });
+      } else {
+        result.push({ kind: "scalar", path: op.path, value: normalizeScalarValue(op.value) });
+      }
+    } else if (typeof op.value === "object" && op.value !== null) {
+      expand(op.path, op.value);
+    } else {
+      result.push(op);
+    }
+  }
+
+  return result;
+}
+
+function isTruncatedFragment(item: SafeRow, path: string): boolean {
+  if (path === "grounds") {
+    if (item.isHeading) return false;
+    const clean = String(item.particulars || "").replace(/<[^>]*>/g, "").trim();
+    if (clean.length < 25) return true;
+    if (/^(FOR\s+THAT|BECAUSE|THAT|GROUND\s+[A-Z0-9]+)\s*$/i.test(clean)) return true;
+    if (/\b(that|the|and|with|by|under|in|of|or)\s*$/i.test(clean)) return true;
+  }
+  if (path === "questionsOfLaw") {
+    if (item.isHeading) return false;
+    const clean = String(item.particulars || "").replace(/<[^>]*>/g, "").trim();
+    if (clean.length < 25) return true;
+    if (/^Whether\s*$/i.test(clean)) return true;
+  }
+  if (path.includes("interimReliefGrounds")) {
+    const clean = String(item.particulars || "").replace(/<[^>]*>/g, "").trim();
+    if (clean.length < 25) return true;
+  }
+  return false;
+}
+
 // Validate a whole LLM proposal against the catalog.
 export function validateProposal(raw: RawProposal): ValidationResult {
   const valid: SafeOp[] = [];
   const rejected: RejectedOp[] = [];
-  const ops = Array.isArray(raw?.operations) ? raw.operations : [];
+  let hadTruncatedItem = false;
+  const rawOps = Array.isArray(raw?.operations) ? raw.operations : [];
+  const ops = flattenRawOps(rawOps);
 
   for (const op of ops) {
     const path = op?.path;
@@ -155,13 +295,24 @@ export function validateProposal(raw: RawProposal): ValidationResult {
       }
       const items: SafeRow[] = [];
       let failed: string | null = null;
-      for (const rawItem of op.items) {
+      for (let idx = 0; idx < op.items.length; idx++) {
+        const rawItem = op.items[idx];
         const res = validateListItem(rawItem ?? {}, desc.itemFields ?? [], path);
         if (!res.ok) {
           failed = res.reason;
           break;
         }
-        if (Object.keys(res.item).length > 0) items.push(res.item);
+        if (Object.keys(res.item).length > 0) {
+          if (idx === op.items.length - 1 && isTruncatedFragment(res.item, path)) {
+            rejected.push({
+              path,
+              reason: `discarded truncated fragment: "${String(res.item.particulars || "").slice(0, 30)}…"`,
+            });
+            hadTruncatedItem = true;
+            continue;
+          }
+          items.push(res.item);
+        }
       }
       if (failed) {
         rejected.push({ path, reason: failed });
@@ -178,7 +329,12 @@ export function validateProposal(raw: RawProposal): ValidationResult {
     }
   }
 
-  return { valid, rejected, message: typeof raw?.message === "string" ? raw.message : undefined };
+  return {
+    valid,
+    rejected,
+    message: typeof raw?.message === "string" ? raw.message : undefined,
+    hadTruncatedItem,
+  };
 }
 
 // ── Human-readable preview for the suggest-before-write review ───────────────
@@ -245,8 +401,86 @@ export const CATALOG_FIELD_COUNT = FIELD_CATALOG.length;
 
 // ── Extracting the proposal from the model's free-text reply ─────────────────
 
-function looksLikeProposal(o: unknown): o is RawProposal {
-  return !!o && typeof o === "object" && ("operations" in (o as object) || "message" in (o as object) || "documents" in (o as object));
+/**
+ * Normalizes any parsed JSON output into a standard RawProposal structure:
+ * 1. Already has `operations` array -> returns as-is.
+ * 2. An array of operations [ { path: "...", ... } ] -> wraps into { operations }.
+ * 3. A key-value dictionary where keys are field paths (e.g. { synopsis: "...", questionsOfLaw: [...] })
+ *    -> converts each key into a scalar or list operation.
+ */
+function normalizeProposal(raw: unknown): RawProposal | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  // Case 1: If raw is an array of operations: [ { path: "...", ... } ]
+  if (Array.isArray(raw)) {
+    if (
+      raw.length > 0 &&
+      typeof raw[0] === "object" &&
+      raw[0] !== null &&
+      ("path" in raw[0] || "particulars" in raw[0] || "isHeading" in raw[0])
+    ) {
+      return { operations: raw as RawOperation[] };
+    }
+    return null;
+  }
+
+  const obj = raw as Record<string, unknown>;
+
+  // Case 2: Standard proposal with operations array
+  if (Array.isArray(obj.operations)) {
+    return obj as RawProposal;
+  }
+
+  // Case 3: Documents map proposal
+  if ("documents" in obj && Array.isArray(obj.documents)) {
+    return obj as RawProposal;
+  }
+
+  // Case 4: Key-value map where keys are known fields or prefixes:
+  // e.g. { synopsis: "...", questionsOfLaw: [...], grounds: [...] }
+  const operations: RawOperation[] = [];
+  for (const [key, val] of Object.entries(obj)) {
+    if (key === "message" || key === "explanation" || key === "status") continue;
+    const desc = getFieldDescriptor(key);
+    if (desc) {
+      if (desc.isList) {
+        const items = Array.isArray(val)
+          ? (val as Record<string, unknown>[])
+          : [];
+        operations.push({ kind: "list", path: key, items });
+      } else {
+        operations.push({ kind: "scalar", path: key, value: val });
+      }
+    } else if (
+      key === "deponent" ||
+      key === "listingProforma" ||
+      key === "interimRelief" ||
+      key === "interim" ||
+      key === "general" ||
+      key === "specialCategories" ||
+      key === "parties" ||
+      key === "impugned"
+    ) {
+      // Parent prefix (flattenRawOps will unpack it)
+      operations.push({ kind: "scalar", path: key, value: val });
+    } else if (Array.isArray(val) && val.length > 0 && typeof val[0] === "object") {
+      operations.push({ kind: "list", path: key, items: val as Record<string, unknown>[] });
+    }
+  }
+
+  if (operations.length > 0) {
+    return {
+      operations,
+      message: typeof obj.message === "string" ? obj.message : undefined,
+    };
+  }
+
+  // If object only has a message string
+  if (typeof obj.message === "string" && obj.message.trim()) {
+    return { operations: [], message: obj.message };
+  }
+
+  return null;
 }
 
 // Parse JSON that may be malformed in the usual LLM ways (unescaped quotes and
@@ -257,11 +491,13 @@ function tryParse(c: string): RawProposal | null {
   const trimmed = c.trim();
   try {
     const parsed = JSON.parse(trimmed);
-    if (looksLikeProposal(parsed)) return parsed;
+    const norm = normalizeProposal(parsed);
+    if (norm) return norm;
   } catch { /* fall through to repair */ }
   try {
     const parsed = JSON.parse(jsonrepair(trimmed));
-    if (looksLikeProposal(parsed)) return parsed;
+    const norm = normalizeProposal(parsed);
+    if (norm) return norm;
   } catch { /* unparseable even after repair */ }
   return null;
 }
@@ -270,7 +506,7 @@ function tryParse(c: string): RawProposal | null {
 // ```json fenced block, any fenced block, the whole string, then the widest
 // {...} substring — each both as-is and lightly repaired. Returns null if
 // nothing parseable is found.
-export function extractProposal(text: string): RawProposal | null {
+export function extractProposal(text: string, targetPath?: string): RawProposal | null {
   if (!text) return null;
   const candidates: string[] = [];
   const jsonFence = text.match(/```json\s*([\s\S]*?)```/i);
@@ -281,11 +517,82 @@ export function extractProposal(text: string): RawProposal | null {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start >= 0 && end > start) candidates.push(text.slice(start, end + 1));
+  const arrStart = text.indexOf("[");
+  const arrEnd = text.lastIndexOf("]");
+  if (arrStart >= 0 && arrEnd > arrStart) candidates.push(text.slice(arrStart, arrEnd + 1));
 
   for (const c of candidates) {
     const parsed = tryParse(c);
     if (parsed) return parsed;
   }
+
+  // Fallback recovery if model generated content without valid JSON wrapper:
+  if (targetPath) {
+    // If the text looks like an attempt at JSON (contains ``` or {"operations" or "path":)
+    if (/```|\{"operations"|"path":|"value":/i.test(text)) {
+      if (targetPath === "synopsis") {
+        const valMatch =
+          text.match(/"path"\s*:\s*"synopsis"[\s\S]*?"value"\s*:\s*"([\s\S]*?)(?:"\s*\}|"$|$)/i) ||
+          text.match(/"synopsis"\s*:\s*"([\s\S]*?)(?:"\s*\}|"$|$)/i);
+        if (valMatch && valMatch[1]) {
+          const val = valMatch[1]
+            .replace(/\\"/g, '"')
+            .replace(/\\n/g, "\n")
+            .replace(/\\t/g, "\t")
+            .trim();
+          if (val.length > 20 && !/\{"operations"|"kind":|"path":/i.test(val)) {
+            return {
+              operations: [{ kind: "scalar", path: "synopsis", value: val }],
+            };
+          }
+        }
+      }
+      // If it contains JSON markers, NEVER return the raw unparsed JSON string!
+      return null;
+    }
+
+    const cleanText = stripJsonBlock(text).trim();
+    if (cleanText.length > 20 && !/\{"operations"|"kind":|"path":|```/i.test(cleanText)) {
+      if (targetPath === "synopsis" && cleanText.length > 30) {
+        return {
+          operations: [{ kind: "scalar", path: "synopsis", value: cleanText }],
+        };
+      }
+      if (targetPath === "questionsOfLaw") {
+        const qLines = cleanText
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(
+            (l) =>
+              l.length > 15 &&
+              (/whether/i.test(l) || /\?$/.test(l) || /^(\d+[\.\)]|\([a-z0-9]+\)|[a-z]\.)/i.test(l))
+          );
+        if (qLines.length > 0) {
+          const items = qLines.map((q) => ({
+            particulars: q.replace(/^(\d+[\.\)]|\([A-Za-z0-9]+\)|[A-Za-z]\.|\bQUESTION\s+[A-Z0-9]+:?|[-*•])\s*/i, "").trim(),
+            isHeading: false,
+            heading: "",
+          }));
+          return { operations: [{ kind: "list", path: "questionsOfLaw", items }] };
+        }
+      }
+      if (targetPath === "grounds") {
+        const gLines = cleanText
+          .split(/\r?\n\s*\r?\n/)
+          .map((l) => l.trim())
+          .filter((l) => l.length > 20);
+        if (gLines.length > 0) {
+          const items = gLines.map((g) => ({
+            particulars: g.replace(/^(\d+\.|\([A-Za-z0-9]+\)|[-*•])\s*/, "").trim(),
+            isHeading: false,
+            heading: "",
+          }));
+          return { operations: [{ kind: "list", path: "grounds", items }] };
+        }
+      }
+    }
+  }
+
   return null;
 }
 
@@ -346,9 +653,10 @@ export function extractPartialProposal(text: string): RawProposal | null {
 }
 
 // The human-readable part of the reply, with any fenced JSON block removed.
+// Handles both complete (closed by ```) and unclosed (cut off mid-generation) code blocks.
 export function stripJsonBlock(text: string): string {
   return text
-    .replace(/```json\s*[\s\S]*?```/gi, "")
-    .replace(/```\s*[\s\S]*?```/g, "")
+    .replace(/```json[\s\S]*?(?:```|$)/gi, "")
+    .replace(/```[\s\S]*?(?:```|$)/g, "")
     .trim();
 }

@@ -35,7 +35,7 @@ export const PRESETS: Preset[] = [
     needsFolder: true,
     prompt:
       "Fill the Memo of Parties (Preliminary → Memo of Parties) from the lower-court paperbook.\n" +
-      "- The SLP Petitioners are the parties challenging the Impugned Order. The user tells you their position in the court below (e.g. \"the appellants\", \"Petitioner No. 1 and 2\"). If the user has NOT said who the SLP Petitioners are, ask before proceeding.\n" +
+      "- The SLP Petitioners are the parties challenging the Impugned Order. If the user specifies their position in the court below, use that. Otherwise, AUTOMATICALLY INFER the SLP Petitioner from the Impugned Order / petition cause title (the party who filed the petition below that was dismissed, or against whom the adverse order was passed — e.g. the Applicant / Petitioner / Appellant). Do NOT stop or ask questions; determine the SLP Petitioner and proceed.\n" +
       "- In the paperbook, find the section titled \"Memo of Parties\" (or \"Memorandum of Parties\", \"List of Parties\", or \"Details of Parties\") and locate the SLP Petitioners there.\n" +
       "- Fill the SLP Petitioners into Petitioners in the SAME order they appear in the paperbook: Name (Title Case) in the first field, full address in the second, and their exact designation WITH number in the court below in the third (e.g. \"Appellant No. 1\", \"Respondent No. 3\", \"Applicant No. 2\", \"Petitioner No. 1\").\n" +
       "- Then fill EVERY other party from the paperbook's memo of parties into Respondents, keeping their original designation+number in the third field — EXCEPT for ordering: list the second-side parties (the Respondents / opposite parties in the court below) en bloc FIRST, then the first-side parties (Petitioners/Appellants/Applicants).\n" +
@@ -56,7 +56,7 @@ export const PRESETS: Preset[] = [
       "- Court: set the High Court's name (evident from the paperbook and the Impugned Order).\n" +
       "- Case number (from the Impugned Order): if the order was passed in an application WITHIN the main matter (not the main matter itself), use e.g. \"IA No. 15/2026 in Writ Petition (C) No. 1572/2026\"; otherwise just the main-matter number e.g. \"Writ Petition (C) No. 1572/2026\". If a batch of matters was disposed of by a common judgment, append \" and batch\" to YOUR petition number from the paperbook; if your number isn't stated, identify it by matching the cause title against the list of cases in the judgment — if still unclear, ask the user for their petition number.\n" +
       "- \"by which\" (effect): one line stating what the High Court did to the SLP Petitioners' detriment by the Impugned Order (e.g. \"the Hon'ble High Court has dismissed the Petitioner's bail application\"; \"... has denied the benefit of regularisation to the Petitioners\"; \"... has refused to reject the plaint under Order 7 Rule 11 CPC\").\n" +
-      "- Contents of Para 1A: fill ONLY if the Impugned Order was passed by a SINGLE judge (check the signatures). If single-judge, the user must tell you whether an intra-court appeal lies: if NO intra-court appeal lies, set intraCourtAppealStatus to \"no_appeal_lies\"; if one lies but is being bypassed, set it to \"appeal_lies_but\" and fill intraCourtAppealReason explaining why the SLP Petitioners are filing the SLP directly — ask the user for this reason if not provided.\n" +
+      "- Contents of Para 1A: fill ONLY if the Impugned Order was passed by a SINGLE judge (check the signatures). If single-judge, determine whether an intra-court appeal lies: in a Criminal SLP challenging an order under Section 482 CrPC / Section 528 BNSS, no intra-court appeal lies in law; set intraCourtAppealStatus to \"no_appeal_lies\". Otherwise, if NO intra-court appeal lies, set intraCourtAppealStatus to \"no_appeal_lies\"; if one lies but is being bypassed, set it to \"appeal_lies_but\" and fill intraCourtAppealReason explaining why the SLP Petitioners are filing the SLP directly.\n" +
       "- Para 1B: leave blank unless the user specifically asks; if they do, ask what it should say.",
   },
   {
@@ -81,6 +81,7 @@ export const PRESETS: Preset[] = [
     needsFolder: true,
     prompt:
       "Draft Petition → List of Dates from the lower-court paperbook and the Impugned Order.\n" +
+      "- EXHAUSTIVE MULTI-DOCUMENT TIMELINE: Scan through ALL available files and documents (not merely the opening paragraphs of the judgment). Harvest every milestone across the case history: marriage, departure abroad, domestic disputes/complaints, notices, representations, registration of FIR, notices under 41A / 35 BNSS, police inquiries, chargesheet filing, co-accused quashing petitions/orders, and the Impugned Order. Build a rich, chronological sequence of events (typically 8–18 distinct dated entries).\n" +
       "- If the SLP Petitioners filed the lower-court case (they were not respondents): construct the List of Dates primarily from the paperbook's own \"List of Dates\" and \"Facts of the Case\", refined with the facts in the Impugned Order.\n" +
       "- Otherwise: construct it by reading the paperbook and ESPECIALLY any documents/affidavits/replies the SLP Petitioners filed in the court below, together with the Impugned Order.\n" +
       "- MOST IMPORTANT: the List of Dates is NOT a mechanical narration of events — it is the most persuasive part of the brief. Written well, a reader should finish it convinced the SLP Petitioners have suffered injustice, with few or no legal arguments. Narrate the story to that effect. NEVER use strong language against any court or judge — attack the Judgment/Order, never the court that passed it.\n" +
@@ -103,6 +104,34 @@ export const PRESETS: Preset[] = [
       "- THEN draft the Questions of Law from the Grounds (the Grounds are answers to the Questions of Law). You need not have as many Questions as Grounds — usually 2-3 suffice unless the matter is very bulky. Do not number them.",
   },
   {
+    id: "grounds",
+    model: "sonnet",
+    label: "Grounds",
+    group: "Tasks",
+    effort: "large",
+    needsFolder: true,
+    prompt:
+      "Draft the comprehensive Grounds of Petition challenging the Impugned Order and proceedings below.\n" +
+      "- Each ground must be framed around reasons why the Impugned Order is perverse, contrary to law, or an abuse of process.\n" +
+      "- Construct 8 to 14 thorough, legally rigorous grounds covering every statutory bar, jurisdictional infirmity, absence of essential ingredients, parity, and violation of Supreme Court precedents.\n" +
+      "- Use group headings ({ 'isHeading': true, 'heading': '...' }) where appropriate to structure the grounds.\n" +
+      "- Do NOT number the grounds (Drafto numbers them automatically).\n" +
+      "- Emit ONLY the 'grounds' list operation.",
+  },
+  {
+    id: "qol",
+    model: "sonnet",
+    label: "Questions of Law",
+    group: "Tasks",
+    effort: "medium",
+    needsFolder: true,
+    prompt:
+      "Frame the Questions of Law for this Petition from the Impugned Order, statutory enactments, and the Grounds already in the project.\n" +
+      "- Each question must be a crisp, substantial, generalized question of law starting with 'Whether...'.\n" +
+      "- Frame 4 to 8 substantial questions of law that demonstrate why the Impugned Order is legally perverse and contrary to settled law.\n" +
+      "- Output ONLY the 'questionsOfLaw' list in the operations array.",
+  },
+  {
     id: "interim",
     model: "sonnet",
     label: "Interim Relief",
@@ -111,10 +140,9 @@ export const PRESETS: Preset[] = [
     needsFolder: true,
     prompt:
       "Fill Petition → Interim Relief.\n" +
-      "- FIRST, if the user hasn't already told you, ask whether they want interim relief; if yes, ask what — offer two choices: \"Stay of the Impugned Judgment/Order\" or \"Custom\". If Custom, take their wording but use it verbatim ONLY if it is drafted with surgical precision and sufficient detail; otherwise redraft it to that precision.\n" +
-      "- Tick the Include checkbox (set wantsInterimRelief = true).\n" +
-      "- Complete the three template grounds for interim relief — prima facie case, balance of convenience, and irreparable injury — tailored to this case.\n" +
-      "- There can be ONLY ONE prayer for interim relief (the Supreme Court's prescribed format). If the user demands more than one interim relief, correct them and keep it to a single prayer.",
+      "- Set wantsInterimRelief = true.\n" +
+      "- Draft the primary specific interim prayer tailored to this petition in interimReliefPrayers (e.g., ad-interim ex-parte stay of the operation and implementation of the impugned order and stay of all coercive proceedings/investigation arising out of the subject FIR/complaint).\n" +
+      "- Complete the grounds for interim relief in interimReliefGrounds — establishing a strong prima facie case, balance of convenience, and grave irreparable injury.",
   },
 
   // ── More (extras) ──
@@ -135,7 +163,11 @@ export const PRESETS: Preset[] = [
     effort: "small",
     needsFolder: true,
     prompt:
-      "Fill up the Listing Proforma general details from the source documents: the parties' phone numbers and emails (if available), and the main and sub category of the matter.",
+      "Fill up the Listing Proforma details from the source documents and case material:\n" +
+      "- listingProforma.general.judgesPassedImpugned: the name(s) of the Hon'ble Judge(s) of the High Court who passed the Impugned Order (e.g. \"Hon'ble Mr. Justice Nirzar S. Desai\").\n" +
+      "- listingProforma.general.mainCategory and subCategory: subject category (e.g. \"14 CRIMINAL MATTERS\" / \"1439 Quashing of FIR / Criminal Matters Relating To All Other Matters\").\n" +
+      "- listingProforma.legalProvisions: list of enactments involved ({ type: \"Central Act\", act: \"...\", section: \"...\" }).\n" +
+      "- listingProforma.specialCategories: firNoAndDate, policeStation, surrenderStatus (\"N.A.\"), earlierCaseSameParties (\"No\").",
   },
   {
     id: "annexures",

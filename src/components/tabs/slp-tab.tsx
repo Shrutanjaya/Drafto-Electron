@@ -33,6 +33,7 @@ import { isAppeal } from "@/lib/court-family";
 import { getPartyGrammar, adaptPartyText } from "@/lib/party-grammar";
 import { FactsSection } from "@/components/custom/facts-section";
 import { FIND_REVEAL_EVENT, getPendingReveal } from "@/lib/find-reveal";
+import { MayurButton } from "@/components/custom/mayur-button";
 
 type SlpSection = 'synopsis' | 'listOfDates' | 'facts' | 'grounds' | 'questionsOfLaw' | 'interimRelief' | 'appendix' | 'declarations';
 const EDITOR_SECTIONS: SlpSection[] = ['synopsis', 'listOfDates', 'facts', 'grounds', 'questionsOfLaw', 'interimRelief', 'appendix'];
@@ -247,6 +248,12 @@ export function SlpTab() {
             <ResizablePanel defaultSize={75} minSize={60}>
               <div className="flex flex-col h-full p-2 space-y-2">
                 <div className="flex items-center gap-1 shrink-0">
+                  {selectedSection === 'synopsis' && <MayurButton section="synopsis" />}
+                  {selectedSection === 'listOfDates' && <MayurButton section="lod" />}
+                  {selectedSection === 'facts' && isAppealProject && <MayurButton section="facts" />}
+                  {selectedSection === 'grounds' && <MayurButton section="grounds" />}
+                  {selectedSection === 'questionsOfLaw' && <MayurButton section="qol" />}
+                  {selectedSection === 'interimRelief' && !isAppealProject && <MayurButton section="interim" />}
                   <div className="flex-grow"></div>
                   {EDITOR_SECTIONS.includes(selectedSection) && <EditorToolbar />}
                   <ViewToggle mode={viewMode} onChange={setViewMode} />
@@ -293,8 +300,13 @@ export function SlpTab() {
               active={factsActive}
               className="h-8 text-xs font-normal"
             >
-              <div className="h-[60vh] min-h-[300px]">
-                {factsEditor}
+              <div className="flex flex-col h-[60vh] min-h-[300px] space-y-2">
+                <div className="flex items-center justify-end">
+                  <MayurButton section="facts" />
+                </div>
+                <div className="flex-grow min-h-0">
+                  {factsEditor}
+                </div>
               </div>
             </SectionDialog>
           )}
@@ -310,7 +322,10 @@ export function SlpTab() {
         <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId="slp-tab-panels">
           <ResizablePanel defaultSize={50}>
             <div className="flex flex-col h-full p-1">
-              <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">List of Dates</h4>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">List of Dates</h4>
+                <MayurButton section="lod" />
+              </div>
               <div className="flex-grow overflow-auto">
                 <LoDTable hideAnnexures={isAppealProject && annexureMode === "facts"} />
               </div>
@@ -319,7 +334,10 @@ export function SlpTab() {
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={30}>
             <div className="flex flex-col h-full p-1">
-              <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Grounds</h4>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Grounds</h4>
+                <MayurButton section="grounds" />
+              </div>
               <div className="flex-grow overflow-auto">
                 <AamTable name="grounds" defaultRows={10} allowHeadings />
               </div>
@@ -328,7 +346,10 @@ export function SlpTab() {
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={20}>
             <div className="flex flex-col h-full p-1">
-              <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide mb-1">Synopsis</h4>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Synopsis</h4>
+                <MayurButton section="synopsis" />
+              </div>
               <FormField
                 control={form.control}
                 name="synopsis"

@@ -7,8 +7,15 @@ const { execFile, exec, spawn } = require("child_process");
 const { promisify } = require("util");
 const execAsync = promisify(exec);
 const { autoUpdater } = require("electron-updater");
-const { scanFolder, scanFiles } = require("./ipc/pdf-extract");
+const { scanFolder, scanFiles, extractRichDraft } = require("./ipc/pdf-extract");
 const { splitDocuments } = require("./ipc/pdf-split");
+const {
+  getKeysStatus,
+  saveApiKey,
+  fetchProviderModelsFromApi,
+  runLlm,
+  cancelActiveLlm,
+} = require("./ipc/ai-llm");
 
 // ── Environment ─────────────────────────────────────────────────────────────
 const isDev = !app.isPackaged;
@@ -293,9 +300,13 @@ function createWindow() {
   if (!isDev) {
     mainWindow.webContents.once("did-finish-load", () => {
       setTimeout(() => {
-        autoUpdater.checkForUpdates().catch((err) =>
-          console.warn("[autoUpdater] startup check failed:", err), (auState.status !== "error" && (auState = { status: "error", version: auState.version, error: String(err) }, sendUpdate("au-error", String(err))))
-        );
+        autoUpdater.checkForUpdates().catch((err) => {
+          console.warn("[autoUpdater] startup check failed:", err);
+          if (auState.status !== "error") {
+            auState = { status: "error", version: auState.version, error: String(err) };
+            sendUpdate("au-error", String(err));
+          }
+        });
       }, 4000);
     });
   }
@@ -671,232 +682,65 @@ function aiScratchCwd() {
   try { fs.mkdirSync(dir, { recursive: true }); } catch {}
   return dir;
 }
+// ── Mayur Multi-LLM & Rich Draft IPC ─────────────────────────────────────────
+ipcMain.handle("ai-get-keys-status", () => {
+  try {
+    return getKeysStatus();
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle("ai-save-key", async (_event, opts) => {
+  try {
+    return await saveApiKey(opts || {});
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle("ai-fetch-models", async (_event, opts) => {
+  try {
+    return await fetchProviderModelsFromApi(opts?.provider, opts?.apiKey);
+  } catch (e) {
+    return { ok: false, error: e.message, models: [] };
+  }
+});
+
+ipcMain.handle("ai-select-draft-file", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Select a Draft (.docx or .pdf) to Import Verbatim",
+    properties: ["openFile"],
+    filters: [{ name: "Draft Documents (.docx, .pdf)", extensions: ["docx", "pdf"] }],
+  });
+  return result.canceled || !result.filePaths?.length ? null : result.filePaths[0];
+});
+
+ipcMain.handle("ai-extract-draft", async (_event, filePath) => {
+  try {
+    return await extractRichDraft(String(filePath || ""));
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
 ipcMain.handle("ai-run", async (_event, opts) => {
   opts = opts || {};
-  const env = aiAugmentedEnv();
-  const claude = aiResolveClaude(opts.claudePath, env);
-  if (!claude.found) {
-    return { ok: false, error: "Claude Code CLI not found. Check Settings → Mayur." };
-  }
-
-  const args = [
-    "-p", "--output-format", "stream-json", "--verbose",
-    // Stream token-level deltas so stdout flows continuously while the model is
-    // generating — otherwise a long, silent final generation trips the idle
-    // timeout even though it's actively working.
-    "--include-partial-messages",
-    "--permission-mode", "default",
-    "--tools", AI_READONLY_TOOLS,
-    "--allowedTools", AI_READONLY_TOOLS,
-  ];
-  // Optional model override (haiku/sonnet/opus). "default"/unset → CLI default.
-  if (opts.model && AI_ALLOWED_MODELS.has(String(opts.model))) {
-    args.push("--model", String(opts.model));
-  }
-  // The prompt is delivered on stdin (see below). On Windows the whole command
-  // line is capped at ~32k chars, so passing the large system prompt via
-  // --append-system-prompt trips `spawn ENAMETOOLONG`; there we fold it into the
-  // first stdin prompt instead. (macOS/Linux arg limits are far larger.)
-  let stdinPrompt = String(opts.prompt || "");
-  // Conversation continuity: resume the prior session so the model remembers the
-  // chat. The system prompt is only set when starting a fresh session (on resume
-  // it's already in the session history).
-  if (opts.resumeSessionId) {
-    args.push("--resume", String(opts.resumeSessionId));
-  } else if (opts.systemPrompt) {
-    if (process.platform === "win32") {
-      stdinPrompt =
-        `${String(opts.systemPrompt)}\n\n` +
-        `----- END OF INSTRUCTIONS. THE USER'S REQUEST FOLLOWS. -----\n\n` +
-        stdinPrompt;
-    } else {
-      args.push("--append-system-prompt", String(opts.systemPrompt));
-    }
-  }
-  // addDirs (extracted-text context dir, optionally the original PDF folder for
-  // scanned-page images) supersedes the legacy single sourceFolder. Re-granted
-  // every turn so file access persists across resumes.
-  const addDirs = Array.isArray(opts.addDirs) && opts.addDirs.length
-    ? opts.addDirs
-    : (opts.sourceFolder ? [opts.sourceFolder] : []);
-  for (const d of addDirs) args.push("--add-dir", String(d));
-
   const send = (payload) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("ai-stream", payload);
   };
-
-  aiCancelRequested = false;
-
-  return await new Promise((resolve) => {
-    let buf = "";
-    let finalText = "";
-    let finalErr = null;
-    let needsLogin = false;
-    let settled = false;
-    let sessionId = null;
-    let inputTokens = 0;   // peak context size seen (input + cached)
-    let finalInput = 0, finalOutput = 0, finalCost = null;
-    let child;
-
-    const IDLE_MS = 300000; // give up only after 5 min of *total* silence (with
-                            // partial-message streaming, active work is never silent)
-    const MAX_TOTAL_MS = 1200000; // hard backstop: 20 min, even if actively streaming
-    let idle;
-    const finish = (res) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(idle);
-      clearTimeout(hardCap);
-      activeAiChild = null;
-      resolve(res);
-    };
-    const onIdle = () => {
-      try { child && child.kill(); } catch {}
-      finish({ ok: false, error: "The assistant went quiet for too long and was stopped. Try a narrower request — e.g. just the parties, or just the synopsis.", partialText: genBuf });
-    };
-    // Total-time backstop against a runaway/looping task (partial streaming
-    // defeats the idle timer, so a slow loop could otherwise run forever).
-    const hardCap = setTimeout(() => {
-      try { child && child.kill(); } catch {}
-      finish({ ok: false, error: "This task ran for 20 minutes and was stopped. It's likely too large for one request — try splitting it (e.g. fill the tabs first, then map and attach the annexures separately).", partialText: genBuf });
-    }, MAX_TOTAL_MS);
-    const bump = () => { clearTimeout(idle); idle = setTimeout(onIdle, IDLE_MS); };
-
-    // Send a status line only when it changes, so each one is a distinct step in
-    // the renderer's activity log.
-    let lastStatus = null;
-    const sendStatus = (text) => {
-      if (text && text !== lastStatus) {
-        lastStatus = text;
-        send({ kind: "status", text });
-      }
-    };
-    // Accumulate the model's streamed output text and announce which Drafto field
-    // it has started filling (and when it begins the annexure map).
-    let genBuf = "";
-    const announced = new Set();
-    const scanGeneration = () => {
-      const re = /"path"\s*:\s*"([^"]+)"/g;
-      let m;
-      while ((m = re.exec(genBuf))) {
-        const p = m[1];
-        if (!announced.has(p)) {
-          announced.add(p);
-          sendStatus(`Filling ${aiFieldLabel(p)}…`);
-        }
-      }
-      if (!announced.has("__docs") && /"documents"\s*:/.test(genBuf)) {
-        announced.add("__docs");
-        sendStatus("Mapping annexures…");
-      }
-    };
-    // Live token usage: accurate input (from message_start), estimated output
-    // (from the streamed text so far). Throttled so we don't spam IPC.
-    let lastUsageAt = 0;
-    const sendUsage = (force) => {
-      const now = Date.now();
-      if (!force && now - lastUsageAt < 600) return;
-      lastUsageAt = now;
-      send({ kind: "usage", input: inputTokens, output: Math.ceil(genBuf.length / 4) });
-    };
-
-    const handleEvent = (evt) => {
-      if (!evt || typeof evt !== "object") return;
-      if (evt.session_id) sessionId = evt.session_id;
-      if (evt.type === "system" && evt.subtype === "init") {
-        sendStatus("Reading your request…");
-      } else if (evt.type === "stream_event" && evt.event) {
-        // Token-level deltas: accumulate text + detect fields being filled.
-        const ev = evt.event;
-        if (ev.type === "content_block_delta" && ev.delta) {
-          if (ev.delta.type === "text_delta" && typeof ev.delta.text === "string") {
-            genBuf += ev.delta.text;
-            scanGeneration();
-            sendUsage();
-          } else if (ev.delta.type === "thinking_delta") {
-            // Model is reasoning (no visible text yet) — show it's working.
-            if (announced.size === 0) sendStatus("Reasoning…");
-          }
-        } else if (ev.type === "message_start" && ev.message && ev.message.usage) {
-          const u = ev.message.usage;
-          const ctx = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
-          inputTokens = Math.max(inputTokens, ctx);
-          sendStatus("Thinking…");
-          sendUsage(true);
-        }
-      } else if (evt.type === "assistant" && evt.message && Array.isArray(evt.message.content)) {
-        for (const block of evt.message.content) {
-          if (block.type === "tool_use") sendStatus(aiToolLabel(block));
-          else if (block.type === "text" && block.text) {
-            genBuf += block.text; // in case partial deltas were missed
-            scanGeneration();
-          }
-        }
-      } else if (evt.type === "result") {
-        if (evt.usage) {
-          finalInput = (evt.usage.input_tokens || 0) + (evt.usage.cache_read_input_tokens || 0) + (evt.usage.cache_creation_input_tokens || 0);
-          finalOutput = evt.usage.output_tokens || 0;
-        }
-        if (typeof evt.total_cost_usd === "number") finalCost = evt.total_cost_usd;
-        if (evt.is_error) {
-          finalErr = evt.result || "The assistant reported an error.";
-          needsLogin = /log\s?in|logged in|authenticat/i.test(finalErr);
-        } else {
-          finalText = evt.result ?? finalText;
-        }
-      }
-    };
-
-    try {
-      // Always run in a clean dir (the extracted-text context dir is one, or an
-      // empty scratch dir) — never the user's home/project — so Claude Code does
-      // not auto-load CLAUDE.md / personal memory into the assistant.
-      child = spawn(claude.path, args, { env, cwd: addDirs[0] || aiScratchCwd() });
-    } catch (e) {
-      finish({ ok: false, error: `Could not start Claude Code: ${e.message}` });
-      return;
-    }
-    activeAiChild = child;
-    idle = setTimeout(onIdle, IDLE_MS);
-
-    child.stdout.on("data", (d) => {
-      bump();
-      buf += d.toString();
-      let nl;
-      while ((nl = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, nl).trim();
-        buf = buf.slice(nl + 1);
-        if (line) { try { handleEvent(JSON.parse(line)); } catch {} }
-      }
-    });
-    child.stderr.on("data", () => { bump(); });
-    child.on("error", (e) => finish({ ok: false, error: `Could not start Claude Code: ${e.message}` }));
-    child.on("close", () => {
-      const last = buf.trim();
-      if (last) { try { handleEvent(JSON.parse(last)); } catch {} }
-      if (aiCancelRequested) { aiCancelRequested = false; finish({ ok: false, error: "Stopped.", cancelled: true, partialText: genBuf, sessionId, inputTokens: finalInput, outputTokens: finalOutput, costUsd: finalCost }); return; }
-      if (finalErr) finish({ ok: false, error: finalErr, needsLogin, sessionId, inputTokens: finalInput, outputTokens: finalOutput, costUsd: finalCost });
-      else finish({ ok: true, text: finalText, sessionId, inputTokens: finalInput, outputTokens: finalOutput, costUsd: finalCost });
-    });
-
-    try {
-      child.stdin.write(stdinPrompt);
-      child.stdin.end();
-    } catch (e) {
-      try { child.kill(); } catch {}
-      finish({ ok: false, error: `Could not send the prompt: ${e.message}` });
-    }
-  });
+  return await runLlm(opts, send);
 });
 
 // Cancel an in-flight assistant turn (the Stop button).
 ipcMain.handle("ai-cancel", () => {
+  const res = cancelActiveLlm();
   if (activeAiChild) {
     aiCancelRequested = true;
     try { activeAiChild.kill(); } catch {}
     return { ok: true };
   }
-  return { ok: false };
+  return res;
 });
 
 // Extract text from every PDF in a folder (pdf.js) into a temp context dir and
@@ -942,6 +786,11 @@ ipcMain.handle("ai-split-documents", async (_event, opts) => {
 // ── Auto-updater ─────────────────────────────────────────────────────────────
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
+autoUpdater.logger = {
+  info: (...args) => console.log("[autoUpdater]", ...args),
+  warn: (...args) => console.warn("[autoUpdater]", ...args),
+  error: (...args) => console.error("[autoUpdater]", ...args),
+};
 
 // Persisted state so the renderer can query it any time (e.g. on mount)
 let auState = { status: 'idle', version: null, error: null };
@@ -991,7 +840,13 @@ ipcMain.handle("au-download", async () => {
 });
 
 ipcMain.handle("au-install", () => {
-  autoUpdater.quitAndInstall(true, true);
+  // Give windows a moment to flush pending saves, then install:
+  // On Windows, pass isSilent = false so the user sees the NSIS progress dialog
+  // instead of a silent termination that can abort if a file handle is closing.
+  setImmediate(() => {
+    app.removeAllListeners("window-all-closed");
+    autoUpdater.quitAndInstall(false, true);
+  });
 });
 
 // ── IPC: Google OAuth (PKCE flow) ───────────────────────────────────────────

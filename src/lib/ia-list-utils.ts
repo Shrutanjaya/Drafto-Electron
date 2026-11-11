@@ -2,13 +2,14 @@
 import type { DraftoProject, Annexure } from "@/lib/schema";
 import { standardIaList } from "@/lib/ia-list";
 import { annexurePrefix, isAppeal } from "@/lib/court-family";
+import { annexureRowsOf } from "@/lib/wp/facts-mode";
 
 export const getIaList = (projectData: DraftoProject) => {
     const ias: {prefix: string, title: string, id: string}[] = [];
     const year = new Date().getFullYear();
     const iaPrefix = projectData.caseType === 'Civil' ? `IA ____/${year}` : `Crl. MP ___/${year}`;
     
-    const allAnnexures: Annexure[] = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
+    const allAnnexures: Annexure[] = annexureRowsOf(projectData).flatMap(lod => lod.annexures || []);
     
     // Additional Documents IA comes first for P-annexure continuity
     if (projectData.standardIas.additionalDocuments) {

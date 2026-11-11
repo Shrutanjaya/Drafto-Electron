@@ -72,17 +72,58 @@ input.project-name-field {
   height: 24px !important;
 }
 
-/* Mayur (the AI assistant panel) is interface, not document editing — it follows
-   the Interface font everywhere, including its input box, which would otherwise
-   inherit the Editing font from the global input rule above. */
+/* Mayur (the AI assistant panel) and Settings Dialog are interface, not document editing —
+   they follow the Interface font and 12px font size, exempt from the global editing input rule above. */
 .mayur-panel,
 .mayur-panel textarea,
-.mayur-panel input {
+.mayur-panel input,
+.mayur-dialog,
+.mayur-dialog textarea,
+.mayur-dialog input,
+.mayur-dialog select,
+.mayur-dialog button,
+.settings-dialog-content,
+.settings-dialog-content textarea,
+.settings-dialog-content input,
+.settings-dialog-content select,
+.settings-dialog-content button {
   font-family: var(--ui-font, Arial, Helvetica, sans-serif) !important;
 }
 .mayur-panel textarea,
-.mayur-panel input {
-  font-size: 0.75rem !important;
+.mayur-panel input,
+.mayur-dialog textarea,
+.mayur-dialog input,
+.mayur-dialog select {
+  font-size: 12px !important;
+}
+/* Force a maximum 12px font size in Mayur's dialog on any text larger than 12px */
+.mayur-dialog .text-base,
+.mayur-dialog .text-sm,
+.mayur-dialog .text-lg,
+.mayur-dialog .text-xl,
+.mayur-dialog .text-2xl,
+.mayur-dialog h1,
+.mayur-dialog h2,
+.mayur-dialog h3,
+.mayur-dialog h4,
+.mayur-dialog h5,
+.mayur-dialog h6,
+.mayur-dialog [class*="text-base"],
+.mayur-dialog [class*="text-sm"],
+.mayur-dialog [class*="text-lg"],
+.mayur-dialog [class*="text-xl"] {
+  font-size: 12px !important;
+  line-height: normal;
+}
+.settings-dialog-content input,
+.settings-dialog-content textarea,
+.settings-dialog-content select,
+.settings-dialog-content button,
+.settings-dialog-content label,
+.settings-dialog-content span,
+.settings-dialog-content p,
+.settings-dialog-content div {
+  font-size: 12px !important;
 }
 
 /* Preview/hint (placeholder) text: neutral gray, not the bluish muted-foreground.

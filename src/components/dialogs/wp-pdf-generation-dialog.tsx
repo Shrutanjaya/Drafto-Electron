@@ -124,6 +124,20 @@ export function WpPdfGenerationDialog({
     return () => window.removeEventListener("drafto-open-paperbook", openFromAssistant);
   }, []);
 
+  if (!open) {
+    return (
+      <PaperbookGeneratorView
+        open={false}
+        onOpenChange={setOpen}
+        title="Paperbook Generator"
+        sections={{ initial: [], annexures: [], tail: [] }}
+        onGo={() => {}}
+      >
+        {children}
+      </PaperbookGeneratorView>
+    );
+  }
+
   const syncAnnexureFile = (annexId: string, f?: File, filePath?: string) => {
     const syncRows = (base: string, rows: any[]) => {
       (rows || []).forEach((row: any, ri: number) => {
@@ -261,7 +275,7 @@ export function WpPdfGenerationDialog({
   });
 
   // Writ Petition
-  const petitionAffVal = form.watch("wp.uploads.signedAffidavit" as any);
+  const petitionAffVal = project.wp?.uploads?.signedAffidavit;
   const hasPetitionAff = hasUsableFile(petitionAffVal);
   const petitionAffFileName = petitionAffVal?.file?.name || fileNameOf(petitionAffVal?.filePath);
 
@@ -324,8 +338,7 @@ export function WpPdfGenerationDialog({
               ) : (
                 constituents.map((c: any, k: number) => {
                   const cPath = `${aPath}.collyDocuments.${k}`;
-                  const cVal = form.watch(cPath as any);
-                  const cHas = hasUsableFile(cVal);
+                  const cHas = hasUsableFile(c);
                   return (
                     <div key={k} className="flex items-center justify-between text-[11px]">
                       <span>{c.title || `Document ${k + 1}`}</span>
@@ -352,7 +365,7 @@ export function WpPdfGenerationDialog({
         extra: <IssueList target={`annex:${annex.id}`} />,
       });
     } else {
-      const val = aPath ? form.watch(aPath as any) : annex;
+      const val = annex;
       const has = hasUsableFile(val);
       const fileName = val?.file?.name || fileNameOf(val?.filePath);
 
@@ -383,7 +396,9 @@ export function WpPdfGenerationDialog({
 
   cms.forEach((cm, i) => {
     const affPath = cmAffidavitPath(cm.key);
-    const affVal = affPath ? form.watch(affPath as any) : null;
+    const affVal = !cm.key.startsWith("custom:")
+      ? (project.wp?.cms as any)?.[cm.key]?.signedAffidavit
+      : (project.wp?.customCms || []).find((c: any) => c.id === cm.key.slice("custom:".length))?.signedAffidavit;
     const hasAff = hasUsableFile(affVal);
     const affFileName = affVal?.file?.name || fileNameOf(affVal?.filePath);
 
@@ -415,7 +430,7 @@ export function WpPdfGenerationDialog({
   });
 
   // Vakalatnama
-  const vakVal = form.watch("wp.uploads.signedVakalatnama" as any);
+  const vakVal = project.wp?.uploads?.signedVakalatnama;
   const hasVak = hasUsableFile(vakVal);
   const vakFileName = vakVal?.file?.name || fileNameOf(vakVal?.filePath);
 
@@ -439,7 +454,7 @@ export function WpPdfGenerationDialog({
   });
 
   // Court Fee
-  const courtFeeVal = form.watch("wp.uploads.courtFee" as any);
+  const courtFeeVal = project.wp?.uploads?.courtFee;
   const hasCourtFee = hasUsableFile(courtFeeVal);
   const courtFeeFileName = courtFeeVal?.file?.name || fileNameOf(courtFeeVal?.filePath);
 
@@ -456,7 +471,7 @@ export function WpPdfGenerationDialog({
   });
 
   // Proof of Service
-  const serviceVal = form.watch("wp.uploads.proofOfService" as any);
+  const serviceVal = project.wp?.uploads?.proofOfService;
   const hasService = hasUsableFile(serviceVal);
   const serviceFileName = serviceVal?.file?.name || fileNameOf(serviceVal?.filePath);
 

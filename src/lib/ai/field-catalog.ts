@@ -206,7 +206,7 @@ const BASE_CATALOG: CatalogEntry[] = [
     description: "Relationship phrasing used in the affidavit.",
     isList: false,
     kind: "enum",
-    enumValues: ["son of", "daughter of", "wife of"],
+    enumValues: ["son of", "daughter of", "wife of", "husband of"],
   },
   {
     path: "deponent.role",
@@ -516,13 +516,38 @@ const BASE_CATALOG: CatalogEntry[] = [
     itemFields: PARTICULARS_FIELDS,
   },
   {
+    path: "standardIas.suspensionOfSentence.active",
+    tab: "Applications",
+    label: "IA: Suspension of sentence — active",
+    description: "Set true to include an application for suspension of sentence (in criminal appeals).",
+    isList: false,
+    kind: "boolean",
+  },
+  {
+    path: "standardIas.suspensionOfSentence.grounds",
+    tab: "Applications",
+    label: "Suspension of sentence — grounds",
+    description: "Grounds for seeking suspension of sentence. One per row.",
+    isList: true,
+    itemFields: PARTICULARS_FIELDS,
+  },
+  {
+    path: "pil.injuryToPublic",
+    tab: "Petition",
+    label: "Nature of injury to the public (PIL)",
+    description: "For Writ Petition (PIL) only: nature of injury caused or likely to be caused to the public.",
+    isList: false,
+    kind: "longtext",
+  },
+  {
     path: "customIas",
     tab: "Applications",
     label: "Custom applications (IAs)",
-    description: "Bespoke interlocutory applications beyond the standard ones. Each has a title, its own grounds, and its own prayers.",
+    description: "Bespoke interlocutory applications beyond the standard ones. Each has a title, a para2 continuation, its own grounds, and its own prayers.",
     isList: true,
     itemFields: [
       { key: "title", label: "Application title (e.g. \"Application for ...\")", kind: "text" },
+      { key: "para2", label: "Continuation of Para 2 (\"The present application is being filed by the Petitioner ...\")", kind: "longtext" },
       { key: "grounds", label: "Grounds", kind: "longtext", itemFields: PARTICULARS_FIELDS },
       { key: "prayers", label: "Prayers", kind: "longtext", itemFields: PARTICULARS_FIELDS },
     ],
@@ -634,6 +659,12 @@ export const FIELD_CATALOG: CatalogEntry[] = [...BASE_CATALOG, ...CHECKLIST_ENTR
 // stay out of reach.
 
 export type DraftMode = "SLP" | "WritPetitionDHC" | "OriginalApplicationCAT";
+
+export function draftModeFor(courtType?: string): DraftMode {
+  if (courtType === "WritPetitionDHC") return "WritPetitionDHC";
+  if (courtType === "OriginalApplicationCAT") return "OriginalApplicationCAT";
+  return "SLP";
+}
 
 const WP_PARTY_FIELDS: LeafField[] = [
   { key: "name", label: "Name", kind: "text" },
@@ -783,6 +814,31 @@ export const WP_FIELD_CATALOG: CatalogEntry[] = [
       "The FACTS section of the petition body — an HTML ordered list (<ol><li>…</li></ol>), ONE <li> per List-of-Dates row, each a flowing prose paragraph (\"On 12.03.2021, the Petitioner …\"). Annexure sentences live HERE (\"Annexure P-2 is a true copy of … dated ….\") — keep each annexure sentence with the paragraph for its event, in the annexure's P-number order. EXCEPTION: the impugned order's own sentence prints in Para 1 automatically — do NOT write it in Facts (the other annexures still cite their real P-numbers, P-2 onwards).",
     isList: false,
     kind: "longtext",
+  },
+  {
+    path: "wp.factsRows",
+    tab: "Petition",
+    label: "Facts Table Rows",
+    description: "Facts section stored as individual paragraph rows (one paragraph per row in `event`, or a section heading with `isHeading: true` and `heading`), plus optional `annexures` attached to that paragraph.",
+    isList: true,
+    itemFields: [
+      { key: "event", label: "Fact paragraph text", kind: "longtext" },
+      { key: "isHeading", label: "This row is a heading", kind: "boolean" },
+      { key: "heading", label: "Heading text", kind: "text" },
+      {
+        key: "annexures",
+        label: "Annexure(s) for this fact paragraph",
+        kind: "longtext",
+        itemFields: [
+          { key: "title", label: "Annexure description/title", kind: "longtext" },
+          { key: "date", label: "Annexure date (free text)", kind: "text" },
+          { key: "copyType", label: "Copy type", kind: "enum", enumValues: ["true copy", "typed copy", "true and typed copy", "translated copy", "true and translated copy"] },
+          { key: "customText", label: "Extra custom text (optional)", kind: "longtext" },
+          { key: "isAdditionalDocument", label: "Additional Document", kind: "boolean" },
+          { key: "isImpugnedOrder", label: "Impugned Order", kind: "boolean" },
+        ],
+      },
+    ],
   },
   {
     path: "grounds",
@@ -1074,6 +1130,29 @@ export const OA_FIELD_CATALOG: CatalogEntry[] = [
       "The facts narration, as an HTML ordered list (<ol><li>…</li></ol>) — one <li> per numbered sub-paragraph. Normally transposed from the List of Dates; draft it directly only when asked.",
     isList: false,
     kind: "longtext",
+  },
+  {
+    path: "oa.factsRows",
+    tab: "Application",
+    label: "Facts Table Rows (Para 4)",
+    description: "Facts section stored as individual paragraph rows (one paragraph per row in `event`, or a section heading with `isHeading: true` and `heading`), plus optional `annexures` attached to that paragraph.",
+    isList: true,
+    itemFields: [
+      { key: "event", label: "Fact paragraph text", kind: "longtext" },
+      { key: "isHeading", label: "This row is a heading", kind: "boolean" },
+      { key: "heading", label: "Heading text", kind: "text" },
+      {
+        key: "annexures",
+        label: "Annexure(s) for this fact paragraph",
+        kind: "longtext",
+        itemFields: [
+          { key: "title", label: "Annexure description/title", kind: "longtext" },
+          { key: "date", label: "Annexure date (free text)", kind: "text" },
+          { key: "copyType", label: "Copy type", kind: "enum", enumValues: ["true copy", "typed copy", "true and typed copy", "translated copy", "true and translated copy"] },
+          { key: "customText", label: "Extra custom text (optional)", kind: "longtext" },
+        ],
+      },
+    ],
   },
   {
     path: "grounds",

@@ -1,62 +1,99 @@
-
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { UseFormReturn } from 'react-hook-form';
 import type { DraftoProject } from '@/lib/schema';
-import { isEqual } from 'lodash-es';
+import { isEqual, cloneDeepWith } from 'lodash-es';
 
-// Using lodash-es for deep equality check as it's tree-shakable.
-// If not available, a simple JSON.stringify comparison can be a fallback,
-// but it's less reliable for complex objects.
+const MAX_HISTORY = 50;
+const DEBOUNCE_MS = 800;
+
+function cloneProjectState(state: DraftoProject): DraftoProject {
+  return cloneDeepWith(state, (val) => {
+    if (typeof File !== 'undefined' && val instanceof File) return val;
+    if (typeof Blob !== 'undefined' && val instanceof Blob) return val;
+    return undefined;
+  });
+}
 
 export function useUndoRedo(form: UseFormReturn<DraftoProject>) {
   const { watch, reset } = form;
-  const [history, setHistory] = useState<DraftoProject[]>([form.getValues()]);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const historyRef = useRef<DraftoProject[]>([cloneProjectState(form.getValues())]);
+  const indexRef = useRef<number>(0);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
   const isUndoRedoRef = useRef(false);
-  
-  const watchedValues = watch();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const syncFlags = useCallback(() => {
+    setCanUndo(indexRef.current > 0);
+    setCanRedo(indexRef.current < historyRef.current.length - 1);
+  }, []);
 
   useEffect(() => {
-    if (isUndoRedoRef.current) {
-      isUndoRedoRef.current = false;
-      return;
-    }
+    const subscription = watch(() => {
+      if (isUndoRedoRef.current) {
+        isUndoRedoRef.current = false;
+        return;
+      }
 
-    const currentValues = form.getValues();
-    const lastStateInHistory = history[currentIndex];
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
 
-    // Using a deep equality check is more reliable than JSON.stringify
-    if (!isEqual(currentValues, lastStateInHistory)) {
-      const newHistory = history.slice(0, currentIndex + 1);
-      newHistory.push(currentValues);
-      setHistory(newHistory);
-      setCurrentIndex(newHistory.length - 1);
-    }
+      timerRef.current = setTimeout(() => {
+        const currentValues = form.getValues();
+        const lastStateInHistory = historyRef.current[indexRef.current];
 
-  }, [watchedValues]); // This depends on watchedValues to trigger on change
+        if (!isEqual(currentValues, lastStateInHistory)) {
+          const nextHistory = historyRef.current.slice(0, indexRef.current + 1);
+          nextHistory.push(cloneProjectState(currentValues));
+          if (nextHistory.length > MAX_HISTORY) {
+            nextHistory.shift();
+          }
+          historyRef.current = nextHistory;
+          indexRef.current = nextHistory.length - 1;
+          syncFlags();
+        }
+      }, DEBOUNCE_MS);
+    });
 
-  const canUndo = currentIndex > 0;
-  const canRedo = currentIndex < history.length - 1;
+    const handleNewProject = () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      historyRef.current = [cloneProjectState(form.getValues())];
+      indexRef.current = 0;
+      syncFlags();
+    };
+    window.addEventListener('drafto-new-project', handleNewProject);
+
+    return () => {
+      subscription.unsubscribe();
+      if (timerRef.current) clearTimeout(timerRef.current);
+      window.removeEventListener('drafto-new-project', handleNewProject);
+    };
+  }, [watch, form, syncFlags]);
 
   const undo = useCallback(() => {
-    if (canUndo) {
+    if (indexRef.current > 0) {
+      if (timerRef.current) clearTimeout(timerRef.current);
       isUndoRedoRef.current = true;
-      const newIndex = currentIndex - 1;
-      reset(history[newIndex]);
-      setCurrentIndex(newIndex);
+      const newIndex = indexRef.current - 1;
+      indexRef.current = newIndex;
+      reset(cloneProjectState(historyRef.current[newIndex]), { keepDirty: newIndex > 0 });
+      syncFlags();
     }
-  }, [canUndo, currentIndex, history, reset]);
+  }, [reset, syncFlags]);
 
   const redo = useCallback(() => {
-    if (canRedo) {
+    if (indexRef.current < historyRef.current.length - 1) {
+      if (timerRef.current) clearTimeout(timerRef.current);
       isUndoRedoRef.current = true;
-      const newIndex = currentIndex + 1;
-      reset(history[newIndex]);
-      setCurrentIndex(newIndex);
+      const newIndex = indexRef.current + 1;
+      indexRef.current = newIndex;
+      reset(cloneProjectState(historyRef.current[newIndex]), { keepDirty: true });
+      syncFlags();
     }
-  }, [canRedo, currentIndex, history, reset]);
+  }, [reset, syncFlags]);
 
   return { undo, redo, canUndo, canRedo };
 }

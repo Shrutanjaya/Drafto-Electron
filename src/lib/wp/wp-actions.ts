@@ -85,6 +85,7 @@ function wpDoc(children: (Paragraph | Table)[], numbering?: any[], opts?: { vak?
 }
 
 async function pack(doc: Document, fileName: string) {
+  setDocxExportContext(null);
   const b64 = await Packer.toBase64String(doc);
   let docx = b64;
   try {

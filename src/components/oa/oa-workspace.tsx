@@ -27,6 +27,7 @@ import { getSettings } from "@/components/dialogs/settings-dialog";
 import { FactsSection } from "@/components/custom/facts-section";
 import { oaBench } from "@/lib/oa/oa-benches";
 import { oaMaSchema } from "@/lib/schema";
+import { MayurButton } from "@/components/custom/mayur-button";
 
 const OA_RESIDUARY = "Pass such other/further orders as this Hon’ble Tribunal may deem fit and proper in the facts and circumstances of the case.";
 
@@ -185,7 +186,10 @@ export function OaWorkspace() {
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">Main prayers — used in Para 1 (inline) and Para 8 (Prayers). The residuary “Pass such other/further orders…” is added automatically.</p>
-        <StylePicker name="oa.numbering.prayer" options={SUBPARA_STYLES_PRAYER} />
+        <div className="flex items-center gap-1.5">
+          <MayurButton section="reliefs" />
+          <StylePicker name="oa.numbering.prayer" options={SUBPARA_STYLES_PRAYER} />
+        </div>
       </div>
       <AamTable name="oa.reliefs" />
       <p className="rounded-md bg-muted/40 px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
@@ -201,7 +205,12 @@ export function OaWorkspace() {
       annexureModePath="oa.annexureMode"
       storedFactsPath="oa.facts"
       subtitle="Para 4 — one row per sub-paragraph, with the annexures attached here or in the List of Dates."
-      headerExtra={<StylePicker name="oa.numbering.facts" options={subparaStyles(4)} />}
+      headerExtra={
+        <div className="flex items-center gap-1.5">
+          <MayurButton section="facts" />
+          <StylePicker name="oa.numbering.facts" options={subparaStyles(4)} />
+        </div>
+      }
     />
   );
 
@@ -215,7 +224,10 @@ export function OaWorkspace() {
   const jurisdictionEditor = (
     <div className="space-y-4">
       <div className="space-y-1.5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Para 2 — Jurisdiction</p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Para 2 — Jurisdiction</p>
+          <MayurButton section="oa-jurisdiction" />
+        </div>
         <FormField control={form.control} name="oa.jurisdictionPosted" render={({ field }) => (
           <div className="flex items-start gap-2"><Checkbox id="oa-jur-posted" checked={field.value} onCheckedChange={field.onChange} className="mt-0.5" />
             <label htmlFor="oa-jur-posted" className="text-xs">The {applNoun} {applIs} posted for the time being within the jurisdiction of this Hon’ble Tribunal.</label></div>
@@ -278,7 +290,10 @@ export function OaWorkspace() {
 
   const interimEditor = (
     <div className="space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Para 9 — Interim Relief</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Para 9 — Interim Relief</p>
+        <MayurButton section="interim" />
+      </div>
       <FormField control={form.control} name="oa.interimNil" render={({ field }) => (
         <div className="flex items-center gap-2"><Checkbox id="oa-interim-nil" checked={field.value} onCheckedChange={field.onChange} />
           <label htmlFor="oa-interim-nil" className="text-xs">NIL (no interim relief sought)</label></div>
@@ -326,6 +341,17 @@ export function OaWorkspace() {
 
   const toolbar = (
     <div className="flex shrink-0 items-center gap-1">
+      {viewMode === "navigation" && (
+        <>
+          {section === "synopsis" && <MayurButton section="synopsis" />}
+          {section === "listOfDates" && <MayurButton section="lod" />}
+          {section === "facts" && <MayurButton section="facts" />}
+          {section === "grounds" && <MayurButton section="grounds" />}
+          {section === "reliefs" && <MayurButton section="reliefs" />}
+          {section === "interim" && <MayurButton section="interim" />}
+          {section === "jurisdiction" && <MayurButton section="oa-jurisdiction" />}
+        </>
+      )}
       <div className="flex-grow" />
       <EditorToolbar />
       <ViewToggle mode={viewMode} onChange={setViewMode} />
@@ -383,6 +409,10 @@ export function OaWorkspace() {
           ))}
         </div>
 
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Memo of Parties</span>
+          <MayurButton section="parties" />
+        </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <p className="mb-1 text-xs font-medium">{applNoun}</p>
@@ -421,21 +451,30 @@ export function OaWorkspace() {
               <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId="oa-editor-split">
                 <ResizablePanel defaultSize={50}>
                   <div className="flex h-full flex-col p-1">
-                    <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">List of Dates</h4>
+                    <div className="mb-1 flex items-center justify-between gap-1">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">List of Dates</h4>
+                      <MayurButton section="lod" />
+                    </div>
                     <div className="flex-grow overflow-auto">{lodEditor}</div>
                   </div>
                 </ResizablePanel>
                 <ResizableHandle withHandle />
                 <ResizablePanel defaultSize={30}>
                   <div className="flex h-full flex-col p-1">
-                    <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Grounds</h4>
+                    <div className="mb-1 flex items-center justify-between gap-1">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Grounds</h4>
+                      <MayurButton section="grounds" />
+                    </div>
                     <div className="flex-grow overflow-auto">{groundsEditor}</div>
                   </div>
                 </ResizablePanel>
                 <ResizableHandle withHandle />
                 <ResizablePanel defaultSize={20}>
                   <div className="flex h-full flex-col p-1">
-                    <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Synopsis</h4>
+                    <div className="mb-1 flex items-center justify-between gap-1">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Synopsis</h4>
+                      <MayurButton section="synopsis" />
+                    </div>
                     <div className="flex-grow overflow-auto">{synopsisEditor}</div>
                   </div>
                 </ResizablePanel>

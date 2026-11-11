@@ -40,6 +40,7 @@ import { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures";
 import { annexureRowsOf } from "@/lib/wp/facts-mode";
 import { isPil } from "@/lib/court-family";
 import { countParties } from "@/lib/party-grammar";
+import { MayurButton } from "@/components/custom/mayur-button";
 import {
   getIaCommonClosing,
   IA_PRAYER_LEAD,
@@ -293,20 +294,23 @@ export function ScWpIasTab() {
               {/* ── Official Translation ── */}
               {selectedId === "ot" && (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">
                       {`Application for exemption from filing official translation of ${otReason || "annexures"}`}
                     </h4>
-                    <FormField
-                      control={form.control}
-                      name="standardIas.exemptionOfficialTranslation.active"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center gap-1.5 space-y-0">
-                          <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="ot-active" /></FormControl>
-                          <FormLabel htmlFor="ot-active" className="text-xs font-normal cursor-pointer">Include in Paper-Book</FormLabel>
-                        </FormItem>
-                      )}
-                    />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <FormField
+                        control={form.control}
+                        name="standardIas.exemptionOfficialTranslation.active"
+                        render={({ field }) => (
+                          <FormItem className="flex items-center gap-1.5 space-y-0">
+                            <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} id="ot-active" /></FormControl>
+                            <FormLabel htmlFor="ot-active" className="text-xs font-normal cursor-pointer">Include in Paper-Book</FormLabel>
+                          </FormItem>
+                        )}
+                      />
+                      <MayurButton section="ia:ot" />
+                    </div>
                   </div>
 
                   <StandardBlock startNum={1} paras={[getScWpIaOpening(wpDocNoun)]} />
@@ -343,21 +347,27 @@ export function ScWpIasTab() {
               {/* ── Custom IAs ── */}
               {customIaFields.map((field, index) => selectedId === field.id && (
                 <div key={field.id} className="space-y-3">
-                  <FormField
-                    control={form.control}
-                    name={`customIas.${index}.title`}
-                    render={({ field: tf }) => (
-                      <FormItem>
-                        <FormControl>
-                          <Input
-                            {...tf}
-                            className="text-sm font-semibold border-0 border-b rounded-none bg-transparent focus-visible:ring-0 px-0 h-auto"
-                            placeholder="Application for..."
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <FormField
+                      control={form.control}
+                      name={`customIas.${index}.title`}
+                      render={({ field: tf }) => (
+                        <FormItem className="flex-1">
+                          <FormControl>
+                            <Input
+                              {...tf}
+                              className="text-sm font-semibold border-0 border-b rounded-none bg-transparent focus-visible:ring-0 px-0 h-auto"
+                              placeholder="Application for..."
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <MayurButton
+                      section={`ia:custom:${index}`}
+                      label={form.watch(`customIas.${index}.title`) || `Custom IA #${index + 1}`}
+                    />
+                  </div>
                   <StandardBlock startNum={1} paras={[getScWpIaOpening(wpDocNoun)]} />
                   <div className="space-y-1">
                     <p className={STD_TEXT}>

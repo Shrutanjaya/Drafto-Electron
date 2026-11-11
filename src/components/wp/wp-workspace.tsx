@@ -30,6 +30,7 @@ import { getSettings } from "@/components/dialogs/settings-dialog";
 import { UseFirstPartyButton } from "@/components/custom/use-first-party-button";
 import { getWpFiledBy } from "@/lib/wp/wp-settings";
 import { countParties, getPartyGrammar, adaptPartyText } from "@/lib/party-grammar";
+import { MayurButton } from "@/components/custom/mayur-button";
 
 // ── Shared little components (mirrors the SLP tab) ───────────────────────────
 function ViewToggle({ mode, onChange }: { mode: "splitter" | "navigation"; onChange: (m: "splitter" | "navigation") => void }) {
@@ -198,15 +199,25 @@ export function WpWorkspace() {
 
   const reliefsEditor = (
     <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">
-        Single source of truth — all rows (residuary prayer last) print in the top reliefs block, Para 1 (run together inline) and the final Prayers.
-        Type each relief&rsquo;s own punctuation (&ldquo;; and&rdquo; between, a full stop after the last) — nothing is added automatically.
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          Single source of truth — all rows (residuary prayer last) print in the top reliefs block, Para 1 (run together inline) and the final Prayers.
+          Type each relief&rsquo;s own punctuation (&ldquo;; and&rdquo; between, a full stop after the last) — nothing is added automatically.
+        </p>
+        <MayurButton section="reliefs" />
+      </div>
       <AamTable name="wp.reliefs" />
     </div>
   );
 
-  const factsEditor = <FactsSection />;
+  const factsEditor = (
+    <div className="space-y-2">
+      <div className="flex items-center justify-end">
+        <MayurButton section="facts" />
+      </div>
+      <FactsSection />
+    </div>
+  );
 
   const groundsEditor = <AamTable name="grounds" allowHeadings />;
 
@@ -242,6 +253,11 @@ export function WpWorkspace() {
             <ResizablePanel defaultSize={78} minSize={60}>
               <div className="flex h-full flex-col space-y-2 p-2">
                 <div className="flex shrink-0 items-center gap-1">
+                  {editorSection === "synopsis" && <MayurButton section="synopsis" />}
+                  {editorSection === "listOfDates" && <MayurButton section="lod" />}
+                  {editorSection === "reliefs" && <MayurButton section="reliefs" />}
+                  {editorSection === "facts" && <MayurButton section="facts" />}
+                  {editorSection === "grounds" && <MayurButton section="grounds" />}
                   <div className="flex-grow" />
                   <EditorToolbar />
                   <ViewToggle mode={viewMode} onChange={setViewMode} />
@@ -267,21 +283,30 @@ export function WpWorkspace() {
           <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId="wp-editor-split">
             <ResizablePanel defaultSize={50}>
               <div className="flex h-full flex-col p-1">
-                <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">List of Dates</h4>
+                <div className="mb-1 flex items-center justify-between gap-1">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">List of Dates</h4>
+                  <MayurButton section="lod" />
+                </div>
                 <div className="flex-grow overflow-auto">{lodEditor}</div>
               </div>
             </ResizablePanel>
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize={30}>
               <div className="flex h-full flex-col p-1">
-                <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Grounds</h4>
+                <div className="mb-1 flex items-center justify-between gap-1">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Grounds</h4>
+                  <MayurButton section="grounds" />
+                </div>
                 <div className="flex-grow overflow-auto">{groundsEditor}</div>
               </div>
             </ResizablePanel>
             <ResizableHandle withHandle />
             <ResizablePanel defaultSize={20}>
               <div className="flex h-full flex-col p-1">
-                <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Synopsis</h4>
+                <div className="mb-1 flex items-center justify-between gap-1">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Synopsis</h4>
+                  <MayurButton section="synopsis" />
+                </div>
                 <div className="flex-grow overflow-auto">{synopsisEditor}</div>
               </div>
             </ResizablePanel>
@@ -298,6 +323,10 @@ export function WpWorkspace() {
   const respondentThrough = 'E.g., "Through the Secretary, Ministry of Home Affairs"';
   const partiesContent = (
     <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Memo of Parties</span>
+        <MayurButton section="parties" />
+      </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div><p className="mb-1 text-xs font-medium">{countParties(petitioners) > 1 ? "Petitioners" : "Petitioner"}</p><VaadiTable name="petitioners" showPosition={false} showThrough throughPlaceholder={petitionerThrough} compactAdd /></div>
         <div><p className="mb-1 text-xs font-medium">{countParties(respondents) > 1 ? "Respondents" : "Respondent"}</p><VaadiTable name="respondents" showPosition={false} showThrough throughPlaceholder={respondentThrough} compactAdd /></div>
@@ -351,7 +380,10 @@ export function WpWorkspace() {
   );
   const deponentContent = (
     <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs">
-      <div className="mb-1 flex w-full justify-end"><UseFirstPartyButton /></div>
+      <div className="mb-1 flex w-full items-center justify-end gap-1.5">
+        <MayurButton section="deponent" />
+        <UseFirstPartyButton />
+      </div>
       The Deponent is
       {depField("deponent.name", "Name", "w-[150px]")},
       <FormField control={form.control} name="deponent.relationship" render={({ field }) => (
@@ -491,7 +523,10 @@ export function WpWorkspace() {
   );
   const stayContent = (
     <div className="space-y-3">
-      {cmToggle("wp.cms.stay.active", "cm-stay", "Include a CM for Stay of the impugned order")}
+      <div className="flex items-center justify-between gap-2">
+        {cmToggle("wp.cms.stay.active", "cm-stay", "Include a CM for Stay of the impugned order")}
+        <MayurButton section="cm:stay" />
+      </div>
       {cmTitle("wp.cms.stay.title", WP_STD_CM_TITLES.stay)}
       {cmBody("wp.cms.stay.body")}
       {cmPrayers("wp.cms.stay.prayers")}
@@ -499,7 +534,10 @@ export function WpWorkspace() {
   );
   const lengthyContent = (
     <div className="space-y-3">
-      {cmToggle("wp.cms.lengthySynopsis.active", "cm-syn", "Include a CM seeking permission to file a lengthy Synopsis & List of Dates")}
+      <div className="flex items-center justify-between gap-2">
+        {cmToggle("wp.cms.lengthySynopsis.active", "cm-syn", "Include a CM seeking permission to file a lengthy Synopsis & List of Dates")}
+        <MayurButton section="cm:lengthySynopsis" />
+      </div>
       {cmTitle("wp.cms.lengthySynopsis.title", WP_STD_CM_TITLES.lengthySynopsis)}
       {cmBody("wp.cms.lengthySynopsis.body")}
       {cmPrayers("wp.cms.lengthySynopsis.prayers")}
@@ -507,7 +545,10 @@ export function WpWorkspace() {
   );
   const exemptionContent = (
     <div className="space-y-3">
-      {cmToggle("wp.cms.exemptionCopies.active", "cm-exempt", "Include a CM for exemption from filing certified / legible / true-typed copies")}
+      <div className="flex items-center justify-between gap-2">
+        {cmToggle("wp.cms.exemptionCopies.active", "cm-exempt", "Include a CM for exemption from filing certified / legible / true-typed copies")}
+        <MayurButton section="cm:exemptionCopies" />
+      </div>
       {cmTitle("wp.cms.exemptionCopies.title", WP_STD_CM_TITLES.exemptionCopies)}
       {cmBody("wp.cms.exemptionCopies.body")}
       {cmPrayers("wp.cms.exemptionCopies.prayers")}
@@ -523,8 +564,13 @@ export function WpWorkspace() {
       </div>
       {customCms.fields.length === 0
         ? <p className="text-xs text-muted-foreground">No custom applications. Add one for any CM beyond the three standard ones (each gets its own A-series annexures).</p>
-        : <div className="space-y-2">{customCms.fields.map((f, i) => (
-            <CustomIaCard key={f.id} index={i} basePath={`wp.customCms.${i}`} para2Label="This application is being filed praying that…" onRemove={() => customCms.remove(i)} />
+        : <div className="space-y-3">{customCms.fields.map((f, i) => (
+            <div key={f.id} className="space-y-1">
+              <div className="flex items-center justify-end">
+                <MayurButton section={`cm:custom:${i}`} label={`Custom CM #${i + 1}`} />
+              </div>
+              <CustomIaCard index={i} basePath={`wp.customCms.${i}`} para2Label="This application is being filed praying that…" onRemove={() => customCms.remove(i)} />
+            </div>
           ))}</div>}
     </div>
   );

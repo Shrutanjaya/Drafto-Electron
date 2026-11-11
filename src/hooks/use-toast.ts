@@ -16,6 +16,52 @@ type ToasterToast = ToastProps & {
   title?: React.ReactNode
   description?: React.ReactNode
   action?: ToastActionElement
+  skipSessionLog?: boolean
+}
+
+export interface SessionNotification {
+  id: string
+  title?: React.ReactNode
+  description?: React.ReactNode
+  variant?: "default" | "destructive" | "success"
+  timestamp: Date
+  read: boolean
+}
+
+let sessionHistory: SessionNotification[] = []
+const historyListeners: Array<(history: SessionNotification[]) => void> = []
+
+function notifyHistoryListeners() {
+  historyListeners.forEach((listener) => listener([...sessionHistory]))
+}
+
+export function clearSessionNotifications() {
+  sessionHistory = []
+  notifyHistoryListeners()
+}
+
+export function markNotificationsAsRead() {
+  sessionHistory = sessionHistory.map((n) => ({ ...n, read: true }))
+  notifyHistoryListeners()
+}
+
+export function useSessionNotifications() {
+  const [history, setHistory] = React.useState<SessionNotification[]>(sessionHistory)
+
+  React.useEffect(() => {
+    historyListeners.push(setHistory)
+    return () => {
+      const idx = historyListeners.indexOf(setHistory)
+      if (idx > -1) historyListeners.splice(idx, 1)
+    }
+  }, [])
+
+  return {
+    notifications: history,
+    clear: clearSessionNotifications,
+    markAsRead: markNotificationsAsRead,
+    unreadCount: history.filter((n) => !n.read).length,
+  }
 }
 
 const actionTypes = {
@@ -145,12 +191,48 @@ type Toast = Omit<ToasterToast, "id">
 function toast({ ...props }: Toast) {
   const id = genId()
 
-  const update = (props: ToasterToast) =>
+  const update = (updatedProps: ToasterToast) => {
     dispatch({
       type: "UPDATE_TOAST",
-      toast: { ...props, id },
+      toast: { ...updatedProps, id },
     })
+    sessionHistory = sessionHistory.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            title: updatedProps.title !== undefined ? updatedProps.title : item.title,
+            description: updatedProps.description !== undefined ? updatedProps.description : item.description,
+            variant: (updatedProps.variant as any) || item.variant,
+          }
+        : item
+    )
+    notifyHistoryListeners()
+  }
+
   const dismiss = () => dispatch({ type: "DISMISS_TOAST", toastId: id })
+
+  // Log to session notifications history (keep up to 100 most recent items of the session).
+  // Exclude routine autosave / "Saved" popups from cluttering the notification drawer.
+  const isAutosaveOrSave =
+    Boolean((props as any)?.skipSessionLog) ||
+    (typeof props.title === "string" &&
+      (props.title.trim().toLowerCase() === "saved" ||
+        props.title.toLowerCase().includes("autosave")));
+
+  if (!isAutosaveOrSave) {
+    sessionHistory = [
+      {
+        id,
+        title: props.title,
+        description: props.description,
+        variant: (props.variant as any) || "default",
+        timestamp: new Date(),
+        read: false,
+      },
+      ...sessionHistory,
+    ].slice(0, 100)
+    notifyHistoryListeners()
+  }
 
   dispatch({
     type: "ADD_TOAST",

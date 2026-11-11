@@ -62,7 +62,7 @@ const mainDocumentParticular = (projectData: DraftoProject) =>
     : "Special Leave Petition with Certificate and Affidavit";
 
 const appealHeaderArg = (projectData: DraftoProject) =>
-  isAppeal(projectData.courtType) ? { provision: appealProvisionText(projectData), provisionId: projectData.appealProvision } : undefined;
+  isAppeal(projectData.courtType) ? { provision: appealProvisionText(projectData), provisionId: projectData.appeal?.provision } : undefined;
 
 const calculateIoText = (projectData: DraftoProject) => {
     if (!projectData.impugnedOrders || projectData.impugnedOrders.length === 0) {
@@ -799,23 +799,42 @@ export async function generateCiDocx(projectData: DraftoProject, pageRanges?: Ma
   const petHeader = getPartyHeader(effectivePetitioners);
   const resHeader = getPartyHeader(effectiveRespondents);
   
-  if (projectData.impugnedOrders && projectData.impugnedOrders.length > 0 && projectData.advocate.filingDate) {
-    const latestOrder = projectData.impugnedOrders.reduce((latest, current) => {
-        return new Date(latest.date) > new Date(current.date) ? latest : current;
-    });
-
-    const daysDifference = differenceInDays(new Date(projectData.advocate.filingDate), new Date(latestOrder.date));
-    const lim = getAppealLimitation(
-      projectData.courtType,
-      projectData.caseType,
-      projectData.appeal?.provision,
-      projectData.appeal?.provisionCustom
-    );
-    const calculatedDelay = daysDifference - lim.limitationDays;
-    projectData.standardIas.condonationOfDelay.delayDays = Math.max(0, calculatedDelay);
+  let effectiveProjectData = projectData;
+  if (
+    projectData.impugnedOrders &&
+    projectData.impugnedOrders.length > 0 &&
+    projectData.advocate.filingDate &&
+    !(projectData.standardIas?.condonationOfDelay?.delayDays > 0)
+  ) {
+    const validOrders = projectData.impugnedOrders
+      .map(o => ({ order: o, parsed: o.date ? new Date(o.date) : null }))
+      .filter(x => x.parsed && !isNaN(x.parsed.getTime()));
+    if (validOrders.length > 0) {
+      const earliestOrder = validOrders.reduce((earliest, current) =>
+        earliest.parsed! <= current.parsed! ? earliest : current
+      );
+      const daysDifference = differenceInDays(new Date(projectData.advocate.filingDate), earliestOrder.parsed!);
+      const lim = getAppealLimitation(
+        projectData.courtType,
+        projectData.caseType,
+        projectData.appeal?.provision,
+        projectData.appeal?.provisionCustom
+      );
+      const calculatedDelay = Math.max(0, daysDifference - lim.limitationDays);
+      effectiveProjectData = {
+        ...projectData,
+        standardIas: {
+          ...projectData.standardIas,
+          condonationOfDelay: {
+            ...projectData.standardIas.condonationOfDelay,
+            delayDays: calculatedDelay,
+          },
+        },
+      };
+    }
   }
 
-  const iaList = getIaList(projectData);
+  const iaList = getIaList(effectiveProjectData);
   const aorName = projectData.advocate.aorName || "[AoR Name]";
 
   const year = new Date().getFullYear();
@@ -1247,14 +1266,14 @@ export async function generateOrDocx(projectData: DraftoProject, includeSignatur
         },
         children: [
           ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData)),
-          ...createPartiesHeader(petHeader, resHeader),
+          ...createPartiesHeader(petHeader, resHeader, getPartyGrammar(projectData).baseNoun, { multiPet: getPartyGrammar(projectData).multiPet, multiRes: getPartyGrammar(projectData).multiRes }),
           new Paragraph({ alignment: AlignmentType.CENTER, children: [ smartTextRun({ text: "OFFICE REPORT ON LIMITATION", bold: true }) ] }),
           new Paragraph({ children: [smartTextRun("1. The Special Leave Petition is within limitation.")] }),
           new Paragraph({ children: [smartTextRun("2. The Petition is barred by time and there is a delay of __ days in filing SLP against the judgment dated ____ and application for condonation of __ days' delay has been filed.")] }),
           new Paragraph({ children: [smartTextRun("3. There is delay of __ days in re-filing the petition and petition for condonation of __ days delay in re-filing has been/not been filed.")] }),
           new Paragraph({ alignment: AlignmentType.RIGHT, children: [ smartTextRun({ text: "BRANCH OFFICER", bold: true }) ] }),
           new Paragraph({}),
-          ...createFiledByTable(projectData.advocate.filingDate, aorName, { includeSignature }),
+          ...createFiledByTable(projectData.advocate.filingDate, aorName, { includeSignature, partyNoun: getPartyGrammar(projectData).Pet }),
         ],
       },
     ],
@@ -1479,6 +1498,7 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
     });
 
     const b64string = await Packer.toBase64String(doc);
+    setDocxExportContext(null);
     return { success: true, docx: b64string, fileName: `SLoD.docx` };
 }
 
@@ -1637,7 +1657,7 @@ export async function generateSlpDocx(
                 ? [
                     centeredTitle("IN THE SUPREME COURT OF INDIA"),
                     centeredTitle(isAppealDoc
-                        ? `[S.C.R., ${appealOrderRule(projectData.caseType, projectData.appealProvision)}]`
+                        ? `[S.C.R., ${appealOrderRule(projectData.caseType, projectData.appeal?.provision)}]`
                         : projectData.caseType === 'Criminal'
                             ? "[S.C.R., Order XXII Rule 2(1)]"
                             : "[S.C.R., Order XXI Rule 3(1)(a)]"),
@@ -1685,7 +1705,7 @@ export async function generateSlpDocx(
     }
 
     const ioActionText = calculateIoActionText(projectData);
-    const allAnnexures: Annexure[] = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
+    const allAnnexures: Annexure[] = annexureRowsOf(projectData).flatMap(lod => lod.annexures || []);
     const nonAdAnnexures = allAnnexures.filter(annex => !annex.isAdditionalDocument);
     const lastNonAdPNumber = nonAdAnnexures.length;
 
@@ -2111,7 +2131,7 @@ export async function generateSlpDocx(
                 children: [smartTextRun({ text: `And for this act of kindness, the humble ${g.Pet} shall ever pray.`, italics: true })]
             }),
             ...(advocateDetailsTable ? [advocateDetailsTable, new Paragraph("")] : []),
-            ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature, trailingParagraph: false }),
+            ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature, trailingParagraph: false, partyNoun: g.Pet }),
             ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData), true),
             ...createPartiesHeader(petHeader, resHeader, g.baseNoun, { multiPet: g.multiPet, multiRes: g.multiRes }),
             new Paragraph({
@@ -2124,7 +2144,7 @@ export async function generateSlpDocx(
                 spacing: { line: 240 },
                 alignment: AlignmentType.JUSTIFIED,
             }),
-            ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature }),
+            ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature, partyNoun: g.Pet }),
         ]
     }];
 
@@ -2137,6 +2157,7 @@ export async function generateSlpDocx(
     });
 
     const b64string = await Packer.toBase64String(doc);
+    setDocxExportContext(null);
     return { success: true, docx: b64string, fileName: `SLP.docx` };
 }
 
@@ -2156,6 +2177,7 @@ export async function generateRefilingDocx(projectData: DraftoProject, includeSi
     const ioText = ` ${calculateIoText(projectData)}`;
     const petHeader = getPartyHeader(projectData.petitioners);
     const resHeader = getPartyHeader(projectData.respondents);
+    const g = getPartyGrammar(projectData);
 
     const doc = new Document({
         styles: getDefaultStyles(),
@@ -2163,14 +2185,14 @@ export async function generateRefilingDocx(projectData: DraftoProject, includeSi
             properties: { page: { margin: getSlpMargins() } },
             children: [
                 ...createSlpHeader(projectData.caseType, ioText, getSlpLayout().headerStyle, appealHeaderArg(projectData)),
-                ...createPartiesHeader(petHeader, resHeader),
+                ...createPartiesHeader(petHeader, resHeader, g.baseNoun, { multiPet: g.multiPet, multiRes: g.multiRes }),
                 new Paragraph({ children: [smartTextRun({ text: "DECLARATION", bold: true })], alignment: AlignmentType.CENTER, style: "Normal" }),
                 new Paragraph({
                     children: [smartTextRun("It is certified and declared that all defects marked in the captioned matter stand cured. Accordingly, the matter may kindly be processed for listing.")],
                     style: "Normal",
                 }),
                 new Paragraph(""),
-                ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature }),
+                ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature, partyNoun: g.Pet }),
             ],
         }],
     });
@@ -2192,6 +2214,7 @@ export async function generateAppendixDocx(projectData: DraftoProject, itemId?: 
         .filter(({ item }) => (itemId ? item.id === itemId : true));
 
     if (wanted.length === 0) {
+        setDocxExportContext(null);
         return { success: false, message: "Appendix not wanted or not provided." };
     }
 
@@ -2226,6 +2249,7 @@ export async function generateAppendixDocx(projectData: DraftoProject, itemId?: 
     });
 
     const b64string = await Packer.toBase64String(doc);
+    setDocxExportContext(null);
     return { success: true, docx: b64string, fileName: `Appendix.docx` };
 }
 
@@ -2532,7 +2556,7 @@ export async function generateIaDocx(
                 break;
             case "additionalDocuments":
                  iaTitle = standardIaList.find(ia => ia.id === iaIdentifier)?.title || iaTitle;
-                 const allAnnexures: Annexure[] = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
+                 const allAnnexures: Annexure[] = annexureRowsOf(projectData).flatMap(lod => lod.annexures || []);
                  const adAnnexures = allAnnexures.filter(annex => annex.isAdditionalDocument);
                  const annexureNumberingMap = new Map<string, number>();
                  let pCounter = 1;
@@ -2636,7 +2660,7 @@ export async function generateIaDocx(
 
                 break;
             case "exemptionOfficialTranslation":
-                const allAnnexuresForTranslation: Annexure[] = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
+                const allAnnexuresForTranslation: Annexure[] = annexureRowsOf(projectData).flatMap(lod => lod.annexures || []);
                 const annexureNumberingMapForTranslation = new Map<string, number>();
                 let pCounterForTranslation = 1;
                 allAnnexuresForTranslation.filter(annex => !annex.isAdditionalDocument).forEach(annex => annexureNumberingMapForTranslation.set(annex.id, pCounterForTranslation++));
@@ -2968,12 +2992,13 @@ export async function generateIaDocx(
                     alignment: AlignmentType.RIGHT,
                     children: [smartTextRun({ text: `And for this act of kindness, the humble ${g.Pet} shall ever pray.`, italics: true })]
                 }),
-                ...createFiledByTable(advocate.filingDate, advocate.aorName || "[AoR Name]", { includeSignature }),
+                ...createFiledByTable(advocate.filingDate, advocate.aorName || "[AoR Name]", { includeSignature, partyNoun: g.Pet }),
             ]
         }]
     });
 
     const b64string = await Packer.toBase64String(doc);
+    setDocxExportContext(null);
     const fileName = `${getShortIaTitle(iaIdentifier, iaTitle)}.docx`;
     return { success: true, docx: b64string, fileName: fileName };
 }
@@ -2983,7 +3008,7 @@ export async function generateFilingMemoDocx(projectData: DraftoProject, include
     const petHeader = getPartyHeader(projectData.petitioners);
     const resHeader = getPartyHeader(projectData.respondents);
     const iaList = getIaList(projectData);
-    const allAnnexures = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
+    const allAnnexures = annexureRowsOf(projectData).flatMap(lod => lod.annexures || []);
     const lastAnnexureNumber = allAnnexures.length;
 
     const memoRows = [
@@ -3027,7 +3052,7 @@ export async function generateFilingMemoDocx(projectData: DraftoProject, include
             properties: { page: { margin: getSlpMargins() } },
             children: [
                 ...createSlpHeader(projectData.caseType, ` ${calculateIoText(projectData)}`, getSlpLayout().headerStyle, appealHeaderArg(projectData)),
-                ...createPartiesHeader(petHeader, resHeader),
+                ...createPartiesHeader(petHeader, resHeader, g.baseNoun, { multiPet: g.multiPet, multiRes: g.multiRes }),
                 new Paragraph({
                     text: "FILING MEMO",
                     alignment: AlignmentType.CENTER,
@@ -3049,7 +3074,7 @@ export async function generateFilingMemoDocx(projectData: DraftoProject, include
                     ]
                 }),
                 new Paragraph(""),
-                ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature }),
+                ...createFiledByTable(projectData.advocate.filingDate, projectData.advocate.aorName || "[AoR Name]", { includeSignature, partyNoun: g.Pet }),
             ],
         }]
     });
@@ -3121,7 +3146,7 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
     const sections: ISectionOptions[] = [];
 
     validPetitioners.forEach((petitioner, index) => {
-        const petitionerPosition = validPetitioners.length === 1 ? "Petitioner" : `Petitioner No. ${index + 1}`;
+        const petitionerPosition = validPetitioners.length === 1 ? g.baseNoun : `${g.baseNoun} No. ${index + 1}`;
         const executant = executantFor(index, petitioner.name, petitionerPosition);
         // Opening clause. A representative executant reads "I, <rep name>, <the
         // Authorised Representative of the Petitioner…>, hereby appoint…"; a
@@ -3153,7 +3178,7 @@ export async function generateVakalatnamaDocx(projectData: DraftoProject) {
                 ],
             }),
             new Paragraph({ text: "", style: "VakaNormal" }),
-            ...createPartiesHeader(petHeader, resHeader).map(p => {
+            ...createPartiesHeader(petHeader, resHeader, g.baseNoun, { multiPet: g.multiPet, multiRes: g.multiRes }).map(p => {
                 if (p instanceof Paragraph) {
                     p.properties.style = "VakaNormal";
                 }
@@ -3261,7 +3286,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
     const petHeader = getPartyHeader(projectData.petitioners);
     const resHeader = getPartyHeader(projectData.respondents);
     const ioText = ` ${calculateIoText(projectData)}`;
-    const allAnnexures = (projectData.listOfDates || []).flatMap(lod => lod.annexures || []);
+    const allAnnexures = annexureRowsOf(projectData).flatMap(lod => lod.annexures || []);
     const nonAdAnnexures = allAnnexures.filter(annex => !annex.isAdditionalDocument);
     const lastNonAdPNumber = nonAdAnnexures.length;
     
@@ -3296,7 +3321,7 @@ export async function generateAffidavitsDocx(projectData: DraftoProject) {
             numbering: { reference: "affidavit-numbering", level: 0 }
         }),
         new Paragraph({
-            text: `I have read and understood the contents of the accompanying ${affidavitDocNoun} including Synopsis and List of Dates from Page B to Page ___ and ${affidavitBodyNoun} at Paragraphs 1 to 8, and the contents of all accompanying applications/ IAs. I say that the contents thereof are true and correct to the best of my knowledge and belief.`,
+            text: `I have read and understood the contents of the accompanying ${affidavitDocNoun} including Synopsis and List of Dates from Page B to Page ___ and ${affidavitBodyNoun} at Paragraphs 1 to ${isAppeal(projectData.courtType) ? 6 : 8}, and the contents of all accompanying applications/ IAs. I say that the contents thereof are true and correct to the best of my knowledge and belief.`,
             numbering: { reference: "affidavit-numbering", level: 0 }
         }),
         new Paragraph({
@@ -3709,7 +3734,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         
         // Annexures
         if (meta.id.startsWith('annexure_')) {
-            const match = meta.label.match(/Annexure (P-\d+): (.+)/);
+            const match = meta.label.match(/Annexure ([PA]-\d+): (.+)/);
             if (match) {
                 const annexureNum = match[1];
                 const rest = match[2];
@@ -3721,7 +3746,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                     return `Annexure ${annexureNum}: ${rest}`;
                 }
                 const annexId = meta.id.substring('annexure_'.length);
-                const annex = (projectData.listOfDates || [])
+                const annex = annexureRowsOf(projectData)
                     .flatMap(lod => lod.annexures || [])
                     .find(a => a.id === annexId);
                 const extra = (annex?.customText || '').trim();
@@ -3972,22 +3997,34 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         return result;
     };
 
+    // Helper function to convert alphabetical page string (B, Z, AA, AB...) to 1-based number
+    const alphabetToNumber = (alpha: string): number => {
+        const clean = alpha.trim().toUpperCase();
+        let num = 0;
+        for (let i = 0; i < clean.length; i++) {
+            const code = clean.charCodeAt(i);
+            if (code >= 65 && code <= 90) {
+                num = num * 26 + (code - 64);
+            }
+        }
+        return num;
+    };
+
     // Helper function to parse page range string from Index
     const parsePageRange = (rangeStr: string): { start: number, end: number, isAlphabetical: boolean } | null => {
         if (!rangeStr) return null;
         
         // Check if it's alphabetical (contains letters)
         if (/[A-Z]/i.test(rangeStr)) {
-            // Handle alphabetical ranges like "B" or "B-D"
+            // Handle alphabetical ranges like "B", "B-D", or "B-AA"
             const parts = rangeStr.split('-').map(s => s.trim());
             if (parts.length === 1) {
-                // Single page like "B"
-                return { start: parts[0].charCodeAt(0) - 65 + 1, end: parts[0].charCodeAt(0) - 65 + 1, isAlphabetical: true };
+                const n = alphabetToNumber(parts[0]);
+                return { start: n, end: n, isAlphabetical: true };
             } else if (parts.length === 2) {
-                // Range like "B-D"
                 return { 
-                    start: parts[0].charCodeAt(0) - 65 + 1, 
-                    end: parts[1].charCodeAt(0) - 65 + 1, 
+                    start: alphabetToNumber(parts[0]), 
+                    end: alphabetToNumber(parts[1]), 
                     isAlphabetical: true 
                 };
             }
@@ -4189,6 +4226,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         shouldCombineWithNext: boolean; // For SLP+Affidavit, IA+Affidavit, Annexure+Typed
     }
     const docPageCounts: Map<string, DocPageInfo> = new Map();
+    const pass1PdfCache: Map<string, PDFDocument> = new Map();
     
     for (const meta of fileMetas) {
         if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -4285,7 +4323,18 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             
             if (docxBuffer) {
                 // Convert DOCX to PDF and count pages
-                const { pageCount } = await convertDocxToPdf(docxBuffer);
+                const { pdf, pageCount } = await convertDocxToPdf(docxBuffer);
+                const isStaticDoc =
+                    meta.id === 'or' ||
+                    meta.id === 'refiling' ||
+                    meta.id === 'lp' ||
+                    meta.id === 'filingMemo' ||
+                    meta.id === 'advocateChecklist' ||
+                    isAppendixComponentId(meta.id) ||
+                    (meta.id === 'slp' && !isScWp && !isAppeal(projectData.courtType));
+                if (isStaticDoc) {
+                    pass1PdfCache.set(meta.id, pdf);
+                }
                 
                 // Determine if this document should be combined with the next one
                 let shouldCombine = false;
@@ -4706,7 +4755,10 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                     blank.addPage();
                     pdfToMerge = blank;
                 }
-            } else { // meta.useSystem is true
+            } else if (pass1PdfCache.has(meta.id)) {
+                pdfToMerge = pass1PdfCache.get(meta.id)!;
+                pass1PdfCache.delete(meta.id);
+            } else { // meta.useSystem is true (dynamic doc needing Pass 2 ranges)
                 let result;
                 const iaIdentifier = meta.id.startsWith('ia_') ? meta.id.substring(3) : '';
 
@@ -4809,16 +4861,16 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                     if (meta.id.endsWith('_typed')) {
                         // Extract the annexure number from the label
                         // Label format: "Annexure P-X: Title (Typed Copy)" or "(Translated Copy)"
-                        const match = meta.label.match(/Annexure (P-\d+).*\((Typed|Translated) Copy\)/);
+                        const match = meta.label.match(/Annexure ([PA]-\d+).*\((Typed|Translated) Copy\)/);
                         if (match) {
-                            const annexureNum = match[1]; // e.g., "P-1"
+                            const annexureNum = match[1]; // e.g., "P-1" or "A-1"
                             const copyType = match[2]; // "Typed" or "Translated"
                             headerText = `${copyType} Copy of Annexure ${annexureNum}`;
                         }
                     } else {
                         // Regular annexure
-                        // Label format: "Annexure P-X: Title"
-                        const match = meta.label.match(/Annexure (P-\d+)/);
+                        // Label format: "Annexure P-X: Title" or "Annexure A-X: Title"
+                        const match = meta.label.match(/Annexure ([PA]-\d+)/);
                         if (match) {
                             headerText = `Annexure ${match[1]}`;
                         }

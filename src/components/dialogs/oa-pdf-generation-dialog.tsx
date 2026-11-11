@@ -38,6 +38,20 @@ export function OaPdfGenerationDialog({
     return () => window.removeEventListener("drafto-open-paperbook", openFromAssistant);
   }, []);
 
+  if (!open) {
+    return (
+      <PaperbookGeneratorView
+        open={false}
+        onOpenChange={setOpen}
+        title="Paperbook Generator"
+        sections={{ initial: [], annexures: [], tail: [] }}
+        onGo={() => {}}
+      >
+        {children}
+      </PaperbookGeneratorView>
+    );
+  }
+
   const project = form.watch();
 
   const handlePick = async (path: string) => {
@@ -103,7 +117,7 @@ export function OaPdfGenerationDialog({
   orderedMas.forEach((m) => {
     const idx = masList.findIndex((x) => x.id === m.id);
     const path = `oa.mas.${idx}.signedAffidavit`;
-    const affVal = form.watch(path as any);
+    const affVal = m.signedAffidavit;
     const hasAff = hasUsableFile(affVal);
     const fileName = affVal?.file?.name || fileNameOf(affVal?.filePath);
 
@@ -126,7 +140,7 @@ export function OaPdfGenerationDialog({
   });
 
   // 4. Original Application
-  const lastPageVal = form.watch("oa.uploads.signedLastPage" as any);
+  const lastPageVal = project.oa?.uploads?.signedLastPage;
   const hasLastPage = hasUsableFile(lastPageVal);
   const lastPageFileName = lastPageVal?.file?.name || fileNameOf(lastPageVal?.filePath);
 
@@ -190,8 +204,7 @@ export function OaPdfGenerationDialog({
               ) : (
                 constituents.map((c: any, k: number) => {
                   const cPath = `${path}.collyDocuments.${k}`;
-                  const cVal = form.watch(cPath as any);
-                  const cHas = hasUsableFile(cVal);
+                  const cHas = hasUsableFile(c);
                   return (
                     <div key={k} className="flex items-center justify-between text-[11px]">
                       <span>{c.title || `Document ${k + 1}`}</span>
@@ -217,7 +230,7 @@ export function OaPdfGenerationDialog({
         fileName: hasAnyFile ? `${constituents.length} documents attached` : undefined,
       });
     } else {
-      const val = path ? form.watch(path as any) : e.annex;
+      const val = e.annex;
       const has = hasUsableFile(val);
       const fileName = val?.file?.name || fileNameOf(val?.filePath);
 
@@ -236,7 +249,7 @@ export function OaPdfGenerationDialog({
   const tailItems: PaperbookItem[] = [];
 
   // Vakalatnama
-  const vakVal = form.watch("oa.uploads.signedVakalatnama" as any);
+  const vakVal = project.oa?.uploads?.signedVakalatnama;
   const hasVak = hasUsableFile(vakVal);
   const vakFileName = vakVal?.file?.name || fileNameOf(vakVal?.filePath);
 
@@ -258,7 +271,7 @@ export function OaPdfGenerationDialog({
   });
 
   // Court Fee
-  const courtFeeVal = form.watch("oa.uploads.courtFee" as any);
+  const courtFeeVal = project.oa?.uploads?.courtFee;
   const hasCourtFee = hasUsableFile(courtFeeVal);
   const courtFeeFileName = courtFeeVal?.file?.name || fileNameOf(courtFeeVal?.filePath);
 
@@ -273,7 +286,7 @@ export function OaPdfGenerationDialog({
   });
 
   // Proof of Service
-  const serviceVal = form.watch("oa.uploads.proofOfService" as any);
+  const serviceVal = project.oa?.uploads?.proofOfService;
   const hasService = hasUsableFile(serviceVal);
   const serviceFileName = serviceVal?.file?.name || fileNameOf(serviceVal?.filePath);
 

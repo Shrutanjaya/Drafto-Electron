@@ -18,6 +18,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import type { DraftoProject } from "@/lib/schema";
 import { getChecklistQueries, CHECKLIST_DECLARATION } from "@/lib/checklist-queries";
+import { MayurButton } from "@/components/custom/mayur-button";
 
 type ChecklistKey = keyof DraftoProject['checklist'];
 type ChecklistValue = "Yes" | "No" | "NA";
@@ -60,6 +61,10 @@ export function AdvocateChecklistTab() {
 
   return (
     <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2 px-1">
+        <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Advocate&apos;s Checklist</h4>
+        <MayurButton section="checklist" />
+      </div>
       {/* Attestation the advocate must tick before filing. Shown in a soft
           (muted) magenta so it stands out without being harsh. */}
       <FormField

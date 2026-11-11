@@ -34,8 +34,29 @@ type QuoteLineSpacing = 'default' | 'single';
 type TrueCopyPosition = 'left' | 'center';
 /** 'short' = the title block Drafto has always produced; 'sci' = the long form. */
 type SlpHeaderStyle = 'short' | 'sci';
-type AiModel = 'default' | 'haiku' | 'sonnet' | 'opus';
+export type AiProvider = 'gemini' | 'anthropic' | 'openai';
+export type AiModel = string;
 type SettingsSection = 'interface' | 'headings' | 'customize' | 'save' | 'shortcuts' | 'support' | 'slp' | 'sc-wp' | 'wp' | 'oa';
+
+function normalizeAiProvider(raw: unknown): AiProvider {
+  if (raw === 'anthropic' || raw === 'openai' || raw === 'gemini') return raw;
+  return 'gemini';
+}
+
+function normalizeAiModel(rawModel: unknown, provider: AiProvider): string {
+  const m = typeof rawModel === 'string' ? rawModel.trim() : '';
+  const isLegacy = !m || m === 'default' || m === 'haiku' || m === 'sonnet' || m === 'opus';
+  if (isLegacy) {
+    if (provider === 'anthropic') {
+      if (m === 'haiku') return 'claude-3-5-haiku-latest';
+      if (m === 'opus') return 'claude-opus-4-5';
+      return 'claude-sonnet-4-5';
+    }
+    if (provider === 'openai') return 'gpt-4.1';
+    return 'gemini-2.5-pro';
+  }
+  return m;
+}
 
 // Court tag shown next to each document-type nav item.
 type CourtTag = 'SC' | 'HC' | 'CAT';
@@ -126,10 +147,11 @@ interface SettingsData {
   wpFactsFromLod: boolean;
   oaFactsFromLod: boolean;
 
-  // AI Plugin (Beta) — bring-your-own Claude Code CLI
+  // Mayur AI — multi-LLM bring-your-own API key (stored locally via safeStorage)
   aiPluginEnabled: boolean;
-  aiClaudeBinaryPath: string;  // optional override; blank = auto-detect on PATH
-  aiModel: AiModel;            // 'default' = the CLI's configured model
+  aiProvider: AiProvider;
+  aiClaudeBinaryPath: string;  // legacy field preserved for backwards compatibility
+  aiModel: AiModel;            // model ID for the selected provider
 
   // User Defaults — pre-filled into every new project
   defaultAorName: string;
@@ -405,7 +427,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="inline-flex items-center justify-center min-w-[1.4rem] px-1.5 py-0.5 rounded border border-border bg-muted text-[10px] font-semibold leading-none text-foreground shadow-[0_1px_0_rgba(0,0,0,0.08)]">
+    <kbd className="inline-flex items-center justify-center min-w-[1.4rem] px-1.5 py-0.5 rounded border border-border bg-muted text-[12px] font-semibold leading-none text-foreground shadow-[0_1px_0_rgba(0,0,0,0.08)]">
       {children}
     </kbd>
   );
@@ -416,10 +438,10 @@ function ShortcutKeys({ keys }: { keys: string[][] }) {
     <span className="flex items-center gap-1 flex-wrap justify-end">
       {keys.map((combo, ci) => (
         <span key={ci} className="flex items-center gap-1">
-          {ci > 0 && <span className="text-[10px] text-muted-foreground px-0.5">or</span>}
+          {ci > 0 && <span className="text-[12px] text-muted-foreground px-0.5">or</span>}
           {combo.map((k, ki) => (
             <span key={ki} className="flex items-center gap-1">
-              {ki > 0 && <span className="text-[10px] text-muted-foreground">+</span>}
+              {ki > 0 && <span className="text-[12px] text-muted-foreground">+</span>}
               <Kbd>{k}</Kbd>
             </span>
           ))}
@@ -438,7 +460,7 @@ function PrereqRow({ ok, label, detail, warnOnly }: { ok: boolean; label: string
       ? "text-amber-600 dark:text-amber-400"
       : "text-destructive";
   return (
-    <div className="flex items-center gap-1.5 text-[11px]">
+    <div className="flex items-center gap-1.5 text-[12px]">
       <Icon className={cn("h-3.5 w-3.5 shrink-0", color)} />
       <span className="font-medium text-foreground">{label}</span>
       <span className="text-muted-foreground">— {detail}</span>
@@ -452,7 +474,7 @@ function SettingsNavRow({ label, selected, onClick, tag }: { label: string; sele
       type="button"
       onClick={onClick}
       className={cn(
-        "w-full flex items-center justify-between gap-2 text-left px-2 py-1.5 rounded-md text-xs transition-colors",
+        "w-full flex items-center justify-between gap-2 text-left px-2 py-1.5 rounded-md text-[12px] transition-colors",
         selected
           ? "bg-primary text-primary-foreground dark:text-white font-medium"
           : "hover:bg-muted text-foreground"
@@ -462,7 +484,7 @@ function SettingsNavRow({ label, selected, onClick, tag }: { label: string; sele
       {tag && (
         <span
           className={cn(
-            "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide",
+            "shrink-0 rounded px-1.5 py-0.5 text-[12px] font-semibold tracking-wide",
             selected ? "bg-white/20 text-white" : COURT_TAG_CLASS[tag],
           )}
         >
@@ -493,7 +515,7 @@ function InfoTip({ text, about }: { text: React.ReactNode; about?: string }) {
         <TooltipContent
           side="right"
           align="start"
-          className="max-w-[300px] whitespace-pre-line text-xs font-normal leading-relaxed"
+          className="max-w-[300px] whitespace-pre-line text-[12px] font-normal leading-relaxed"
         >
           {text}
         </TooltipContent>
@@ -503,7 +525,7 @@ function InfoTip({ text, about }: { text: React.ReactNode; about?: string }) {
 }
 
 const BetaTag = () => (
-  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[12px] font-bold uppercase tracking-wider text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
     Beta
   </span>
 );
@@ -513,15 +535,19 @@ function SettingsGroup({
   info,
   beta,
   icon,
+  action,
   children,
-}: { title: string; info?: React.ReactNode; beta?: boolean; icon?: React.ReactNode; children: React.ReactNode }) {
+}: { title: string; info?: React.ReactNode; beta?: boolean; icon?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center gap-1.5 border-b pb-1">
-        {icon}
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">{title}</p>
-        {beta && <BetaTag />}
-        {info && <InfoTip text={info} about={title} />}
+      <div className="flex items-center justify-between border-b pb-1">
+        <div className="flex items-center gap-1.5">
+          {icon}
+          <p className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">{title}</p>
+          {beta && <BetaTag />}
+          {info && <InfoTip text={info} about={title} />}
+        </div>
+        {action && <div className="flex items-center gap-1.5">{action}</div>}
       </div>
       <div className="space-y-1">{children}</div>
     </div>
@@ -539,7 +565,7 @@ function SettingRow({
     <div className="flex min-h-[28px] items-center gap-2">
       {label !== undefined && (
         <div className="flex w-[164px] shrink-0 items-center gap-1">
-          <Label htmlFor={htmlFor} className="text-xs font-normal text-muted-foreground">{label}</Label>
+          <Label htmlFor={htmlFor} className="text-[12px] font-normal text-muted-foreground">{label}</Label>
           {info && <InfoTip text={info} about={label} />}
         </div>
       )}
@@ -574,7 +600,7 @@ function CheckRow({
         onChange={(e) => onChange(e.target.checked)}
         className="h-3.5 w-3.5 shrink-0 rounded border-gray-300 disabled:opacity-40"
       />
-      <Label htmlFor={id} className="cursor-pointer text-xs font-normal text-muted-foreground">{label}</Label>
+      <Label htmlFor={id} className="cursor-pointer text-[12px] font-normal text-muted-foreground">{label}</Label>
       {info && <InfoTip text={info} about={label} />}
     </div>
   );
@@ -594,7 +620,7 @@ function SegGroup<T extends string>({
           type="button"
           onClick={() => onChange(o.value)}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors",
+            "inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[12px] transition-colors",
             value === o.value
               ? "bg-primary font-medium text-primary-foreground dark:text-white"
               : "text-muted-foreground hover:text-foreground",
@@ -610,7 +636,7 @@ function SegGroup<T extends string>({
 
 // Unit or qualifier printed beside a field ("pt", "inches", "seconds"…).
 const Unit = ({ children }: { children: React.ReactNode }) => (
-  <span className="text-xs text-muted-foreground">{children}</span>
+  <span className="text-[12px] text-muted-foreground">{children}</span>
 );
 
 // Amber notice box. Used for the liability/consent texts that must stay visible
@@ -619,10 +645,10 @@ const Unit = ({ children }: { children: React.ReactNode }) => (
 function NoticeBox({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="rounded-md border border-amber-300 bg-amber-50 p-2 dark:border-amber-700/60 dark:bg-amber-900/20">
-      <p className="flex items-center gap-1.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+      <p className="flex items-center gap-1.5 text-[12px] font-semibold text-amber-800 dark:text-amber-300">
         <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {title}
       </p>
-      <p className="mt-0.5 text-[11px] leading-relaxed text-amber-800/90 dark:text-amber-200/90">{children}</p>
+      <p className="mt-0.5 text-[12px] leading-relaxed text-amber-800/90 dark:text-amber-200/90">{children}</p>
     </div>
   );
 }
@@ -659,7 +685,7 @@ function EntitlementChip({ reason }: { reason: EntitlementReason }) {
   return (
     <span
       className={cn(
-        "rounded-full border px-2 py-0.5 text-[10px] font-medium",
+        "rounded-full border px-2 py-0.5 text-[12px] font-medium",
         meta.tone === 'ok'
           ? "border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400"
           : meta.tone === 'warn'
@@ -674,12 +700,12 @@ function EntitlementChip({ reason }: { reason: EntitlementReason }) {
 
 // The terms every Mayur user accepts by switching it on.
 const MayurTermsNote = () => (
-  <NoticeBox title="Terms of use">
+  <NoticeBox title="Terms of use & local privacy">
     By using Mayur AI, you agree that you are fully responsible for the content generated by Mayur AI, and shall
     hold neither the developer nor Quindoph Legal Solutions Pvt. Ltd. liable for any such content. You agree that
-    nothing generated by Mayur AI shall be used or filed by you without independent vetting and verification. You
-    further agree that Mayur is currently in its Beta/experimental phase and its outputs may be erratic, and also
-    that it requires a pre-existing Claude CLI Installation and Claude Pro or Max Subscription.
+    nothing generated by Mayur AI shall be used or filed by you without independent vetting and verification. Your
+    API key is encrypted and stored strictly locally on this computer — it is never transmitted to Drafto or Quindoph
+    servers, and requests go directly from your machine to your chosen AI provider (Google, Anthropic, or OpenAI).
   </NoticeBox>
 );
 
@@ -718,14 +744,31 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   const [downloadPercent, setDownloadPercent] = useState<number>(0);
   // True only while the user has explicitly clicked "Check for Updates"
   const userCheckInProgress = useRef(false);
-  // AI Plugin (Beta) prerequisite detection
-  const [aiPrereq, setAiPrereq] = useState<AiPrerequisites | null>(null);
-  const [aiChecking, setAiChecking] = useState(false);
-  // One-click Claude Code install
-  const [installOpen, setInstallOpen] = useState(false);
-  const [showInstallConsent, setShowInstallConsent] = useState(false);
-  const [installState, setInstallState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
-  const [installLog, setInstallLog] = useState<string[]>([]);
+  // Mayur Multi-LLM API Key & Auto-Updating Model state
+  const [aiKeysStatus, setAiKeysStatus] = useState<Record<AiProvider, { configured: boolean; masked: string }> | null>(null);
+  const [aiModelsByProvider, setAiModelsByProvider] = useState<Record<AiProvider, { id: string; label: string }[]>>({
+    gemini: [
+      { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro — Best for legal drafting & reasoning' },
+      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash — Fast & balanced' },
+      { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite — Fastest' },
+    ],
+    anthropic: [
+      { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5 — Recommended for drafting' },
+      { id: 'claude-opus-4-5', label: 'Claude Opus 4.5 — Most capable' },
+      { id: 'claude-3-7-sonnet-latest', label: 'Claude 3.7 Sonnet' },
+      { id: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku — Fast & light' },
+    ],
+    openai: [
+      { id: 'gpt-4.1', label: 'GPT-4.1 — Recommended for legal drafting' },
+      { id: 'o3', label: 'o3 — Deep reasoning' },
+      { id: 'o4-mini', label: 'o4-mini — Fast reasoning' },
+      { id: 'gpt-4o', label: 'GPT-4o — Versatile multimodal' },
+      { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini — Fast & economical' },
+    ],
+  });
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [savingApiKey, setSavingApiKey] = useState(false);
+  const [refreshingModels, setRefreshingModels] = useState(false);
   const [headingSettings, setHeadingSettings] = useState<HeadingSettings>(getHeadingSettings);
   const [settings, setSettings] = useState<SettingsData>({
     defaultDocxPath: "",
@@ -785,9 +828,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     slpAffidavitAnnexureRef: 'actual' as const,
     wpFactsFromLod: true,
     oaFactsFromLod: true,
-    aiPluginEnabled: false,
+    aiPluginEnabled: true,
+    aiProvider: 'gemini',
     aiClaudeBinaryPath: "",
-    aiModel: 'default',
+    aiModel: 'gemini-2.5-pro',
     defaultAorName: "",
     defaultAorCode: "",
     wpNumbering: DEFAULT_WP_NUMBERING,
@@ -982,9 +1026,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           slpAffidavitAnnexureRef: (parsed.slpAffidavitAnnexureRef === 'blank' ? 'blank' : 'actual') as 'actual' | 'blank',
           wpFactsFromLod: parsed.wpFactsFromLod ?? true,
           oaFactsFromLod: parsed.oaFactsFromLod ?? true,
-          aiPluginEnabled: parsed.aiPluginEnabled ?? false,
+          aiPluginEnabled: parsed.aiPluginEnabled ?? true,
+          aiProvider: normalizeAiProvider(parsed.aiProvider),
           aiClaudeBinaryPath: parsed.aiClaudeBinaryPath ?? "",
-          aiModel: (parsed.aiModel || 'default') as AiModel,
+          aiModel: normalizeAiModel(parsed.aiModel, normalizeAiProvider(parsed.aiProvider)),
           defaultAorName: parsed.defaultAorName ?? "",
           defaultAorCode: parsed.defaultAorCode ?? "",
           wpNumbering: {
@@ -1393,7 +1438,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
         const bounded = Number.isNaN(raw) ? o.min : Math.max(o.min, o.max === undefined ? raw : Math.min(o.max, raw));
         setSettings((prev) => ({ ...prev, [key]: bounded }));
       }}
-      className={cn("h-7 text-xs", o.width ?? "w-20")}
+      className={cn("h-7 text-[12px]", o.width ?? "w-20")}
     />
   );
 
@@ -1425,15 +1470,15 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           <img src={o.png} alt="Signature" className="max-h-full max-w-full object-contain" />
         </div>
       ) : (
-        <div className="flex items-center justify-center rounded border border-dashed text-[10px] text-muted-foreground" style={{ width: 84, height: 40 }}>
+        <div className="flex items-center justify-center rounded border border-dashed text-[12px] text-muted-foreground" style={{ width: 84, height: 40 }}>
           None
         </div>
       )}
-      <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={() => o.inputRef.current?.click()}>
+      <Button type="button" variant="outline" size="sm" className="h-7 text-[12px]" onClick={() => o.inputRef.current?.click()}>
         {o.png ? "Replace" : "Upload"}
       </Button>
       {o.png && (
-        <Button type="button" variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={o.onRemove}>
+        <Button type="button" variant="ghost" size="sm" className="h-7 text-[12px] text-muted-foreground" onClick={o.onRemove}>
           Remove
         </Button>
       )}
@@ -1458,7 +1503,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           <button
             type="button"
             onClick={onClick}
-            className={`h-6 w-6 rounded border text-[11px] leading-none ${cls} ${active ? "bg-primary text-primary-foreground border-primary" : "bg-background text-muted-foreground hover:bg-muted"}`}
+            className={`h-6 w-6 rounded border text-[12px] leading-none ${cls} ${active ? "bg-primary text-primary-foreground border-primary" : "bg-background text-muted-foreground hover:bg-muted"}`}
           >
             {label}
           </button>
@@ -1469,20 +1514,20 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
               <button type="button" disabled={i === 0} onClick={() => move(-1)} className="text-muted-foreground hover:text-foreground disabled:opacity-25"><ArrowUp className="h-3 w-3" /></button>
               <button type="button" disabled={i === arr.length - 1} onClick={() => move(1)} className="text-muted-foreground hover:text-foreground disabled:opacity-25"><ArrowDown className="h-3 w-3" /></button>
             </span>
-            <span className="flex-grow text-xs">{WP_FILED_BY_ITEM_LABELS[item.id]}</span>
+            <span className="flex-grow text-[12px]">{WP_FILED_BY_ITEM_LABELS[item.id]}</span>
             {fmtBtn("B", item.bold, () => update({ bold: !item.bold }), "font-bold")}
             {fmtBtn("I", item.italics, () => update({ italics: !item.italics }), "italic")}
             {fmtBtn("U", item.underline, () => update({ underline: !item.underline }), "underline")}
             <Select value={item.caps} onValueChange={(v) => update({ caps: v as WpFiledByCaps })}>
-              <SelectTrigger className="h-6 w-[92px] px-1.5 text-[10px]"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-6 w-[92px] px-1.5 text-[12px]"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="none" className="text-xs">Normal</SelectItem>
-                <SelectItem value="allCaps" className="text-xs">ALL CAPS</SelectItem>
-                <SelectItem value="smallCaps" className="text-xs" style={{ fontVariant: 'small-caps' }}>Small Caps</SelectItem>
+                <SelectItem value="none" className="text-[12px]">Normal</SelectItem>
+                <SelectItem value="allCaps" className="text-[12px]">ALL CAPS</SelectItem>
+                <SelectItem value="smallCaps" className="text-[12px]" style={{ fontVariant: 'small-caps' }}>Small Caps</SelectItem>
               </SelectContent>
             </Select>
             {i < arr.length - 1 ? (
-              <label className="flex cursor-pointer items-center gap-1 text-[10px] text-muted-foreground">
+              <label className="flex cursor-pointer items-center gap-1 text-[12px] text-muted-foreground">
                 <input
                   type="checkbox"
                   checked={item.joinWithNext}
@@ -1589,7 +1634,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
       ] as [keyof WpFiledBy, string][]).map(([key, label]) => (
         <SettingRow key={String(key)} label={label}>
           <Input
-            className="h-7 max-w-[280px] text-xs"
+            className="h-7 max-w-[280px] text-[12px]"
             value={filedBy?.[key] ?? ""}
             onChange={(e) => apply({ [key]: e.target.value } as Partial<WpFiledBy>)}
           />
@@ -1598,7 +1643,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
       <SettingRow label="Address">
         <Textarea
           rows={2}
-          className="max-w-[280px] text-xs"
+          className="max-w-[280px] text-[12px]"
           value={filedBy?.address ?? ""}
           onChange={(e) => apply({ address: e.target.value })}
         />
@@ -1623,89 +1668,127 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   };
 
   const handleInstall = () => {
-    window.electron?.auInstall?.();
+    // Save active draft to disk before restarting
+    window.dispatchEvent(
+      new CustomEvent("drafto-save-project", {
+        detail: {
+          callback: () => {
+            setTimeout(() => {
+              window.electron?.auInstall?.();
+            }, 300);
+          },
+        },
+      })
+    );
+    setTimeout(() => {
+      window.electron?.auInstall?.();
+    }, 2000);
   };
 
-  // Detects the CLI and (via `claude auth status`) whether it's signed in. Both
-  // are free + instant, so this runs automatically when the tab opens.
-  const checkAiPrereqs = async () => {
-    if (!window.electron?.aiCheckPrerequisites) {
+  // Load saved API key statuses and cached/default models from the main process
+  const loadAiKeysAndModels = async () => {
+    if (!window.electron?.aiGetKeysStatus) return;
+    try {
+      const res = await window.electron.aiGetKeysStatus();
+      if (res && typeof res === "object" && !("error" in res)) {
+        setAiKeysStatus({
+          gemini: { configured: !!res.gemini?.hasKey, masked: res.gemini?.masked || "" },
+          anthropic: { configured: !!res.anthropic?.hasKey, masked: res.anthropic?.masked || "" },
+          openai: { configured: !!res.openai?.hasKey, masked: res.openai?.masked || "" },
+        });
+        setAiModelsByProvider((prev) => ({
+          gemini: res.gemini?.models?.length ? res.gemini.models : prev.gemini,
+          anthropic: res.anthropic?.models?.length ? res.anthropic.models : prev.anthropic,
+          openai: res.openai?.models?.length ? res.openai.models : prev.openai,
+        }));
+      }
+    } catch {
+      // Ignore errors in browser-only preview
+    }
+  };
+
+  const handleSaveApiKey = async () => {
+    if (!window.electron?.aiSaveKey) {
       toast({ variant: "destructive", title: "Not available", description: "Mayur is only available in the desktop app." });
       return;
     }
-    setAiChecking(true);
+    setSavingApiKey(true);
     try {
-      const result = await window.electron.aiCheckPrerequisites({ customClaudePath: settings.aiClaudeBinaryPath });
-      setAiPrereq(result);
-    } catch (err) {
-      toast({ variant: "destructive", title: "Check failed", description: err instanceof Error ? err.message : String(err) });
-    } finally {
-      setAiChecking(false);
-    }
-  };
-
-  // Opens a Terminal running `claude auth login` so the user can sign in without
-  // typing any commands. They click "Re-check" afterwards to confirm.
-  const handleAiLogin = async () => {
-    if (!window.electron?.aiLogin) {
-      toast({ variant: "destructive", title: "Not available", description: "Sign-in is only available in the desktop app." });
-      return;
-    }
-    const r = await window.electron.aiLogin({ claudePath: settings.aiClaudeBinaryPath });
-    if (r?.ok) {
-      toast({ title: "Terminal opened", description: "Finish signing in there (your browser will open), then click Re-check." });
-    } else {
-      toast({ variant: "destructive", title: "Couldn't open Terminal", description: r?.error || "Use the manual steps below." });
-    }
-  };
-
-  // One-click install of the Claude Code CLI (after the user confirms consent).
-  // Streams the installer's output, then re-checks prerequisites and — on success
-  // — auto-launches the sign-in flow.
-  const runInstallClaude = async () => {
-    if (!window.electron?.aiInstallClaude) {
-      toast({ variant: "destructive", title: "Not available", description: "Install is only available in the desktop app." });
-      return;
-    }
-    setInstallState('running');
-    setInstallLog([]);
-    const dispose = window.electron.onAiInstallLog?.((line) => setInstallLog((prev) => [...prev, line]));
-    try {
-      const r = await window.electron.aiInstallClaude();
-      setInstallState(r?.ok ? 'done' : 'error');
-      const result = await window.electron.aiCheckPrerequisites?.({ customClaudePath: settings.aiClaudeBinaryPath });
-      if (result) setAiPrereq(result);
-      if (r?.ok && result?.claude?.found) {
-        // Installed successfully but not yet signed in → kick off sign-in.
-        if (result.loggedIn !== true) {
-          toast({ title: "Claude Code installed", description: "Opening sign-in — approve it in your browser, then click Re-check." });
-          await handleAiLogin();
+      const provider = settings.aiProvider;
+      const res = await window.electron.aiSaveKey({ provider, apiKey: apiKeyDraft });
+      if (res?.hasKey) {
+        setApiKeyDraft("");
+        await loadAiKeysAndModels();
+        if (res.ok) {
+          toast({ title: "API key verified & saved locally", description: "Encrypted on this machine and updated live model list." });
         } else {
-          toast({ title: "Claude Code is ready", description: "Installed and already signed in." });
+          toast({
+            title: "API key saved locally",
+            description: res.error ? `Key saved, but live model check returned: ${res.error}` : "Key saved on this machine.",
+          });
         }
-      } else if (!r?.ok) {
-        toast({ variant: "destructive", title: "Install failed", description: r?.error || "See the log. You can also use the manual steps below." });
+      } else if (res?.ok && !res.hasKey) {
+        setApiKeyDraft("");
+        await loadAiKeysAndModels();
+        toast({ title: "API key cleared", description: "Removed the stored key for this provider." });
+      } else {
+        toast({ variant: "destructive", title: "Could not save key", description: res?.error || "Unknown error" });
+      }
+    } finally {
+      setSavingApiKey(false);
+    }
+  };
+
+  const handleRefreshModels = async (providerOverride?: AiProvider, silent = false) => {
+    if (!window.electron?.aiFetchModels) return;
+    const provider = providerOverride || settings.aiProvider;
+    setRefreshingModels(true);
+    try {
+      const res = await window.electron.aiFetchModels({ provider });
+      if (res?.models?.length) {
+        setAiModelsByProvider((prev) => ({ ...prev, [provider]: res.models }));
+        if (!silent) {
+          toast({
+            title: res.ok ? "Models updated" : "Loaded curated models",
+            description: res.ok
+              ? `Fetched ${res.models.length} models live from ${provider === 'gemini' ? 'Google Gemini' : provider === 'anthropic' ? 'Anthropic' : 'OpenAI'}.`
+              : (res.error ? `Using built-in list (${res.error}).` : `Loaded ${res.models.length} models.`),
+          });
+        }
       }
     } catch (err) {
-      setInstallState('error');
-      toast({ variant: "destructive", title: "Install failed", description: err instanceof Error ? err.message : String(err) });
+      if (!silent) {
+        toast({ variant: "destructive", title: "Model refresh failed", description: err instanceof Error ? err.message : String(err) });
+      }
     } finally {
-      dispose?.();
+      setRefreshingModels(false);
     }
   };
 
-  const handleRelaunch = () => {
-    window.electron?.relaunchApp?.();
-  };
-
-  // Auto-run the check the first time the Customize tab is opened while the
-  // plugin is enabled, so the status (incl. login) reflects reality with no click.
+  // Auto-load key statuses when the Mayur tab opens, and auto-refresh live models if a key is saved
   useEffect(() => {
-    if (open && selectedSection === 'customize' && settings.aiPluginEnabled && aiPrereq === null && !aiChecking) {
-      checkAiPrereqs();
+    if (open && selectedSection === 'customize') {
+      loadAiKeysAndModels();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, selectedSection, settings.aiPluginEnabled]);
+  }, [open, selectedSection]);
+
+  // Allow any Mayur button across the app to open Settings directly to the Mayur (AI) tab
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ section?: SettingsSection }>).detail;
+      if (!open) {
+        const current = getSettings();
+        const currentTheme = typeof window !== 'undefined' ? (localStorage.getItem("theme") || "light") : "light";
+        openSnapshotRef.current = { settings: current, theme: currentTheme };
+        setSettings(current);
+      }
+      setSelectedSection(detail?.section || 'customize');
+      setOpen(true);
+    };
+    window.addEventListener('drafto-open-settings', handler);
+    return () => window.removeEventListener('drafto-open-settings', handler);
+  }, [open]);
 
   const handleReachOut = () => {
     const url = "https://drafto.quindoph.com/support";
@@ -1719,7 +1802,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="max-w-2xl flex flex-col" style={{ height: 'min(520px, calc(100vh - 4rem))' }}>
+      <DialogContent className="settings-dialog-content max-w-2xl flex flex-col text-[12px]" style={{ height: 'min(520px, calc(100vh - 4rem))' }}>
         <DialogHeader className="shrink-0 pb-2">
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
@@ -1735,7 +1818,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
             <SettingsNavRow label="Save Locations" selected={selectedSection === 'save'} onClick={() => setSelectedSection('save')} />
 
             {/* Per document type */}
-            <div className="my-1 px-2 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Document types</div>
+            <div className="my-1 px-2 pt-1 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Document types</div>
             <SettingsNavRow label="Special Leave Petition" tag="SC" selected={selectedSection === 'slp'} onClick={() => setSelectedSection('slp')} />
             <SettingsNavRow label="Writ Petition" tag="SC" selected={selectedSection === 'sc-wp'} onClick={() => setSelectedSection('sc-wp')} />
             <SettingsNavRow label="Writ Petition" tag="HC" selected={selectedSection === 'wp'} onClick={() => setSelectedSection('wp')} />
@@ -1771,12 +1854,12 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     value={settings.uiFont}
                     onValueChange={(value) => { setSettings((prev) => ({ ...prev, uiFont: value })); applyUiFont(value); }}
                   >
-                    <SelectTrigger className="h-7 w-[190px] text-xs" style={{ fontFamily: settings.uiFont }}>
+                    <SelectTrigger className="h-7 w-[190px] text-[12px]" style={{ fontFamily: settings.uiFont }}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {SYSTEM_FONTS.map((f) => (
-                        <SelectItem key={f.value} value={f.value} className="text-xs" style={{ fontFamily: f.value }}>{f.label}</SelectItem>
+                        <SelectItem key={f.value} value={f.value} className="text-[12px]" style={{ fontFamily: f.value }}>{f.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -1784,9 +1867,9 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     value={String(settings.uiFontSize)}
                     onValueChange={(value) => { const n = parseInt(value, 10); setSettings((prev) => ({ ...prev, uiFontSize: n })); applyUiFontSize(n); }}
                   >
-                    <SelectTrigger className="h-7 w-[84px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-7 w-[84px] text-[12px]"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {UI_FONT_SIZES.map((s) => (<SelectItem key={s} value={String(s)} className="text-xs">{s} px</SelectItem>))}
+                      {UI_FONT_SIZES.map((s) => (<SelectItem key={s} value={String(s)} className="text-[12px]">{s} px</SelectItem>))}
                     </SelectContent>
                   </Select>
                 </SettingRow>
@@ -1799,12 +1882,12 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     value={settings.inputFont}
                     onValueChange={(value) => { setSettings((prev) => ({ ...prev, inputFont: value })); applyInputFont(value); }}
                   >
-                    <SelectTrigger className="h-7 w-[190px] text-xs" style={{ fontFamily: settings.inputFont }}>
+                    <SelectTrigger className="h-7 w-[190px] text-[12px]" style={{ fontFamily: settings.inputFont }}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       {SYSTEM_FONTS.map((f) => (
-                        <SelectItem key={f.value} value={f.value} className="text-xs" style={{ fontFamily: f.value }}>{f.label}</SelectItem>
+                        <SelectItem key={f.value} value={f.value} className="text-[12px]" style={{ fontFamily: f.value }}>{f.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -1812,9 +1895,9 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     value={String(settings.inputFontSize)}
                     onValueChange={(value) => { const n = parseInt(value, 10); setSettings((prev) => ({ ...prev, inputFontSize: n })); applyInputFontSize(n); }}
                   >
-                    <SelectTrigger className="h-7 w-[84px] text-xs"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-7 w-[84px] text-[12px]"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {INPUT_FONT_SIZES.map((s) => (<SelectItem key={s} value={String(s)} className="text-xs">{s} px</SelectItem>))}
+                      {INPUT_FONT_SIZES.map((s) => (<SelectItem key={s} value={String(s)} className="text-[12px]">{s} px</SelectItem>))}
                     </SelectContent>
                   </Select>
                 </SettingRow>
@@ -1841,7 +1924,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     step={1}
                     value={settings.toastDuration}
                     onChange={(e) => setSettings((prev) => ({ ...prev, toastDuration: Math.max(1, parseInt(e.target.value) || 1) }))}
-                    className="h-7 w-16 text-right text-xs"
+                    className="h-7 w-16 text-right text-[12px]"
                   />
                   <Unit>seconds</Unit>
                 </SettingRow>
@@ -1854,7 +1937,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     step={10}
                     value={settings.autosaveInterval}
                     onChange={(e) => setSettings((prev) => ({ ...prev, autosaveInterval: Math.max(0, parseInt(e.target.value) || 0) }))}
-                    className="h-7 w-16 text-right text-xs"
+                    className="h-7 w-16 text-right text-[12px]"
                   />
                   <Unit>seconds (0 = off)</Unit>
                 </SettingRow>
@@ -1874,7 +1957,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 </SettingRow>
 
                 <div className="flex items-center gap-2 pt-3">
-                  <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={restoreAppearanceDefaults}>
+                  <Button type="button" variant="outline" size="sm" className="h-7 text-[12px]" onClick={restoreAppearanceDefaults}>
                     Restore Defaults
                   </Button>
                   <InfoTip
@@ -1889,8 +1972,8 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
             {selectedSection === 'headings' && (
               <div className="space-y-4">
                 <div className="space-y-1">
-                  <h3 className="text-sm font-semibold">Heading Styles (H1, H2, H3)</h3>
-                  <p className="text-xs text-muted-foreground">
+                  <h3 className="text-[12px] font-semibold">Heading Styles (H1, H2, H3)</h3>
+                  <p className="text-[12px] text-muted-foreground">
                     Configure the formatting and automatic numbering styles applied when inserting headings in the editor and documents.
                   </p>
                 </div>
@@ -1914,10 +1997,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   return (
                     <div key={levelKey} className="rounded-md border p-3 space-y-3 bg-muted/20">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold">{levelTitle}</span>
+                        <span className="text-[12px] font-semibold">{levelTitle}</span>
                         <span
                           className={cn(
-                            "text-xs px-2 py-0.5 rounded bg-muted/60 text-foreground",
+                            "text-[12px] px-2 py-0.5 rounded bg-muted/60 text-foreground",
                             config.bold && "font-bold",
                             config.italics && "italic",
                             config.underline && "underline",
@@ -1931,33 +2014,33 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
 
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Automatic Numbering</Label>
+                          <Label className="text-[12px] uppercase tracking-wide text-muted-foreground">Automatic Numbering</Label>
                           <Select
                             value={config.numbering}
                             onValueChange={(val) => updateConfig({ numbering: val as any })}
                           >
-                            <SelectTrigger className="h-7 text-xs">
+                            <SelectTrigger className="h-7 text-[12px]">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="upper-roman" className="text-xs">I, II, III (Upper Roman)</SelectItem>
-                              <SelectItem value="upper-alpha" className="text-xs">A, B, C (Upper Alphabet)</SelectItem>
-                              <SelectItem value="lower-roman" className="text-xs">i, ii, iii (Lower Roman)</SelectItem>
-                              <SelectItem value="lower-alpha" className="text-xs">a, b, c (Lower Alphabet)</SelectItem>
-                              <SelectItem value="decimal" className="text-xs">1, 2, 3 (Numbers)</SelectItem>
-                              <SelectItem value="none" className="text-xs">None (No numbering)</SelectItem>
+                              <SelectItem value="upper-roman" className="text-[12px]">I, II, III (Upper Roman)</SelectItem>
+                              <SelectItem value="upper-alpha" className="text-[12px]">A, B, C (Upper Alphabet)</SelectItem>
+                              <SelectItem value="lower-roman" className="text-[12px]">i, ii, iii (Lower Roman)</SelectItem>
+                              <SelectItem value="lower-alpha" className="text-[12px]">a, b, c (Lower Alphabet)</SelectItem>
+                              <SelectItem value="decimal" className="text-[12px]">1, 2, 3 (Numbers)</SelectItem>
+                              <SelectItem value="none" className="text-[12px]">None (No numbering)</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
 
                         <div className="space-y-1">
-                          <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Formatting</Label>
+                          <Label className="text-[12px] uppercase tracking-wide text-muted-foreground">Formatting</Label>
                           <div className="flex flex-wrap gap-1">
                             <button
                               type="button"
                               onClick={() => updateConfig({ bold: !config.bold })}
                               className={cn(
-                                "h-7 min-w-[28px] rounded border px-2 text-xs font-bold transition-colors cursor-pointer",
+                                "h-7 min-w-[28px] rounded border px-2 text-[12px] font-bold transition-colors cursor-pointer",
                                 config.bold ? "border-primary bg-primary text-primary-foreground dark:text-white" : "border-input bg-background hover:bg-accent"
                               )}
                               title="Bold"
@@ -1968,7 +2051,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                               type="button"
                               onClick={() => updateConfig({ italics: !config.italics })}
                               className={cn(
-                                "h-7 min-w-[28px] rounded border px-2 text-xs italic font-serif transition-colors cursor-pointer",
+                                "h-7 min-w-[28px] rounded border px-2 text-[12px] italic font-serif transition-colors cursor-pointer",
                                 config.italics ? "border-primary bg-primary text-primary-foreground dark:text-white" : "border-input bg-background hover:bg-accent"
                               )}
                               title="Italics"
@@ -1979,7 +2062,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                               type="button"
                               onClick={() => updateConfig({ underline: !config.underline })}
                               className={cn(
-                                "h-7 min-w-[28px] rounded border px-2 text-xs underline transition-colors cursor-pointer",
+                                "h-7 min-w-[28px] rounded border px-2 text-[12px] underline transition-colors cursor-pointer",
                                 config.underline ? "border-primary bg-primary text-primary-foreground dark:text-white" : "border-input bg-background hover:bg-accent"
                               )}
                               title="Underline"
@@ -1990,7 +2073,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                               type="button"
                               onClick={() => updateConfig({ smallCaps: !config.smallCaps })}
                               className={cn(
-                                "h-7 min-w-[28px] rounded border px-2 text-xs transition-colors cursor-pointer",
+                                "h-7 min-w-[28px] rounded border px-2 text-[12px] transition-colors cursor-pointer",
                                 config.smallCaps ? "border-primary bg-primary text-primary-foreground dark:text-white" : "border-input bg-background hover:bg-accent"
                               )}
                               style={{ fontVariant: 'small-caps' }}
@@ -2002,7 +2085,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                               type="button"
                               onClick={() => updateConfig({ allCaps: !config.allCaps })}
                               className={cn(
-                                "h-7 min-w-[28px] rounded border px-2 text-xs uppercase transition-colors cursor-pointer",
+                                "h-7 min-w-[28px] rounded border px-2 text-[12px] uppercase transition-colors cursor-pointer",
                                 config.allCaps ? "border-primary bg-primary text-primary-foreground dark:text-white" : "border-input bg-background hover:bg-accent"
                               )}
                               title="All Capitals"
@@ -2021,7 +2104,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="text-xs text-muted-foreground hover:text-foreground"
+                    className="text-[12px] text-muted-foreground hover:text-foreground"
                     onClick={() => {
                       setHeadingSettings(DEFAULT_HEADING_SETTINGS);
                       saveHeadingSettings(DEFAULT_HEADING_SETTINGS);
@@ -2033,232 +2116,227 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
               </div>
             )}
 
-            {/* ── CUSTOMIZE ── */}
+            {/* ── CUSTOMIZE (MAYUR AI) ── */}
             {selectedSection === 'customize' && (
               <div className="space-y-4">
                 <SettingsGroup
-                  title="Mayur"
+                  title="Mayur (AI Assistant)"
                   beta
                   icon={<Sparkles className="h-3.5 w-3.5 text-primary" />}
-                  info={"Mayur is Drafto's drafting assistant. Drafto itself provides no AI — Mayur runs on your own Claude Code subscription and appears as a chat box at the bottom-right of Drafto. Talk to it, or point it at a folder of raw PDFs and ask it to help fill in your project.\n\nYour credentials never leave your machine: Drafto runs the `claude` command you already have installed. Neither Quindoph nor the developer is liable for any data you share with the Claude CLI through Mayur, and Drafto neither captures nor stores that data — it is processed by Claude alone.\n\nMayur can read files you point it to and suggest field values, but it will not overwrite your work without confirmation. Always review its suggestions before saving."}
+                  info={"Mayur is Drafto's integrated legal drafting assistant. Instead of a complicated chatbot or command-line setup, Mayur places a dedicated button next to each substantive section heading (and a Master Mayur button in the top bar) so you can either:\n\n[i] Import verbatim from an existing .docx or .pdf draft (preserving bold/italics/underline, lists, headings, LoD cells & annexure details), or\n[ii] Construct from raw case material (Impugned Order + High Court / lower-court paperbook).\n\nSimply pick your preferred AI provider, paste your API key (encrypted and stored strictly on your computer), and choose a model."}
+                  action={
+                    <label
+                      htmlFor="ai-plugin-enabled"
+                      className="flex items-center gap-1.5 cursor-pointer select-none text-[12px] font-semibold uppercase tracking-wide text-foreground hover:text-primary transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        id="ai-plugin-enabled"
+                        checked={settings.aiPluginEnabled}
+                        onChange={(e) => setSettings((prev) => ({ ...prev, aiPluginEnabled: e.target.checked }))}
+                        className="h-3.5 w-3.5 rounded border-muted-foreground/30 accent-primary text-primary focus:ring-1 focus:ring-primary cursor-pointer"
+                      />
+                      <span>Enable</span>
+                    </label>
+                  }
                 >
-                  <CheckRow
-                    id="ai-plugin-enabled"
-                    checked={settings.aiPluginEnabled}
-                    onChange={(v) => setSettings((prev) => ({ ...prev, aiPluginEnabled: v }))}
-                    label="Enable Mayur (the chat box in Drafto)"
-                  />
                   <MayurTermsNote />
                 </SettingsGroup>
 
-                {settings.aiPluginEnabled && (
-                  <>
-                    <SettingsGroup
-                      title="Status"
-                      info="Mayur needs the Claude Code CLI installed and signed in. Node.js is only needed for the npm install route."
-                    >
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs text-muted-foreground">
-                          {aiPrereq === null && !aiChecking ? "Not checked yet." : "Prerequisites on this machine"}
-                        </p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-6 gap-1 px-2 text-[11px]"
-                          onClick={checkAiPrereqs}
-                          disabled={aiChecking}
-                        >
-                          {aiChecking ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                          {aiChecking ? "Checking…" : "Re-check"}
-                        </Button>
-                      </div>
+                {settings.aiPluginEnabled && (() => {
+                  const provider = settings.aiProvider;
+                  const keyStatus = aiKeysStatus?.[provider];
+                  const providerModels = aiModelsByProvider[provider] || [];
+                  const currentModelInList = providerModels.some((m) => m.id === settings.aiModel);
+                  const effectiveModel = currentModelInList ? settings.aiModel : (providerModels[0]?.id || settings.aiModel);
+                  const providerName = provider === 'gemini' ? 'Google Gemini' : provider === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI (ChatGPT)';
+                  const keyPlaceholder = provider === 'gemini' ? 'AIzaSy...' : provider === 'anthropic' ? 'sk-ant-...' : 'sk-proj-...';
+                  const keyPortalUrl =
+                    provider === 'gemini'
+                      ? 'https://aistudio.google.com/app/apikey'
+                      : provider === 'anthropic'
+                        ? 'https://console.anthropic.com/settings/keys'
+                        : 'https://platform.openai.com/api-keys';
 
-                      {aiPrereq && (
-                        <div className="space-y-1.5">
-                          <PrereqRow
-                            ok={aiPrereq.claude.found}
-                            label="Claude Code CLI"
-                            detail={aiPrereq.claude.found ? (aiPrereq.claude.version || "found") : "not found on PATH"}
-                          />
-                          <PrereqRow
-                            ok={aiPrereq.node.found}
-                            label="Node.js"
-                            detail={aiPrereq.node.found ? (aiPrereq.node.version || "found") : "not found on PATH"}
-                            warnOnly
-                          />
-                          {aiPrereq.claude.found && aiPrereq.loggedIn !== null && (
-                            <PrereqRow
-                              ok={aiPrereq.loggedIn === true}
-                              label="Signed in"
-                              detail={aiPrereq.loggedIn ? "authenticated" : "not signed in"}
-                            />
-                          )}
-
-                          {!aiPrereq.claude.found ? (
-                            <p className="flex items-center gap-1 pt-1 text-[11px] text-amber-700 dark:text-amber-300">
-                              <AlertCircle className="h-3 w-3 shrink-0" /> Install Claude Code below, then Re-check.
-                            </p>
-                          ) : aiPrereq.loggedIn !== true ? (
-                            <div className="flex flex-wrap items-center gap-2 pt-1">
-                              <Button type="button" size="sm" className="h-7 gap-1.5 text-[11px]" onClick={handleAiLogin}>
-                                <Sparkles className="h-3.5 w-3.5" /> Sign in to Claude Code
-                              </Button>
-                              <Button type="button" size="sm" variant="outline" className="h-7 gap-1.5 text-[11px]" onClick={handleRelaunch}>
-                                <RefreshCw className="h-3.5 w-3.5" /> Relaunch Drafto
-                              </Button>
-                              <InfoTip
-                                about="signing in"
-                                text={"Installed but not signed in. The button opens a Terminal and your browser to sign in — click it again if the browser didn't open last time.\n\nIf Mayur still shows as not ready afterwards, relaunch Drafto."}
-                              />
-                            </div>
-                          ) : (
-                            <div className="flex flex-wrap items-center gap-2 pt-1">
-                              <p className="flex items-center gap-1 text-[11px] text-green-600 dark:text-green-400">
-                                <CheckCircle className="h-3 w-3 shrink-0" /> Ready — connected and signed in.
-                              </p>
-                              <Button type="button" size="sm" variant="ghost" className="h-6 gap-1 px-1.5 text-[10px] text-muted-foreground" onClick={handleAiLogin}>
-                                <Sparkles className="h-3 w-3" /> Sign in again
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </SettingsGroup>
-
-                    <SettingsGroup
-                      title="Model"
-                      info={"Leave on Default and each task picks a sensible model automatically — Haiku for extraction (Memo, List of Dates), Sonnet for drafting (Grounds). Choosing one here overrides that for every task.\n\nA bigger model uses your Claude allowance faster, and Opus may require a Max plan."}
-                    >
-                      <SettingRow label="Model">
-                        <Select
-                          value={settings.aiModel}
-                          onValueChange={(v: AiModel) => setSettings((prev) => ({ ...prev, aiModel: v }))}
-                        >
-                          <SelectTrigger className="h-7 w-[260px] text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="default" className="text-xs">Default (your CLI's model)</SelectItem>
-                            <SelectItem value="haiku" className="text-xs">Haiku — fastest, lightest usage</SelectItem>
-                            <SelectItem value="sonnet" className="text-xs">Sonnet — balanced (recommended)</SelectItem>
-                            <SelectItem value="opus" className="text-xs">Opus — strongest, heaviest usage</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </SettingRow>
-                    </SettingsGroup>
-
-                    <div className="space-y-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setInstallOpen((v) => !v)}
-                        className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground dark:text-slate-300"
+                  return (
+                    <>
+                      <SettingsGroup
+                        title="1. Choose AI Provider"
+                        info="Select which LLM family Mayur should use. You can store an API key for one or all three and switch between them anytime."
                       >
-                        <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", installOpen && "rotate-90")} />
-                        Installation
-                      </button>
-
-                      {installOpen && (
-                        <div className="space-y-3">
-                          {/* One-click install */}
-                          <div className="space-y-1.5 rounded-md border border-primary/30 bg-primary/5 p-2">
-                            <div className="flex items-center gap-1.5">
-                              <p className="text-[11px] font-medium text-foreground">Don't have Claude Code yet?</p>
-                              <InfoTip
-                                about="one-click install"
-                                text={"Drafto downloads and runs Anthropic's official Claude Code installer (from claude.ai) on your computer. It installs the `claude` command in your user account — no admin rights — and needs an internet connection.\n\nAfterwards you sign in with your own Claude account (Pro/Max plan or API credits) in your browser. Your credentials never go to Drafto."}
-                              />
-                            </div>
-                            {installState !== 'running' && !showInstallConsent && installState !== 'done' && (
-                              <Button type="button" size="sm" className="h-7 gap-1.5 text-[11px]" onClick={() => setShowInstallConsent(true)}>
-                                <Download className="h-3.5 w-3.5" /> Install Claude Code (one-click)
-                              </Button>
-                            )}
-                            {showInstallConsent && installState !== 'running' && (
-                              <div className="space-y-1.5">
-                                <p className="text-[11px] leading-relaxed text-foreground">
-                                  Drafto will download and run Anthropic's official installer, then open sign-in in your browser. Proceed?
-                                </p>
-                                <div className="flex gap-2">
-                                  <Button type="button" size="sm" className="h-7 text-[11px]" onClick={() => { setShowInstallConsent(false); runInstallClaude(); }}>Yes, install</Button>
-                                  <Button type="button" size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setShowInstallConsent(false)}>Cancel</Button>
-                                </div>
-                              </div>
-                            )}
-                            {installState === 'running' && (
-                              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Installing Claude Code…</div>
-                            )}
-                            {installState === 'done' && (
-                              <div className="space-y-1.5">
-                                <div className="flex items-center gap-1.5 text-[11px] text-green-600 dark:text-green-400">
-                                  <CheckCircle className="h-3.5 w-3.5 shrink-0" /> Installed. Next: sign in, then relaunch Drafto.
-                                </div>
-                                <div className="flex flex-wrap gap-2">
-                                  <Button type="button" size="sm" className="h-7 gap-1.5 text-[11px]" onClick={handleAiLogin}>
-                                    <Sparkles className="h-3.5 w-3.5" /> Sign in to Claude Code
-                                  </Button>
-                                  <Button type="button" size="sm" variant="outline" className="h-7 gap-1.5 text-[11px]" onClick={handleRelaunch}>
-                                    <RefreshCw className="h-3.5 w-3.5" /> Relaunch Drafto
-                                  </Button>
-                                </div>
-                              </div>
-                            )}
-                            {installLog.length > 0 && (
-                              <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/60 p-1.5 text-[10px] leading-snug">{installLog.join("\n")}</pre>
-                            )}
-                          </div>
-
-                          {/* Manual route */}
-                          <div className="space-y-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Prefer to do it yourself?</p>
-                              <InfoTip
-                                about="manual installation"
-                                text={"Already use Claude Code? Skip step 1 — just make sure it is signed in.\n\nIf the npm install fails with a \"permission denied / EACCES\" error, use the curl installer instead; it avoids the system folder that causes that.\n\nSigning in through the Claude Desktop app does NOT count — the CLI needs its own sign-in, and an active Claude Pro/Max plan or API credits."}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <p className="text-[11px] text-muted-foreground">1. Install the CLI:</p>
-                              <code className="block select-all rounded bg-muted px-1.5 py-1 text-[11px]">curl -fsSL https://claude.ai/install.sh | bash</code>
-                              <code className="block select-all rounded bg-muted px-1.5 py-1 text-[11px]">npm install -g @anthropic-ai/claude-code</code>
-                              <p className="text-[11px] text-muted-foreground">2. Sign in (or use the button above):</p>
-                              <code className="block select-all rounded bg-muted px-1.5 py-1 text-[11px]">claude auth login</code>
-                            </div>
-                          </div>
-
-                          <SettingRow
-                            label="claude binary path"
-                            htmlFor="ai-claude-path"
-                            info="Optional. Leave blank to auto-detect; set it only if Drafto can't find the `claude` command by itself."
-                          >
-                            <Input
-                              id="ai-claude-path"
-                              value={settings.aiClaudeBinaryPath}
-                              onChange={(e) => setSettings((prev) => ({ ...prev, aiClaudeBinaryPath: e.target.value }))}
-                              placeholder="e.g. /opt/homebrew/bin/claude"
-                              className="h-7 max-w-[280px] text-xs"
-                            />
-                          </SettingRow>
+                        <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-[12px] leading-relaxed text-muted-foreground space-y-2">
+                          <p>
+                            Mayur does not host or operate its own proprietary Large Language Model (LLM). Instead, it connects your computer directly to your chosen provider via API.
+                          </p>
+                          <p>
+                            Please note that consumer subscriptions (such as <strong className="text-foreground">Gemini Advanced</strong>, <strong className="text-foreground">Claude Pro</strong>, or <strong className="text-foreground">ChatGPT Plus</strong>) are personal chat subscriptions and <strong className="text-foreground">do not include developer API access</strong>, which is billed separately by each provider.
+                          </p>
+                          <p>
+                            <strong className="text-foreground font-semibold">Tip for Free Usage:</strong> At present, <strong className="text-foreground">Google Gemini</strong> is the only provider that offers generous free-tier API access for production models. You can generate a free Gemini API key in 10 seconds via{" "}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const url = "https://aistudio.google.com/app/apikey";
+                                if (window.electron?.openExternal) window.electron.openExternal(url);
+                                else window.open(url, "_blank");
+                              }}
+                              className="font-medium text-primary underline underline-offset-2 hover:text-primary/80 inline-flex items-center gap-0.5"
+                            >
+                              Google AI Studio (aistudio.google.com) <ExternalLink className="h-3 w-3" />
+                            </button>{" "}
+                            using your everyday Google account — no credit card or billing registration required.
+                          </p>
                         </div>
-                      )}
-                    </div>
-                  </>
-                )}
+
+                        <SettingRow label="Provider">
+                          <SegGroup
+                            value={provider}
+                            onChange={(nextProvider: AiProvider) => {
+                              const nextModels = aiModelsByProvider[nextProvider] || [];
+                              const nextDefaultModel = nextModels[0]?.id || normalizeAiModel('', nextProvider);
+                              setApiKeyDraft("");
+                              setSettings((prev) => ({
+                                ...prev,
+                                aiProvider: nextProvider,
+                                aiModel: nextDefaultModel,
+                              }));
+                            }}
+                            options={[
+                              { value: 'gemini', label: 'Google Gemini' },
+                              { value: 'anthropic', label: 'Claude (Anthropic)' },
+                              { value: 'openai', label: 'ChatGPT (OpenAI)' },
+                            ]}
+                          />
+                        </SettingRow>
+                      </SettingsGroup>
+
+                      <SettingsGroup
+                        title={`2. ${providerName} API Key`}
+                        info="Your API key is encrypted with your operating system's keychain (safeStorage) and stored strictly locally on this computer. It is never transmitted to Drafto or Quindoph."
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 text-[12px]">
+                            {keyStatus?.configured ? (
+                              <span className="inline-flex items-center gap-1 font-medium text-green-600 dark:text-green-400">
+                                <CheckCircle className="h-3.5 w-3.5 shrink-0" />
+                                Saved on this computer ({keyStatus.masked})
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
+                                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                                No {providerName} API key saved yet
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.electron?.openExternal) window.electron.openExternal(keyPortalUrl);
+                              else window.open(keyPortalUrl, '_blank');
+                            }}
+                            className="inline-flex items-center gap-1 text-[12px] text-primary hover:underline"
+                          >
+                            Get {providerName} API Key <ExternalLink className="h-3 w-3" />
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-1">
+                          <Input
+                            type="password"
+                            value={apiKeyDraft}
+                            onChange={(e) => setApiKeyDraft(e.target.value)}
+                            placeholder={keyStatus?.configured ? `Enter new key to replace (${keyStatus.masked})` : `Paste your ${providerName} API key (${keyPlaceholder})`}
+                            className="h-7 flex-1 text-[12px] font-mono"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-7 gap-1.5 text-[12px] shrink-0"
+                            disabled={savingApiKey || !apiKeyDraft.trim()}
+                            onClick={handleSaveApiKey}
+                          >
+                            {savingApiKey ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+                            Save Key
+                          </Button>
+                          {keyStatus?.configured && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-[12px] shrink-0 text-muted-foreground hover:text-destructive"
+                              disabled={savingApiKey}
+                              onClick={async () => {
+                                if (!window.electron?.aiSaveKey) return;
+                                setSavingApiKey(true);
+                                try {
+                                  await window.electron.aiSaveKey({ provider, apiKey: "" });
+                                  await loadAiKeysAndModels();
+                                  toast({ title: "API key removed", description: `Cleared stored ${providerName} key.` });
+                                } finally {
+                                  setSavingApiKey(false);
+                                }
+                              }}
+                            >
+                              Clear
+                            </Button>
+                          )}
+                        </div>
+                      </SettingsGroup>
+
+                      <SettingsGroup
+                        title="3. Choose Model"
+                        info="This list updates automatically from your provider's live Models API whenever you save a key or click Refresh Models, so newly launched models appear automatically."
+                      >
+                        <SettingRow label="Model">
+                          <div className="flex items-center gap-1.5">
+                            <Select
+                              value={effectiveModel}
+                              onValueChange={(v: AiModel) => setSettings((prev) => ({ ...prev, aiModel: v }))}
+                            >
+                              <SelectTrigger className="h-7 w-[270px] text-[12px]"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {providerModels.map((m) => (
+                                  <SelectItem key={m.id} value={m.id} className="text-[12px]">
+                                    {m.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 gap-1 px-2 text-[12px] shrink-0"
+                              onClick={() => handleRefreshModels(provider, false)}
+                              disabled={refreshingModels}
+                              title="Fetch latest launched models from provider"
+                            >
+                              {refreshingModels ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                              Refresh
+                            </Button>
+                          </div>
+                        </SettingRow>
+                      </SettingsGroup>
+                    </>
+                  );
+                })()}
               </div>
             )}
 
             {/* ── SAVE LOCATIONS ── */}
             {selectedSection === 'save' && (
               <div className="space-y-4">
-                <p className="text-xs text-muted-foreground">Choose default folders where generated files are saved.</p>
+                <p className="text-[12px] text-muted-foreground">Choose default folders where generated files are saved.</p>
 
                 <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Drafts (Docx)</p>
+                  <p className="text-[12px] font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Drafts (Docx)</p>
                   <div className="flex items-center gap-2">
                     <Input
                       id="docx-path"
                       value={settings.defaultDocxPath}
                       onChange={(e) => setSettings((prev) => ({ ...prev, defaultDocxPath: e.target.value }))}
                       placeholder="C:\...\DOCX"
-                      className="h-7 text-xs flex-1"
+                      className="h-7 text-[12px] flex-1"
                     />
                     <Button type="button" variant="outline" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleBrowse("docx")} title="Browse">
                       <FolderOpen className="h-3 w-3" />
@@ -2267,14 +2345,14 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 </div>
 
                 <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">PDF Paperbooks</p>
+                  <p className="text-[12px] font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">PDF Paperbooks</p>
                   <div className="flex items-center gap-2">
                     <Input
                       id="pdf-path"
                       value={settings.defaultPdfPath}
                       onChange={(e) => setSettings((prev) => ({ ...prev, defaultPdfPath: e.target.value }))}
                       placeholder="C:\...\PDF"
-                      className="h-7 text-xs flex-1"
+                      className="h-7 text-[12px] flex-1"
                     />
                     <Button type="button" variant="outline" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleBrowse("pdf")} title="Browse">
                       <FolderOpen className="h-3 w-3" />
@@ -2283,14 +2361,14 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 </div>
 
                 <div className="space-y-1.5">
-                  <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Project Files (.drafto)</p>
+                  <p className="text-[12px] font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Project Files (.drafto)</p>
                   <div className="flex items-center gap-2">
                     <Input
                       id="drafto-path"
                       value={settings.defaultDraftoPath}
                       onChange={(e) => setSettings((prev) => ({ ...prev, defaultDraftoPath: e.target.value }))}
                       placeholder="C:\...\Projects"
-                      className="h-7 text-xs flex-1"
+                      className="h-7 text-[12px] flex-1"
                     />
                     <Button type="button" variant="outline" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleBrowse("drafto")} title="Browse">
                       <FolderOpen className="h-3 w-3" />
@@ -2312,9 +2390,9 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 >
                   <SettingRow label="Font">
                     <Select value={settings.outputFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, outputFont: v }))}>
-                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[220px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {OUTPUT_FONTS.map((f) => (<SelectItem key={f} value={f} className="text-xs" style={{ fontFamily: f }}>{f}</SelectItem>))}
+                        {OUTPUT_FONTS.map((f) => (<SelectItem key={f} value={f} className="text-[12px]" style={{ fontFamily: f }}>{f}</SelectItem>))}
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -2322,12 +2400,12 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     {numField('outputFontSizePt', { min: 8, max: 24, step: 0.5, width: 'w-16' })}
                     <Unit>pt</Unit>
                     <Select value={String(settings.outputLineSpacing)} onValueChange={(v) => setSettings((prev) => ({ ...prev, outputLineSpacing: parseFloat(v) }))}>
-                      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[130px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
-                        <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
-                        <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
-                        <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                        <SelectItem value="1" className="text-[12px]">Single (1.0)</SelectItem>
+                        <SelectItem value="1.15" className="text-[12px]">1.15</SelectItem>
+                        <SelectItem value="1.5" className="text-[12px]">1.5</SelectItem>
+                        <SelectItem value="2" className="text-[12px]">Double (2.0)</SelectItem>
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -2380,7 +2458,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       options={[{ value: 'short', label: 'Short' }, { value: 'sci', label: 'SCI form' }]}
                     />
                   </SettingRow>
-                  <div className="rounded border bg-white p-2 text-[11px] leading-snug text-black">
+                  <div className="rounded border bg-white p-2 text-[12px] leading-snug text-black">
                     {settings.slpHeaderStyle === 'sci' ? (
                       <div className="text-center">
                         <div>IN THE SUPREME COURT OF INDIA</div>
@@ -2409,7 +2487,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       options={[{ value: 'inline', label: 'Same line' }, { value: 'break', label: 'Own line' }]}
                     />
                   </SettingRow>
-                  <div className="rounded border bg-white p-2 text-[11px] leading-snug text-black">
+                  <div className="rounded border bg-white p-2 text-[12px] leading-snug text-black">
                     {settings.slpHeadingBreak ? (
                       <>
                         <div className="font-semibold">GROUNDS:</div>
@@ -2456,7 +2534,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       value={settings.defaultAorName}
                       onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorName: e.target.value }))}
                       placeholder="Advocate-on-Record name"
-                      className="h-7 max-w-[280px] text-xs"
+                      className="h-7 max-w-[280px] text-[12px]"
                     />
                   </SettingRow>
                   <SettingRow label="AoR code" htmlFor="default-aor-code">
@@ -2465,7 +2543,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       value={settings.defaultAorCode}
                       onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorCode: e.target.value }))}
                       placeholder="AoR registration code"
-                      className="h-7 max-w-[280px] text-xs"
+                      className="h-7 max-w-[280px] text-[12px]"
                     />
                   </SettingRow>
                 </SettingsGroup>
@@ -2476,13 +2554,13 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 >
                   <SettingRow label="Stamp font">
                     <Select value={settings.stampFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, stampFont: v as SettingsData['stampFont'] }))}>
-                      <SelectTrigger className="h-7 w-[240px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[240px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="times" className="text-xs" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
-                        <SelectItem value="tinos" className="text-xs" style={{ fontFamily: 'Tinos, Times New Roman' }}>Tinos (Bold)</SelectItem>
-                        <SelectItem value="palatino" className="text-xs" style={{ fontFamily: '"Palatino Linotype", "TeX Gyre Pagella", Palatino' }}>Palatino / TeX Gyre Pagella (Bold)</SelectItem>
-                        <SelectItem value="helvetica" className="text-xs" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
-                        <SelectItem value="courier" className="text-xs" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
+                        <SelectItem value="times" className="text-[12px]" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
+                        <SelectItem value="tinos" className="text-[12px]" style={{ fontFamily: 'Tinos, Times New Roman' }}>Tinos (Bold)</SelectItem>
+                        <SelectItem value="palatino" className="text-[12px]" style={{ fontFamily: '"Palatino Linotype", "TeX Gyre Pagella", Palatino' }}>Palatino / TeX Gyre Pagella (Bold)</SelectItem>
+                        <SelectItem value="helvetica" className="text-[12px]" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
+                        <SelectItem value="courier" className="text-[12px]" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -2495,7 +2573,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       onValueChange={([v]) => setSettings((prev) => ({ ...prev, annexureLabelSize: v }))}
                       className="w-[170px]"
                     />
-                    <span className="text-xs font-semibold tabular-nums">{settings.annexureLabelSize}</span>
+                    <span className="text-[12px] font-semibold tabular-nums">{settings.annexureLabelSize}</span>
                   </SettingRow>
                   <SettingRow label="Margin from top edge">
                     {numField('annexureLabelMarginPt', { min: 0, max: 144, step: 1, width: 'w-20' })}
@@ -2534,12 +2612,12 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     {numField('checklistFontSizePt', { min: 6, max: 18, step: 0.5, width: 'w-16' })}
                     <Unit>pt</Unit>
                     <Select value={String(settings.checklistLineSpacing)} onValueChange={(v) => setSettings((prev) => ({ ...prev, checklistLineSpacing: parseFloat(v) }))}>
-                      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[130px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
-                        <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
-                        <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
-                        <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                        <SelectItem value="1" className="text-[12px]">Single (1.0)</SelectItem>
+                        <SelectItem value="1.15" className="text-[12px]">1.15</SelectItem>
+                        <SelectItem value="1.5" className="text-[12px]">1.5</SelectItem>
+                        <SelectItem value="2" className="text-[12px]">Double (2.0)</SelectItem>
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -2576,12 +2654,12 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                         {numField('lpFontSizePt', { min: 6, max: 18, step: 0.5, width: 'w-16' })}
                         <Unit>pt</Unit>
                         <Select value={String(settings.lpLineSpacing)} onValueChange={(v) => setSettings((prev) => ({ ...prev, lpLineSpacing: parseFloat(v) }))}>
-                          <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="h-7 w-[130px] text-[12px]"><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
-                            <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
-                            <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
-                            <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                            <SelectItem value="1" className="text-[12px]">Single (1.0)</SelectItem>
+                            <SelectItem value="1.15" className="text-[12px]">1.15</SelectItem>
+                            <SelectItem value="1.5" className="text-[12px]">1.5</SelectItem>
+                            <SelectItem value="2" className="text-[12px]">Double (2.0)</SelectItem>
                           </SelectContent>
                         </Select>
                       </SettingRow>
@@ -2615,7 +2693,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   <button
                     type="button"
                     onClick={() => setShowAdvancedVolume((v) => !v)}
-                    className="text-xs text-primary hover:underline"
+                    className="text-[12px] text-primary hover:underline"
                   >
                     {showAdvancedVolume ? "Hide advanced options" : "Show advanced options"}
                   </button>
@@ -2666,7 +2744,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       onValueChange={([v]) => setSettings((prev) => ({ ...prev, signatureSizePx: v }))}
                       className="w-[170px]"
                     />
-                    <span className="text-xs font-semibold tabular-nums">{settings.signatureSizePx}&nbsp;px</span>
+                    <span className="text-[12px] font-semibold tabular-nums">{settings.signatureSizePx}&nbsp;px</span>
                   </SettingRow>
                   {settings.aorSignaturePng && settings.aorSignatureW > 0 && (
                     <div className="flex items-center justify-center rounded border bg-white p-2">
@@ -2730,14 +2808,14 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
 
                 <div className="flex items-center justify-between pb-2 border-b">
                   <div>
-                    <h3 className="text-sm font-semibold">Writ Petition (Supreme Court)</h3>
-                    <p className="text-xs text-muted-foreground">Formatting and defaults for Supreme Court Writ Petitions.</p>
+                    <h3 className="text-[12px] font-semibold">Writ Petition (Supreme Court)</h3>
+                    <p className="text-[12px] text-muted-foreground">Formatting and defaults for Supreme Court Writ Petitions.</p>
                   </div>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-7 text-xs gap-1.5"
+                    className="h-7 text-[12px] gap-1.5"
                     onClick={resetScWpToSlp}
                     title="Reset all Writ Petition (SC) settings to match your current SLP (SC) settings"
                   >
@@ -2752,9 +2830,9 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 >
                   <SettingRow label="Font">
                     <Select value={settings.scWpOutputFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, scWpOutputFont: v }))}>
-                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[220px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {OUTPUT_FONTS.map((f) => (<SelectItem key={f} value={f} className="text-xs" style={{ fontFamily: f }}>{f}</SelectItem>))}
+                        {OUTPUT_FONTS.map((f) => (<SelectItem key={f} value={f} className="text-[12px]" style={{ fontFamily: f }}>{f}</SelectItem>))}
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -2762,12 +2840,12 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     {numField('scWpOutputFontSizePt', { min: 8, max: 24, step: 0.5, width: 'w-16' })}
                     <Unit>pt</Unit>
                     <Select value={String(settings.scWpOutputLineSpacing)} onValueChange={(v) => setSettings((prev) => ({ ...prev, scWpOutputLineSpacing: parseFloat(v) }))}>
-                      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[130px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
-                        <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
-                        <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
-                        <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                        <SelectItem value="1" className="text-[12px]">Single (1.0)</SelectItem>
+                        <SelectItem value="1.15" className="text-[12px]">1.15</SelectItem>
+                        <SelectItem value="1.5" className="text-[12px]">1.5</SelectItem>
+                        <SelectItem value="2" className="text-[12px]">Double (2.0)</SelectItem>
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -2820,7 +2898,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       options={[{ value: 'short', label: 'Short' }, { value: 'sci', label: 'SCI form' }]}
                     />
                   </SettingRow>
-                  <div className="rounded border bg-white p-2 text-[11px] leading-snug text-black">
+                  <div className="rounded border bg-white p-2 text-[12px] leading-snug text-black">
                     {settings.scWpHeaderStyle === 'sci' ? (
                       <div className="text-center">
                         <div>IN THE SUPREME COURT OF INDIA</div>
@@ -2849,7 +2927,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       options={[{ value: 'inline', label: 'Same line' }, { value: 'break', label: 'Own line' }]}
                     />
                   </SettingRow>
-                  <div className="rounded border bg-white p-2 text-[11px] leading-snug text-black">
+                  <div className="rounded border bg-white p-2 text-[12px] leading-snug text-black">
                     {settings.scWpHeadingBreak ? (
                       <>
                         <div className="font-semibold">GROUNDS:</div>
@@ -2900,9 +2978,9 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                         value={settings.scWpNumbering?.[key] ?? (key === 'grounds' ? 'upper-alpha' : 'lower-alpha')}
                         onValueChange={(v) => setSettings((prev) => ({ ...prev, scWpNumbering: { ...(prev.scWpNumbering ?? { facts: 'lower-alpha', grounds: 'upper-alpha', prayers: 'lower-alpha' }), [key]: v as EnumStyle } }))}
                       >
-                        <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-7 w-[220px] text-[12px]"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {WP_NUMBER_STYLES.map((s) => (<SelectItem key={s.value} value={s.value} className="text-xs">{s.label}</SelectItem>))}
+                          {WP_NUMBER_STYLES.map((s) => (<SelectItem key={s.value} value={s.value} className="text-[12px]">{s.label}</SelectItem>))}
                         </SelectContent>
                       </Select>
                     </SettingRow>
@@ -2919,7 +2997,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       value={settings.defaultAorName}
                       onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorName: e.target.value }))}
                       placeholder="Advocate-on-Record name"
-                      className="h-7 max-w-[280px] text-xs"
+                      className="h-7 max-w-[280px] text-[12px]"
                     />
                   </SettingRow>
                   <SettingRow label="AoR code" htmlFor="default-aor-code-scwp">
@@ -2928,7 +3006,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       value={settings.defaultAorCode}
                       onChange={(e) => setSettings((prev) => ({ ...prev, defaultAorCode: e.target.value }))}
                       placeholder="AoR registration code"
-                      className="h-7 max-w-[280px] text-xs"
+                      className="h-7 max-w-[280px] text-[12px]"
                     />
                   </SettingRow>
                 </SettingsGroup>
@@ -2939,13 +3017,13 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 >
                   <SettingRow label="Stamp font">
                     <Select value={settings.scWpStampFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, scWpStampFont: v as SettingsData['scWpStampFont'] }))}>
-                      <SelectTrigger className="h-7 w-[240px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[240px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="times" className="text-xs" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
-                        <SelectItem value="tinos" className="text-xs" style={{ fontFamily: 'Tinos, Times New Roman' }}>Tinos (Bold)</SelectItem>
-                        <SelectItem value="palatino" className="text-xs" style={{ fontFamily: '"Palatino Linotype", "TeX Gyre Pagella", Palatino' }}>Palatino / TeX Gyre Pagella (Bold)</SelectItem>
-                        <SelectItem value="helvetica" className="text-xs" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
-                        <SelectItem value="courier" className="text-xs" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
+                        <SelectItem value="times" className="text-[12px]" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
+                        <SelectItem value="tinos" className="text-[12px]" style={{ fontFamily: 'Tinos, Times New Roman' }}>Tinos (Bold)</SelectItem>
+                        <SelectItem value="palatino" className="text-[12px]" style={{ fontFamily: '"Palatino Linotype", "TeX Gyre Pagella", Palatino' }}>Palatino / TeX Gyre Pagella (Bold)</SelectItem>
+                        <SelectItem value="helvetica" className="text-[12px]" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
+                        <SelectItem value="courier" className="text-[12px]" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -2958,7 +3036,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       onValueChange={([v]) => setSettings((prev) => ({ ...prev, scWpAnnexureLabelSize: v }))}
                       className="w-[170px]"
                     />
-                    <span className="text-xs font-semibold tabular-nums">{settings.scWpAnnexureLabelSize}</span>
+                    <span className="text-[12px] font-semibold tabular-nums">{settings.scWpAnnexureLabelSize}</span>
                   </SettingRow>
                   <SettingRow label="Margin from top edge">
                     {numField('scWpAnnexureLabelMarginPt', { min: 0, max: 144, step: 1, width: 'w-20' })}
@@ -2997,12 +3075,12 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     {numField('scWpChecklistFontSizePt', { min: 6, max: 18, step: 0.5, width: 'w-16' })}
                     <Unit>pt</Unit>
                     <Select value={String(settings.scWpChecklistLineSpacing)} onValueChange={(v) => setSettings((prev) => ({ ...prev, scWpChecklistLineSpacing: parseFloat(v) }))}>
-                      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[130px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
-                        <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
-                        <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
-                        <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                        <SelectItem value="1" className="text-[12px]">Single (1.0)</SelectItem>
+                        <SelectItem value="1.15" className="text-[12px]">1.15</SelectItem>
+                        <SelectItem value="1.5" className="text-[12px]">1.5</SelectItem>
+                        <SelectItem value="2" className="text-[12px]">Double (2.0)</SelectItem>
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -3039,12 +3117,12 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                         {numField('scWpLpFontSizePt', { min: 6, max: 18, step: 0.5, width: 'w-16' })}
                         <Unit>pt</Unit>
                         <Select value={String(settings.scWpLpLineSpacing)} onValueChange={(v) => setSettings((prev) => ({ ...prev, scWpLpLineSpacing: parseFloat(v) }))}>
-                          <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="h-7 w-[130px] text-[12px]"><SelectValue /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
-                            <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
-                            <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
-                            <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                            <SelectItem value="1" className="text-[12px]">Single (1.0)</SelectItem>
+                            <SelectItem value="1.15" className="text-[12px]">1.15</SelectItem>
+                            <SelectItem value="1.5" className="text-[12px]">1.5</SelectItem>
+                            <SelectItem value="2" className="text-[12px]">Double (2.0)</SelectItem>
                           </SelectContent>
                         </Select>
                       </SettingRow>
@@ -3078,7 +3156,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   <button
                     type="button"
                     onClick={() => setShowScWpAdvancedVolume((v) => !v)}
-                    className="text-xs text-primary hover:underline"
+                    className="text-[12px] text-primary hover:underline"
                   >
                     {showScWpAdvancedVolume ? "Hide advanced options" : "Show advanced options"}
                   </button>
@@ -3129,7 +3207,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       onValueChange={([v]) => setSettings((prev) => ({ ...prev, scWpSignatureSizePx: v }))}
                       className="w-[170px]"
                     />
-                    <span className="text-xs font-semibold tabular-nums">{settings.scWpSignatureSizePx}&nbsp;px</span>
+                    <span className="text-[12px] font-semibold tabular-nums">{settings.scWpSignatureSizePx}&nbsp;px</span>
                   </SettingRow>
                   {(settings.scWpAorSignaturePng || settings.aorSignaturePng) && (
                     <div className="flex items-center justify-center rounded border bg-white p-2">
@@ -3227,7 +3305,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       onValueChange={([v]) => setSettings((prev) => ({ ...prev, wpSignatureSizePx: v }))}
                       className="w-[170px]"
                     />
-                    <span className="text-xs font-semibold tabular-nums">{settings.wpSignatureSizePx}&nbsp;px</span>
+                    <span className="text-[12px] font-semibold tabular-nums">{settings.wpSignatureSizePx}&nbsp;px</span>
                   </SettingRow>
                   {settings.wpSignaturePng && settings.wpSignatureW > 0 && (
                     <div className="flex items-center justify-center rounded border bg-white p-2">
@@ -3257,13 +3335,13 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 >
                   <SettingRow label="Stamp font">
                     <Select value={settings.wpStampFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, wpStampFont: v as SettingsData['wpStampFont'] }))}>
-                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[220px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="times" className="text-xs" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
-                        <SelectItem value="tinos" className="text-xs" style={{ fontFamily: 'Tinos, Times New Roman' }}>Tinos (Bold)</SelectItem>
-                        <SelectItem value="palatino" className="text-xs" style={{ fontFamily: '"Palatino Linotype", "TeX Gyre Pagella", Palatino' }}>Palatino / TeX Gyre Pagella (Bold)</SelectItem>
-                        <SelectItem value="helvetica" className="text-xs" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
-                        <SelectItem value="courier" className="text-xs" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
+                        <SelectItem value="times" className="text-[12px]" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
+                        <SelectItem value="tinos" className="text-[12px]" style={{ fontFamily: 'Tinos, Times New Roman' }}>Tinos (Bold)</SelectItem>
+                        <SelectItem value="palatino" className="text-[12px]" style={{ fontFamily: '"Palatino Linotype", "TeX Gyre Pagella", Palatino' }}>Palatino / TeX Gyre Pagella (Bold)</SelectItem>
+                        <SelectItem value="helvetica" className="text-[12px]" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
+                        <SelectItem value="courier" className="text-[12px]" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -3284,10 +3362,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   </SettingRow>
                   <SettingRow label="Label position">
                     <Select value={settings.wpAnnexureLabelPosition} onValueChange={(v) => setSettings((prev) => ({ ...prev, wpAnnexureLabelPosition: v as SettingsData['wpAnnexureLabelPosition'] }))}>
-                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[220px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="center" className="text-xs">Top-centre</SelectItem>
-                        <SelectItem value="right" className="text-xs">Top-right (under the page number)</SelectItem>
+                        <SelectItem value="center" className="text-[12px]">Top-centre</SelectItem>
+                        <SelectItem value="right" className="text-[12px]">Top-right (under the page number)</SelectItem>
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -3350,7 +3428,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       onValueChange={([v]) => setSettings((prev) => ({ ...prev, wpFiledByLeftPct: v }))}
                       className="w-[170px]"
                     />
-                    <span className="text-xs font-semibold tabular-nums">{settings.wpFiledByLeftPct}% / {100 - settings.wpFiledByLeftPct}%</span>
+                    <span className="text-[12px] font-semibold tabular-nums">{settings.wpFiledByLeftPct}% / {100 - settings.wpFiledByLeftPct}%</span>
                   </SettingRow>
                   {filedByDesigner(
                     settings.wpFiledByLayout,
@@ -3419,9 +3497,9 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 >
                   <SettingRow label="Font">
                     <Select value={settings.wpOutputFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, wpOutputFont: v }))}>
-                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[220px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {OUTPUT_FONTS.map((f) => (<SelectItem key={f} value={f} className="text-xs" style={{ fontFamily: f }}>{f}</SelectItem>))}
+                        {OUTPUT_FONTS.map((f) => (<SelectItem key={f} value={f} className="text-[12px]" style={{ fontFamily: f }}>{f}</SelectItem>))}
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -3429,12 +3507,12 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     {numField('wpOutputFontSizePt', { min: 8, max: 24, step: 0.5, width: 'w-16' })}
                     <Unit>pt</Unit>
                     <Select value={String(settings.wpOutputLineSpacing)} onValueChange={(v) => setSettings((prev) => ({ ...prev, wpOutputLineSpacing: parseFloat(v) }))}>
-                      <SelectTrigger className="h-7 w-[130px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[130px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="1" className="text-xs">Single (1.0)</SelectItem>
-                        <SelectItem value="1.15" className="text-xs">1.15</SelectItem>
-                        <SelectItem value="1.5" className="text-xs">1.5</SelectItem>
-                        <SelectItem value="2" className="text-xs">Double (2.0)</SelectItem>
+                        <SelectItem value="1" className="text-[12px]">Single (1.0)</SelectItem>
+                        <SelectItem value="1.15" className="text-[12px]">1.15</SelectItem>
+                        <SelectItem value="1.5" className="text-[12px]">1.5</SelectItem>
+                        <SelectItem value="2" className="text-[12px]">Double (2.0)</SelectItem>
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -3461,9 +3539,9 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                         value={settings.wpNumbering?.[key] ?? DEFAULT_WP_NUMBERING[key]}
                         onValueChange={(v) => setSettings((prev) => ({ ...prev, wpNumbering: { ...(prev.wpNumbering ?? DEFAULT_WP_NUMBERING), [key]: v as EnumStyle } }))}
                       >
-                        <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                        <SelectTrigger className="h-7 w-[220px] text-[12px]"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          {WP_NUMBER_STYLES.map((s) => (<SelectItem key={s.value} value={s.value} className="text-xs">{s.label}</SelectItem>))}
+                          {WP_NUMBER_STYLES.map((s) => (<SelectItem key={s.value} value={s.value} className="text-[12px]">{s.label}</SelectItem>))}
                         </SelectContent>
                       </Select>
                     </SettingRow>
@@ -3486,7 +3564,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     <select
                       value={settings.oaBench || DEFAULT_OA_BENCH}
                       onChange={(e) => setSettings((prev) => ({ ...prev, oaBench: e.target.value }))}
-                      className="h-7 w-full max-w-[320px] rounded-md border bg-background px-2 text-xs"
+                      className="h-7 w-full max-w-[320px] rounded-md border bg-background px-2 text-[12px]"
                     >
                       {(["Regular", "Circuit"] as const).map((group) => (
                         <optgroup key={group} label={group === "Regular" ? "Regular Benches" : "Circuit Benches"}>
@@ -3541,13 +3619,13 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 >
                   <SettingRow label="Stamp font">
                     <Select value={settings.oaStampFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, oaStampFont: v as SettingsData['oaStampFont'] }))}>
-                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[220px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="times" className="text-xs" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
-                        <SelectItem value="tinos" className="text-xs" style={{ fontFamily: 'Tinos, Times New Roman' }}>Tinos (Bold)</SelectItem>
-                        <SelectItem value="palatino" className="text-xs" style={{ fontFamily: '"Palatino Linotype", "TeX Gyre Pagella", Palatino' }}>Palatino / TeX Gyre Pagella (Bold)</SelectItem>
-                        <SelectItem value="helvetica" className="text-xs" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
-                        <SelectItem value="courier" className="text-xs" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
+                        <SelectItem value="times" className="text-[12px]" style={{ fontFamily: 'Times New Roman' }}>Times New Roman (Bold)</SelectItem>
+                        <SelectItem value="tinos" className="text-[12px]" style={{ fontFamily: 'Tinos, Times New Roman' }}>Tinos (Bold)</SelectItem>
+                        <SelectItem value="palatino" className="text-[12px]" style={{ fontFamily: '"Palatino Linotype", "TeX Gyre Pagella", Palatino' }}>Palatino / TeX Gyre Pagella (Bold)</SelectItem>
+                        <SelectItem value="helvetica" className="text-[12px]" style={{ fontFamily: 'Helvetica, Arial' }}>Helvetica / Arial (Bold)</SelectItem>
+                        <SelectItem value="courier" className="text-[12px]" style={{ fontFamily: 'Courier New' }}>Courier (Bold)</SelectItem>
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -3568,10 +3646,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   </SettingRow>
                   <SettingRow label="Label position">
                     <Select value={settings.oaAnnexureLabelPosition} onValueChange={(v) => setSettings((prev) => ({ ...prev, oaAnnexureLabelPosition: v as SettingsData['oaAnnexureLabelPosition'] }))}>
-                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[220px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="center" className="text-xs">Top-centre</SelectItem>
-                        <SelectItem value="right" className="text-xs">Top-right (under the page number)</SelectItem>
+                        <SelectItem value="center" className="text-[12px]">Top-centre</SelectItem>
+                        <SelectItem value="right" className="text-[12px]">Top-right (under the page number)</SelectItem>
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -3634,7 +3712,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       onValueChange={([v]) => setSettings((prev) => ({ ...prev, oaFiledByLeftPct: v }))}
                       className="w-[170px]"
                     />
-                    <span className="text-xs font-semibold tabular-nums">{settings.oaFiledByLeftPct}% / {100 - settings.oaFiledByLeftPct}%</span>
+                    <span className="text-[12px] font-semibold tabular-nums">{settings.oaFiledByLeftPct}% / {100 - settings.oaFiledByLeftPct}%</span>
                   </SettingRow>
                   {filedByDesigner(
                     settings.oaFiledByLayout,
@@ -3683,9 +3761,9 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 >
                   <SettingRow label="Font">
                     <Select value={settings.oaOutputFont} onValueChange={(v) => setSettings((prev) => ({ ...prev, oaOutputFont: v }))}>
-                      <SelectTrigger className="h-7 w-[220px] text-xs"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-7 w-[220px] text-[12px]"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {OUTPUT_FONTS.map((f) => (<SelectItem key={f} value={f} className="text-xs" style={{ fontFamily: f }}>{f}</SelectItem>))}
+                        {OUTPUT_FONTS.map((f) => (<SelectItem key={f} value={f} className="text-[12px]" style={{ fontFamily: f }}>{f}</SelectItem>))}
                       </SelectContent>
                     </Select>
                   </SettingRow>
@@ -3742,19 +3820,19 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
             {/* ── SHORTCUTS ── */}
             {selectedSection === 'shortcuts' && (
               <div className="space-y-5">
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[12px] text-muted-foreground">
                   Keyboard shortcuts available in Drafto. On a Mac, use <span className="font-semibold">⌘</span> wherever <span className="font-semibold">Ctrl</span> is shown, except where noted.
                 </p>
                 {SHORTCUT_GROUPS.map((group) => (
                   <div key={group.title} className="space-y-2">
-                    <p className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{group.title}</p>
-                    {group.hint && <p className="text-[11px] text-muted-foreground -mt-1">{group.hint}</p>}
+                    <p className="text-[12px] font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{group.title}</p>
+                    {group.hint && <p className="text-[12px] text-muted-foreground -mt-1">{group.hint}</p>}
                     <div className="rounded-md border border-border divide-y divide-border">
                       {group.items.map((item, i) => (
                         <div key={i} className="flex items-center justify-between gap-3 px-2.5 py-1.5">
-                          <span className="text-xs text-foreground">
+                          <span className="text-[12px] text-foreground">
                             {item.action}
-                            {item.note && <span className="text-[10px] text-muted-foreground italic ml-1">({item.note})</span>}
+                            {item.note && <span className="text-[12px] text-muted-foreground italic ml-1">({item.note})</span>}
                           </span>
                           <ShortcutKeys keys={item.keys} />
                         </div>
@@ -3770,7 +3848,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
               <div className="space-y-4">
                 <SettingsGroup title="About">
                   <SettingRow label="Version">
-                    <span className="text-xs font-semibold tabular-nums">{__APP_VERSION__}</span>
+                    <span className="text-[12px] font-semibold tabular-nums">{__APP_VERSION__}</span>
                     {import.meta.env.DEV && <Unit>(dev build)</Unit>}
                   </SettingRow>
                 </SettingsGroup>
@@ -3782,18 +3860,18 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 >
                   {!ENTITLEMENT_ENABLED ? (
                     <SettingRow label="Plan">
-                      <span className="text-xs text-muted-foreground">Not enforced in this build.</span>
+                      <span className="text-[12px] text-muted-foreground">Not enforced in this build.</span>
                     </SettingRow>
                   ) : (
                     <>
                       <SettingRow label="Plan">
-                        <span className="text-xs font-medium">
+                        <span className="text-[12px] font-medium">
                           {entLoading ? "Checking…" : planLabel(entitlement.plan)}
                         </span>
                         {!entLoading && <EntitlementChip reason={entitlement.reason} />}
                       </SettingRow>
                       <SettingRow label="Courts covered">
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-[12px] text-muted-foreground">
                           {entLoading
                             ? "…"
                             : entitlement.forums.length > 0
@@ -3803,16 +3881,16 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       </SettingRow>
                       {entitlement.fromCache && (
                         <SettingRow label="">
-                          <span className="text-[11px] text-muted-foreground">
+                          <span className="text-[12px] text-muted-foreground">
                             Shown from the last check — Drafto could not reach the billing server.
                           </span>
                         </SettingRow>
                       )}
                       <SettingRow label="">
-                        <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={openManageSubscription}>
+                        <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 text-[12px]" onClick={openManageSubscription}>
                           <ExternalLink className="h-3.5 w-3.5" /> Manage subscription
                         </Button>
-                        <Button type="button" variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground" onClick={refreshEntitlement}>
+                        <Button type="button" variant="ghost" size="sm" className="h-7 gap-1.5 text-[12px] text-muted-foreground" onClick={refreshEntitlement}>
                           <RefreshCw className="h-3.5 w-3.5" /> Re-check
                         </Button>
                       </SettingRow>
@@ -3822,10 +3900,10 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
 
                 <SettingsGroup title="Your usage">
                   <SettingRow label="Paperbooks (PDF)">
-                    <span className="text-xs font-semibold tabular-nums">{usageCounts === null ? "…" : usageCounts.paperbooksGenerated}</span>
+                    <span className="text-[12px] font-semibold tabular-nums">{usageCounts === null ? "…" : usageCounts.paperbooksGenerated}</span>
                   </SettingRow>
                   <SettingRow label="Drafts (DOCX)">
-                    <span className="text-xs font-semibold tabular-nums">{usageCounts === null ? "…" : usageCounts.docxGenerated}</span>
+                    <span className="text-[12px] font-semibold tabular-nums">{usageCounts === null ? "…" : usageCounts.docxGenerated}</span>
                   </SettingRow>
                 </SettingsGroup>
 
@@ -3835,34 +3913,34 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
 
                 <SettingsGroup title="Updates">
                   {updateStatus === 'idle' && (
-                    <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={handleUpdate}>
+                    <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 text-[12px]" onClick={handleUpdate}>
                       <RefreshCw className="h-3.5 w-3.5" /> Check for Updates
                     </Button>
                   )}
                   {updateStatus === 'checking' && (
-                    <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 text-xs" disabled>
+                    <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 text-[12px]" disabled>
                       <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking…
                     </Button>
                   )}
                   {updateStatus === 'up-to-date' && (
                     <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
+                      <div className="flex items-center gap-1.5 text-[12px] text-green-600 dark:text-green-400">
                         <CheckCircle className="h-3.5 w-3.5" /> You're on the latest version.
                       </div>
-                      <button type="button" onClick={() => setUpdateStatus('idle')} className="text-xs text-muted-foreground underline underline-offset-2 hover:opacity-80">Check again</button>
+                      <button type="button" onClick={() => setUpdateStatus('idle')} className="text-[12px] text-muted-foreground underline underline-offset-2 hover:opacity-80">Check again</button>
                     </div>
                   )}
                   {updateStatus === 'available' && (
                     <div className="flex flex-col gap-1.5">
-                      <p className="text-xs text-muted-foreground">Version <span className="font-semibold">{updateVersion}</span> is available.</p>
-                      <Button type="button" size="sm" className="h-7 w-fit gap-1.5 text-xs" onClick={handleDownload}>
+                      <p className="text-[12px] text-muted-foreground">Version <span className="font-semibold">{updateVersion}</span> is available.</p>
+                      <Button type="button" size="sm" className="h-7 w-fit gap-1.5 text-[12px]" onClick={handleDownload}>
                         <Download className="h-3.5 w-3.5" /> Download &amp; Install
                       </Button>
                     </div>
                   )}
                   {updateStatus === 'downloading' && (
                     <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">Downloading update… {downloadPercent}%</p>
+                      <p className="text-[12px] text-muted-foreground">Downloading update… {downloadPercent}%</p>
                       <div className="h-1.5 w-48 overflow-hidden rounded-full bg-muted">
                         <div className="h-full rounded-full bg-primary transition-all duration-300" style={{ width: `${downloadPercent}%` }} />
                       </div>
@@ -3870,22 +3948,22 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                   )}
                   {updateStatus === 'downloaded' && (
                     <div className="flex flex-col gap-1.5">
-                      <p className="text-xs text-muted-foreground">Update ready. The app will restart to install.</p>
-                      <Button type="button" size="sm" className="h-7 w-fit gap-1.5 text-xs" onClick={handleInstall}>
+                      <p className="text-[12px] text-muted-foreground">Update ready. The app will restart to install.</p>
+                      <Button type="button" size="sm" className="h-7 w-fit gap-1.5 text-[12px]" onClick={handleInstall}>
                         <RefreshCw className="h-3.5 w-3.5" /> Restart &amp; Install
                       </Button>
                     </div>
                   )}
                   {updateStatus === 'error' && (
                     <div className="flex items-center gap-2">
-                      <div className="flex items-center gap-1.5 text-xs text-destructive">
+                      <div className="flex items-center gap-1.5 text-[12px] text-destructive">
                         <AlertCircle className="h-3.5 w-3.5" /> Update check failed.
                       </div>
-                      <button type="button" onClick={handleUpdate} className="text-xs text-muted-foreground underline underline-offset-2 hover:opacity-80">Retry</button>
+                      <button type="button" onClick={handleUpdate} className="text-[12px] text-muted-foreground underline underline-offset-2 hover:opacity-80">Retry</button>
                     </div>
                   )}
                   {updateStatus === 'dev' && (
-                    <p className="text-xs italic text-muted-foreground">Updates are not available in development mode.</p>
+                    <p className="text-[12px] italic text-muted-foreground">Updates are not available in development mode.</p>
                   )}
                 </SettingsGroup>
 
@@ -3894,14 +3972,14 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                     <button
                       type="button"
                       onClick={() => setLicenseOpen(true)}
-                      className="w-fit text-left text-xs text-primary underline underline-offset-2 hover:opacity-80"
+                      className="w-fit text-left text-[12px] text-primary underline underline-offset-2 hover:opacity-80"
                     >
                       Software License Agreement
                     </button>
                     <button
                       type="button"
                       onClick={() => setTermsOpen(true)}
-                      className="w-fit text-left text-xs text-primary underline underline-offset-2 hover:opacity-80"
+                      className="w-fit text-left text-[12px] text-primary underline underline-offset-2 hover:opacity-80"
                     >
                       Terms &amp; Conditions
                     </button>
@@ -3909,7 +3987,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                 </SettingsGroup>
 
                 <SettingsGroup title="Contact">
-                  <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={handleReachOut}>
+                  <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5 text-[12px]" onClick={handleReachOut}>
                     <ExternalLink className="h-3.5 w-3.5" /> Reach Out
                   </Button>
                 </SettingsGroup>
@@ -3925,7 +4003,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
             <DialogHeader>
               <DialogTitle>Software License Agreement</DialogTitle>
             </DialogHeader>
-            <div className="overflow-y-auto flex-1 text-[10px] leading-relaxed whitespace-pre-wrap font-mono text-muted-foreground border rounded p-3">
+            <div className="overflow-y-auto flex-1 text-[12px] leading-relaxed whitespace-pre-wrap font-mono text-muted-foreground border rounded p-3">
               {LICENSE_TEXT}
             </div>
           </DialogContent>
@@ -3936,7 +4014,7 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
             <DialogHeader>
               <DialogTitle>Terms &amp; Conditions</DialogTitle>
             </DialogHeader>
-            <div className="overflow-y-auto flex-1 text-[10px] leading-relaxed whitespace-pre-wrap font-mono text-muted-foreground border rounded p-3">
+            <div className="overflow-y-auto flex-1 text-[12px] leading-relaxed whitespace-pre-wrap font-mono text-muted-foreground border rounded p-3">
               {TERMS_TEXT}
             </div>
           </DialogContent>
@@ -4035,9 +4113,10 @@ export function getSettings(): SettingsData {
     slpAffidavitAnnexureRef: 'actual' as const,
     wpFactsFromLod: true,
     oaFactsFromLod: true,
-    aiPluginEnabled: false,
+    aiPluginEnabled: true,
+    aiProvider: 'gemini' as AiProvider,
     aiClaudeBinaryPath: "",
-    aiModel: 'default' as AiModel,
+    aiModel: 'gemini-2.5-pro' as AiModel,
     defaultAorName: "",
     defaultAorCode: "",
     wpNumbering: DEFAULT_WP_NUMBERING,
@@ -4232,9 +4311,10 @@ export function getSettings(): SettingsData {
         slpAffidavitAnnexureRef: (parsed.slpAffidavitAnnexureRef === 'blank' ? 'blank' : 'actual') as 'actual' | 'blank',
         wpFactsFromLod: parsed.wpFactsFromLod ?? true,
         oaFactsFromLod: parsed.oaFactsFromLod ?? true,
-        aiPluginEnabled: parsed.aiPluginEnabled ?? false,
+        aiPluginEnabled: parsed.aiPluginEnabled ?? true,
+        aiProvider: normalizeAiProvider(parsed.aiProvider),
         aiClaudeBinaryPath: parsed.aiClaudeBinaryPath ?? "",
-        aiModel: (parsed.aiModel || 'default') as AiModel,
+        aiModel: normalizeAiModel(parsed.aiModel, normalizeAiProvider(parsed.aiProvider)),
         defaultAorName: parsed.defaultAorName ?? "",
         defaultAorCode: parsed.defaultAorCode ?? "",
         wpNumbering: {

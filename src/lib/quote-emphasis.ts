@@ -22,5 +22,7 @@ export const EMPHASIS_PRESETS = [
 export function normaliseEmphasisLabel(raw: string | null | undefined): string {
   const text = (raw || "").trim();
   if (!text) return "";
-  return text.replace(/^\(+\s*/, "").replace(/\s*\)+$/, "").trim();
+  const cleaned = text.replace(/^\(+\s*/, "").replace(/\s*\)+$/, "").trim();
+  if (cleaned.toLowerCase() === "none" || cleaned.toLowerCase() === "null") return "";
+  return cleaned;
 }

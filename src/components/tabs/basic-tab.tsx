@@ -24,6 +24,7 @@ import { Textarea } from "../ui/textarea";
 import { Checkbox } from "../ui/checkbox";
 import { DateInput } from "../custom/date-input";
 import { UseFirstPartyButton } from "@/components/custom/use-first-party-button";
+import { MayurButton } from "@/components/custom/mayur-button";
 import { isAppeal } from "@/lib/court-family";
 import { appealProvisionsFor, APPEAL_PROVISION_OTHER } from "@/lib/appeal/appeal-provisions";
 import { countParties } from "@/lib/party-grammar";
@@ -410,19 +411,23 @@ export function BasicTab() {
 
             {selectedSection === 'parties' && (
               <>
-                <div className="flex justify-end">
-                  <FormField
-                    control={form.control}
-                    name="isCommonOrder"
-                    render={({ field }) => (
-                      <FormItem className="flex items-center space-x-1.5 space-y-0">
-                        <FormControl>
-                          <Checkbox checked={field.value} onCheckedChange={field.onChange} />
-                        </FormControl>
-                        <FormLabel className="font-normal text-xs cursor-pointer whitespace-nowrap">Common Order</FormLabel>
-                      </FormItem>
-                    )}
-                  />
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Memo of Parties</h4>
+                  <div className="flex items-center gap-2">
+                    <FormField
+                      control={form.control}
+                      name="isCommonOrder"
+                      render={({ field }) => (
+                        <FormItem className="flex items-center space-x-1.5 space-y-0">
+                          <FormControl>
+                            <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                          </FormControl>
+                          <FormLabel className="font-normal text-xs cursor-pointer whitespace-nowrap">Common Order</FormLabel>
+                        </FormItem>
+                      )}
+                    />
+                    <MayurButton section="parties" />
+                  </div>
                 </div>
                 {isCommonOrder ? (
                   <CommonOrderGroupsUI />
@@ -448,7 +453,10 @@ export function BasicTab() {
 
             {selectedSection === 'impugned' && (
               <>
-                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{(impugnedOrdersWatch?.length ?? 0) > 1 ? "Impugned Orders" : "Impugned Order"}</h4>
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">{(impugnedOrdersWatch?.length ?? 0) > 1 ? "Impugned Orders" : "Impugned Order"}</h4>
+                  <MayurButton section="impugned" />
+                </div>
                 <div className="space-y-1">
                   {fields.map((item, index) => (
                     <div key={item.id} className="relative group">
@@ -636,7 +644,10 @@ export function BasicTab() {
               <>
                 <div className="flex items-center justify-between gap-2">
                   <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Deponent</h4>
-                  <UseFirstPartyButton />
+                  <div className="flex items-center gap-1.5">
+                    <UseFirstPartyButton />
+                    <MayurButton section="deponent" />
+                  </div>
                 </div>
                 <Card>
                   <CardContent className="p-2">
