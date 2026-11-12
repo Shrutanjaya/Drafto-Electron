@@ -37,32 +37,37 @@ export function ManageDevices({ compact = false }: { compact?: boolean }) {
   );
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>Active devices</span>
-        <span>
-          {devices.length} / {deviceLimit} seats in use
-        </span>
+    <div className={compact ? "w-full space-y-1.5" : "space-y-2"}>
+      <div className={compact ? "flex items-center justify-between text-[11px] text-muted-foreground" : "flex items-center justify-between text-xs text-muted-foreground"}>
+        <span>{compact ? `${devices.length} of ${deviceLimit} seats in use` : "Active devices"}</span>
+        {!compact && (
+          <span>
+            {devices.length} / {deviceLimit} seats in use
+          </span>
+        )}
       </div>
-      <ul className="space-y-2">
+      <ul className={compact ? "space-y-1" : "space-y-2"}>
         {sorted.map((d) => {
           const isCurrent = d.deviceId === currentDeviceId;
           return (
             <li
               key={d.deviceId}
-              className="flex items-center justify-between gap-3 rounded-md border p-2.5"
+              className={compact
+                ? "flex items-center justify-between gap-2 rounded border bg-muted/20 px-2.5 py-1 text-[12px]"
+                : "flex items-center justify-between gap-3 rounded-md border p-2.5"
+              }
             >
-              <div className="flex min-w-0 items-center gap-2.5">
-                <Laptop className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">
+              <div className="flex min-w-0 items-center gap-2">
+                <Laptop className={compact ? "h-3.5 w-3.5 shrink-0 text-muted-foreground" : "h-4 w-4 shrink-0 text-muted-foreground"} />
+                <div className="min-w-0 flex items-center gap-1.5">
+                  <p className={compact ? "truncate text-[12px] font-medium" : "truncate text-sm font-medium"}>
                     {d.deviceInfo?.hostname || d.deviceInfo?.os || 'Unknown device'}
-                    {isCurrent && (
-                      <span className="ml-2 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                        This device
-                      </span>
-                    )}
                   </p>
+                  {isCurrent && (
+                    <span className="rounded bg-primary/10 px-1.5 py-0.2 text-[10px] font-semibold text-primary shrink-0">
+                      This device
+                    </span>
+                  )}
                   {!compact && (
                     <p className="truncate text-[11px] text-muted-foreground">
                       {d.deviceInfo?.os}
@@ -75,14 +80,15 @@ export function ManageDevices({ compact = false }: { compact?: boolean }) {
                 type="button"
                 size="sm"
                 variant={isCurrent ? 'ghost' : 'outline'}
+                className={compact ? "h-6 px-2 text-[11px] shrink-0" : undefined}
                 disabled={busy === d.deviceId}
                 onClick={() => handleSignOut(d.deviceId)}
               >
                 {busy === d.deviceId ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <Loader2 className="h-3 w-3 animate-spin" />
                 ) : (
                   <>
-                    <LogOut className="mr-1 h-3.5 w-3.5" />
+                    <LogOut className="mr-1 h-3 w-3" />
                     {isCurrent ? 'Sign out' : 'Remove'}
                   </>
                 )}

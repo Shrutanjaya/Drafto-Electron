@@ -32,13 +32,15 @@ export function newBlankProject(courtType: DraftoProject["courtType"] = "SLP"): 
       project.checklist.q1_form28 = "NA";
       project.checklist.q3_papersArranged = "NA";
     }
-    // Writ petitions pre-fill the "Filed by" block from the WP defaults.
-    if (courtType === "WritPetitionDHC") {
-      project.wp.advocate = { ...project.wp.advocate, ...getWpFiledBy() };
+    // Pre-fill advocate details from court settings defaults
+    project.wp.advocate = { ...project.wp.advocate, ...getWpFiledBy() };
+    project.oa.advocate = { ...project.oa.advocate, ...getOaFiledBy() };
+    // Pre-fill default Facts mode from settings
+    if (s.wpFactsFromLod !== undefined) {
+      project.wp.annexureMode = s.wpFactsFromLod ? "lod" : "facts";
     }
-    // Original Applications pre-fill theirs from the CAT defaults.
-    if (courtType === "OriginalApplicationCAT") {
-      project.oa.advocate = { ...project.oa.advocate, ...getOaFiledBy() };
+    if (s.oaFactsFromLod !== undefined) {
+      project.oa.annexureMode = s.oaFactsFromLod ? "lod" : "facts";
     }
   } catch {
     /* settings unavailable (e.g. SSR) — return the plain blank project */

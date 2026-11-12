@@ -22,6 +22,7 @@ import {
 } from "@/lib/wp/wp-pdf";
 import { wpAnnexureOrder } from "@/lib/wp/wp-annexures";
 import { getOaStampSettings } from "@/lib/oa/oa-settings";
+import { getSettings } from "@/components/dialogs/settings-dialog";
 import {
   generateOaIndexDoc, generateOaMemoDoc, generateOaSynopsisDoc, generateOaBodyOnly,
   generateOaLastPageDoc, generateOaMaDoc, generateOaMaAffidavitForDoc, generateOaVakalatnamaDoc,
@@ -137,7 +138,28 @@ export async function generateOaPdf(
         }
       } else {
         const bytes = await fileBytes(a.file, a.filePath);
-        src = bytes ? await pdfFromBytes(bytes) : null;
+        const typedBytes = await fileBytes(a.typedOrTranslatedFile, a.typedOrTranslatedFilePath);
+        const hasTyped = !!typedBytes;
+        const translatedFirst = !!getSettings().slpTranslatedCopyFirst;
+        if (hasTyped && bytes) {
+          src = await PDFDocument.create();
+          const firstBytes = translatedFirst ? typedBytes : bytes;
+          const secondBytes = translatedFirst ? bytes : typedBytes;
+          const p1 = await pdfFromBytes(firstBytes!);
+          if (p1 && p1.getPageCount() > 0) {
+            const cp = await src.copyPages(p1, p1.getPageIndices());
+            cp.forEach((pg) => src!.addPage(pg));
+          }
+          const p2 = await pdfFromBytes(secondBytes!);
+          if (p2 && p2.getPageCount() > 0) {
+            const cp = await src.copyPages(p2, p2.getPageIndices());
+            cp.forEach((pg) => src!.addPage(pg));
+          }
+        } else if (hasTyped && !bytes) {
+          src = await pdfFromBytes(typedBytes!);
+        } else {
+          src = bytes ? await pdfFromBytes(bytes) : null;
+        }
       }
       // A missing upload still occupies its place (one blank page) so the Index
       // page numbers stay correct.

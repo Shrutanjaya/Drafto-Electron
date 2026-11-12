@@ -135,8 +135,9 @@ export function getAppendixItems(project: Partial<DraftoProject> | undefined): A
 // on and the row has something attached. The Index rows, the merge components
 // and the page ranges are all built from this list, in this order.
 export function getActiveAppendixItems(project: Partial<DraftoProject> | undefined): AppendixItem[] {
-  if (!project?.wantsAppendix) return [];
-  return getAppendixItems(project).filter(appendixHasContent);
+  const items = getAppendixItems(project);
+  if (items.length === 0) return [];
+  return items.filter(appendixHasContent);
 }
 
 // Merge-component id for an Appendix document (one per attached document).

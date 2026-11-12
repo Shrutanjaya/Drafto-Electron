@@ -12,6 +12,7 @@
 import { PDFDocument, rgb, degrees, PDFDict, PDFName, PDFArray, PDFString, PDFNumber, type PDFRef, type PDFPage, type PDFFont } from "pdf-lib";
 import { embedStampFont } from "@/lib/pdf-stamp-fonts";
 import { getWpStampSettings, type WpStampSettings } from "./wp-settings";
+import { getSettings } from "@/components/dialogs/settings-dialog";
 import { convertDocxToPdf as ipcConvertDocxToPdf } from "@/lib/ipc/pdf";
 import type { DraftoProject } from "@/lib/schema";
 import { wpAnnexureOrder, cmAnnexLabel, cmAnnexIndexText } from "./wp-annexures";
@@ -284,7 +285,31 @@ export async function generateWpPdf(
         if (!bytes && altAnnex) {
           bytes = await fileBytes(altAnnex.file, altAnnex.filePath);
         }
-        src = bytes ? await pdfFromBytes(bytes) : null;
+        let typedBytes = await fileBytes(annex.typedOrTranslatedFile, annex.typedOrTranslatedFilePath);
+        if (!typedBytes && altAnnex) {
+          typedBytes = await fileBytes(altAnnex.typedOrTranslatedFile, altAnnex.typedOrTranslatedFilePath);
+        }
+        const hasTyped = !!typedBytes;
+        const translatedFirst = !!getSettings().slpTranslatedCopyFirst;
+        if (hasTyped && bytes) {
+          src = await PDFDocument.create();
+          const firstBytes = translatedFirst ? typedBytes : bytes;
+          const secondBytes = translatedFirst ? bytes : typedBytes;
+          const p1 = await pdfFromBytes(firstBytes!);
+          if (p1 && p1.getPageCount() > 0) {
+            const cp = await src.copyPages(p1, p1.getPageIndices());
+            cp.forEach((p) => src!.addPage(p));
+          }
+          const p2 = await pdfFromBytes(secondBytes!);
+          if (p2 && p2.getPageCount() > 0) {
+            const cp = await src.copyPages(p2, p2.getPageIndices());
+            cp.forEach((p) => src!.addPage(p));
+          }
+        } else if (hasTyped && !bytes) {
+          src = await pdfFromBytes(typedBytes!);
+        } else {
+          src = bytes ? await pdfFromBytes(bytes) : null;
+        }
       }
       if (!src || src.getPageCount() === 0) { src = await PDFDocument.create(); src.addPage(); }
       items.push({

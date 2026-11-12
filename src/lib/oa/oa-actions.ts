@@ -11,7 +11,7 @@ import {
   Table, TableRow, TableCell, WidthType, VerticalAlign,
 } from "docx";
 import { getPartyHeader, smartTextRun, isLodRowNonEmpty } from "@/lib/docx-helpers";
-import { parseHtml } from "@/lib/html-to-docx";
+import { parseHtml, setDocxExportContext, buildDocxExportContext } from "@/lib/html-to-docx";
 import { groundsSequence, getGroundsHeadingStyle, groundsHeadingRuns, groundsHeadingHang } from "@/lib/grounds-headings";
 import type { DraftoProject } from "@/lib/schema";
 import { createWpFiledBy, NO_BORDERS } from "@/lib/wp/wp-helpers";
@@ -767,7 +767,17 @@ function buildOaIndex(project: DraftoProject, pageRanges?: Record<string, string
 }
 
 // ── public generators ────────────────────────────────────────────────────────
+function initOaExportContext(project: DraftoProject) {
+  const f = getOaOutputFormatting();
+  const ctx = buildDocxExportContext(project);
+  ctx.outputFontSizePt = f.sizePt;
+  ctx.outputLineSpacing = f.lineSpacing;
+  ctx.outputParaAfterPt = f.afterPt;
+  setDocxExportContext(ctx);
+}
+
 export async function generateOaBody(project: DraftoProject) {
+  initOaExportContext(project);
   const numbering: any[] = [];
   const mainRef = newRef();
   numbering.push(decimalDef(mainRef));
@@ -779,6 +789,7 @@ export async function generateOaBody(project: DraftoProject) {
 // Index → Memo → Synopsis+LoD → PT(s)+affidavit → MA(s)+affidavit → OA (Paras
 // 1–9) → per-applicant Last Page(s) → Vakalatnama → Authority Letter(s).
 export async function generateOaAll(project: DraftoProject) {
+  initOaExportContext(project);
   const numbering: any[] = [];
   const pageBreak = () => new Paragraph({ children: [new PageBreak()] });
   const children: Child[] = [];
@@ -831,12 +842,14 @@ export async function generateOaMemoDoc(project: DraftoProject) {
   return pack(oaDoc(buildOaMemo(project)), "OA-MemoOfParties.docx");
 }
 export async function generateOaSynopsisDoc(project: DraftoProject) {
+  initOaExportContext(project);
   const numbering: any[] = [];
   const children = buildOaSynopsisAndLod(project, numbering);
   return pack(oaDoc(children, numbering), "OA-SynopsisAndLoD.docx");
 }
 /** Paras 1–9 only (the Last Page is a separate component in the paper-book). */
 export async function generateOaBodyOnly(project: DraftoProject) {
+  initOaExportContext(project);
   const numbering: any[] = [];
   const mainRef = newRef(); numbering.push(decimalDef(mainRef));
   return pack(oaDoc(buildOaBody(project, numbering, mainRef), numbering), "OA-Body.docx");
@@ -866,6 +879,7 @@ export async function generateOaAuthorityLetterDoc(project: DraftoProject, appli
 /** All Miscellaneous Applications and the Petition for Transfer, each with its
  *  affidavit, in filing order (PT first). */
 export async function generateOaApplicationsDoc(project: DraftoProject) {
+  initOaExportContext(project);
   const numbering: any[] = [];
   const children: Child[] = [];
   const ordered = [
@@ -883,6 +897,7 @@ export async function generateOaApplicationsDoc(project: DraftoProject) {
 /** Signing Pages: the Last Page(s), the Vakalatnama and every application's
  *  Affidavit — i.e. everything the Applicant(s) physically sign. */
 export async function generateOaSigningPagesDoc(project: DraftoProject) {
+  initOaExportContext(project);
   const numbering: any[] = [];
   const children: Child[] = [];
   const brk = () => { if (children.length) children.push(new Paragraph({ children: [new PageBreak()] })); };

@@ -35,7 +35,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ScrollArea } from "../ui/scroll-area";
+import { ScrollArea, ScrollBar } from "../ui/scroll-area";
 import type { DraftoProject, Annexure } from "@/lib/schema";
 import { getIaList } from "@/lib/ia-list-utils";
 import { isScWpFamily, annexurePrefix } from "@/lib/court-family";
@@ -127,8 +127,8 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
     // Each Appendix row in the Index is built from its description; without one
     // the row prints a placeholder. Rows with nothing attached are dropped from
     // the paper-book altogether, so say so rather than filing silently short.
-    if (data.wantsAppendix) {
-        const appendixRows = getAppendixItems(data);
+    const appendixRows = getAppendixItems(data);
+    if (appendixRows.length > 0) {
         const included = appendixRows.filter(appendixHasContent);
         included.forEach((item, index) => {
             if (!String(item.description ?? "").trim() && !String(item.indexTextOverride ?? "").trim()) {
@@ -250,6 +250,109 @@ const capitalize = (s: string) => {
 };
 const annexDate = (date: string) => date ? ` dated ${date}` : '';
 
+const cleanAnnexureTitle = (title?: string): string => {
+    if (!title) return "[Description]";
+    const trimmed = title.trim();
+    if (!trimmed) return "[Description]";
+    return capitalize(trimmed);
+};
+
+const getCompactIaTitle = (iaId: string, fullTitle?: string): string => {
+    switch (iaId) {
+        case "exemptionCertifiedCopy":
+            return "IA: Exemption (Certified Copy)";
+        case "exemptionOfficialTranslation":
+            return "IA: Exemption (Official Translation)";
+        case "additionalDocuments":
+            return "IA: Additional Documents";
+        case "condonationOfDelay":
+            return "IA: Condonation of Delay";
+        case "condonationOfDelayInRefiling":
+            return "IA: Condonation of Delay (Refiling)";
+        case "exemptionFromSurrendering":
+            return "IA: Exemption (Surrender)";
+        case "suspensionOfSentence":
+            return "IA: Suspension of Sentence";
+        default: {
+            if (fullTitle) {
+                const clean = fullTitle.replace(/^Application\s+for\s+/i, "").replace(/^Application\s+/i, "");
+                return `IA: ${clean}`;
+            }
+            return `IA: ${iaId}`;
+        }
+    }
+};
+
+const ActionPill = ({
+    label,
+    isUploaded,
+    isOptional,
+    fileName,
+    onClick,
+    onRemove,
+    disabled,
+}: {
+    label: string;
+    isUploaded: boolean;
+    isOptional?: boolean;
+    fileName?: string;
+    onClick?: () => void;
+    onRemove?: () => void;
+    disabled?: boolean;
+}) => (
+    <div className="inline-flex items-center gap-0.5">
+        <TooltipProvider delayDuration={200}>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={onClick}
+                        className={cn(
+                            "inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium transition-colors border leading-tight select-none",
+                            disabled ? "cursor-default opacity-90" : "cursor-pointer",
+                            isUploaded
+                                ? "border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20"
+                                : isOptional
+                                ? "border-yellow-500/40 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/20"
+                                : "border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20"
+                        )}
+                    >
+                        {isUploaded ? (
+                            <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />
+                        ) : (
+                            <AlertCircle className="h-2.5 w-2.5 shrink-0" />
+                        )}
+                        <span>{label}</span>
+                    </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[280px] text-xs">
+                    {disabled
+                        ? "System-generated document"
+                        : isUploaded
+                        ? `File uploaded: ${fileName || "Attached"}. Click to replace.`
+                        : isOptional
+                        ? `Upload ${label} (Optional)`
+                        : `Upload ${label} (Required)`}
+                </TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
+        {isUploaded && isOptional && onRemove && (
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onRemove();
+                }}
+                title="Remove upload"
+                className="inline-flex items-center justify-center h-4 w-4 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+            >
+                <X className="h-2.5 w-2.5" />
+            </button>
+        )}
+    </div>
+);
+
 function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: () => void; onGeneratingChange?: (v: boolean) => void }) {
     const mainForm = useFormContext<DraftoProject>();
     const { toast } = useToast();
@@ -266,6 +369,9 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
     const pendingSubmitData = useRef<PdfMergeForm | null>(null);
     const [progress, setProgress] = useState(0);
     const [progressLabel, setProgressLabel] = useState<string>("");
+    const [showFilter, setShowFilter] = useState<'pending' | 'all'>('pending');
+    const [leftWrap, setLeftWrap] = useState<boolean>(true);
+    const [rightWrap, setRightWrap] = useState<boolean>(true);
     const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({ annexures: true });
     const cancelledRef = useRef(false);
     const abortControllerRef = useRef<AbortController | null>(null);
@@ -1221,18 +1327,258 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
 
         return "Upload Required";
     };
-    
+
+    // ── TWO-COLUMN PREPARATION ──
+    const isScWp = isScWpFamily(mainFormValues.courtType);
+    const activeLodRows = annexureRowsOf(mainFormValues as DraftoProject);
+    const allAnnexures: (Annexure & { lodId: string })[] = activeLodRows.flatMap(lod => (lod.annexures || []).map(a => ({ ...a, lodId: lod.id })));
+
+    const annexureNumberingMap = new Map<string, number>();
+    let pCounter = 1;
+    const nonAdAnnexures = allAnnexures.filter(a => !a.isAdditionalDocument);
+    const adAnnexures = allAnnexures.filter(a => a.isAdditionalDocument);
+
+    if (isScWp) {
+        const scWpOrder = wpAnnexureOrderFromLods(activeLodRows);
+        scWpOrder.forEach(e => annexureNumberingMap.set(e.annex.id, e.pNumber));
+    } else {
+        nonAdAnnexures.forEach(a => annexureNumberingMap.set(a.id, pCounter++));
+        adAnnexures.forEach(a => annexureNumberingMap.set(a.id, pCounter++));
+    }
+
+    // Collect IA ground annexures
+    const allIaAnnexures: any[] = [];
+    if (!isScWp && (mainFormValues as any).standardIas?.condonationOfDelay?.active) {
+        (mainFormValues as any).standardIas.condonationOfDelay.grounds?.forEach((ground: any) => {
+            if (ground.annexures) {
+                ground.annexures.forEach((annex: any) => {
+                    allIaAnnexures.push({ ...annex, iaId: 'condonationOfDelay' });
+                });
+            }
+        });
+    }
+    if (!isScWp && (mainFormValues as any).standardIas?.condonationOfDelayInRefiling?.active) {
+        (mainFormValues as any).standardIas.condonationOfDelayInRefiling.grounds?.forEach((ground: any) => {
+            if (ground.annexures) {
+                ground.annexures.forEach((annex: any) => {
+                    allIaAnnexures.push({ ...annex, iaId: 'condonationOfDelayInRefiling' });
+                });
+            }
+        });
+    }
+    if ((mainFormValues as any).standardIas?.exemptionFromSurrendering?.active) {
+        (mainFormValues as any).standardIas.exemptionFromSurrendering.grounds?.forEach((ground: any) => {
+            if (ground.annexures) {
+                ground.annexures.forEach((annex: any) => {
+                    allIaAnnexures.push({ ...annex, iaId: 'exemptionFromSurrendering' });
+                });
+            }
+        });
+    }
+    if ((mainFormValues as any).customIas && (mainFormValues as any).customIas.length > 0) {
+        (mainFormValues as any).customIas.forEach((customIa: any) => {
+            if (customIa.grounds) {
+                customIa.grounds.forEach((ground: any) => {
+                    if (ground.annexures) {
+                        ground.annexures.forEach((annex: any) => {
+                            allIaAnnexures.push({ ...annex, iaId: customIa.id });
+                        });
+                    }
+                });
+            }
+        });
+    }
+
+    const iaAnnexureNumberingMap = new Map<string, number>();
+    let aCounter = 1;
+    allIaAnnexures.forEach(a => iaAnnexureNumberingMap.set(a.id, aCounter++));
+
+    const iasList = isScWp ? getScWpIaList(mainFormValues as DraftoProject) : getIaList(mainFormValues as DraftoProject);
+    const iaItemIds = new Set<string>();
+    iasList.forEach(ia => {
+        iaItemIds.add(`ia_${ia.id}`);
+        iaItemIds.add(`ia_affidavit_${ia.id}`);
+    });
+    iaItemIds.add('certified_copy_receipt');
+
+    // Left Column entries
+    interface LeftEntry {
+        key: string;
+        kind: 'regular' | 'ia' | 'requirement';
+        title: string;
+        isPending: boolean;
+        regularItem?: MergeItem;
+        regularIndex?: number;
+        iaMainItem?: MergeItem;
+        iaMainIndex?: number;
+        iaAffidavitItem?: MergeItem;
+        iaAffidavitIndex?: number;
+        iaReceiptItem?: MergeItem;
+        iaReceiptIndex?: number;
+        req?: DataRequirement;
+    }
+
+    const leftEntries: LeftEntry[] = [];
+    const impugnedOrderCount = (mainFormValues.impugnedOrders || []).length;
+
+    watchedItems.forEach((item, index) => {
+        if (!item) return;
+        if (item.id.startsWith('annexure_') || item.id.startsWith('ia_annexure_')) return;
+        if (iaItemIds.has(item.id)) return;
+
+        let displayTitle = item.label;
+        if (item.id.startsWith('impugnedOrder_')) {
+            if (impugnedOrderCount <= 1) {
+                displayTitle = "Impugned Order";
+            } else {
+                const orderIdx = (mainFormValues.impugnedOrders || []).findIndex(o => `impugnedOrder_${o.id}` === item.id);
+                displayTitle = orderIdx >= 0 ? `Impugned Order ${orderIdx + 1}` : item.label;
+            }
+        }
+
+        const status = itemStatus(item);
+        const isPending = status !== 'ready';
+        leftEntries.push({
+            key: item.id,
+            kind: 'regular',
+            title: displayTitle,
+            isPending,
+            regularItem: item,
+            regularIndex: index,
+        });
+    });
+
+    // Add combined IAs to left column
+    iasList.forEach(ia => {
+        const iaMainIdx = watchedItems.findIndex(it => it.id === `ia_${ia.id}`);
+        const iaAffidavitIdx = watchedItems.findIndex(it => it.id === `ia_affidavit_${ia.id}`);
+        const iaReceiptIdx = (ia.id === 'exemptionCertifiedCopy') ? watchedItems.findIndex(it => it.id === 'certified_copy_receipt') : -1;
+
+        const iaMainItem = iaMainIdx >= 0 ? watchedItems[iaMainIdx] : undefined;
+        const iaAffidavitItem = iaAffidavitIdx >= 0 ? watchedItems[iaAffidavitIdx] : undefined;
+        const iaReceiptItem = iaReceiptIdx >= 0 ? watchedItems[iaReceiptIdx] : undefined;
+
+        const affidavitUploaded = iaAffidavitItem?.userFile instanceof File;
+        const receiptUploaded = iaReceiptItem ? iaReceiptItem.userFile instanceof File : true;
+        const isPending = !affidavitUploaded || !receiptUploaded;
+
+        leftEntries.push({
+            key: `ia_combined_${ia.id}`,
+            kind: 'ia',
+            title: getCompactIaTitle(ia.id, ia.title),
+            isPending,
+            iaMainItem,
+            iaMainIndex: iaMainIdx,
+            iaAffidavitItem,
+            iaAffidavitIndex: iaAffidavitIdx,
+            iaReceiptItem,
+            iaReceiptIndex: iaReceiptIdx,
+        });
+    });
+
+    // Add non-file data requirements to left column
+    dataRequirements.forEach(req => {
+        leftEntries.push({
+            key: `req_${req.id}`,
+            kind: 'requirement',
+            title: req.label,
+            isPending: !req.value,
+            req,
+        });
+    });
+
+    // Right Column: Annexures
+    interface RightAnnexureCopy {
+        label: string;
+        item?: MergeItem;
+        index: number;
+        isUploaded: boolean;
+        fileName?: string;
+    }
+
+    interface RightAnnexureEntry {
+        key: string;
+        prefixAndNum: string;
+        title: string;
+        date?: string;
+        isPending: boolean;
+        copies: RightAnnexureCopy[];
+    }
+
+    const rightAnnexureEntries: RightAnnexureEntry[] = [];
+    const annexPrefixStr = annexurePrefix(mainFormValues.courtType);
+    const cleanAnnexPrefix = (annexPrefixStr || "P").replace(/-+$/, '');
+
+    allAnnexures.forEach(a => {
+        const pNum = annexureNumberingMap.get(a.id);
+        const prefixAndNum = `${cleanAnnexPrefix}${pNum !== undefined ? pNum : '?'}`;
+        
+        const trueIdx = watchedItems.findIndex(it => it.id === `annexure_${a.id}`);
+        const trueItem = trueIdx >= 0 ? watchedItems[trueIdx] : undefined;
+        const isTrueUploaded = (trueItem?.userFile instanceof File) || (a.file instanceof File);
+        const trueFileName = trueItem?.userFile instanceof File ? trueItem.userFile.name : (a.file instanceof File ? a.file.name : (a.filePath ? String(a.filePath).split(/[\\/]/).pop() : ""));
+
+        const typedIdx = watchedItems.findIndex(it => it.id === `annexure_${a.id}_typed`);
+        const typedItem = typedIdx >= 0 ? watchedItems[typedIdx] : undefined;
+        const isTypedUploaded = (typedItem?.userFile instanceof File) || (a.typedOrTranslatedFile instanceof File);
+        const typedFileName = typedItem?.userFile instanceof File ? typedItem.userFile.name : (a.typedOrTranslatedFile instanceof File ? a.typedOrTranslatedFile.name : (a.typedOrTranslatedFilePath ? String(a.typedOrTranslatedFilePath).split(/[\\/]/).pop() : ""));
+
+        const copies: RightAnnexureCopy[] = [];
+        if (a.copyType === "true and translated copy") {
+            copies.push({ label: "True", item: trueItem, index: trueIdx, isUploaded: isTrueUploaded, fileName: trueFileName });
+            copies.push({ label: "Translated", item: typedItem, index: typedIdx, isUploaded: isTypedUploaded, fileName: typedFileName });
+        } else if (a.copyType === "true and typed copy") {
+            copies.push({ label: "True", item: trueItem, index: trueIdx, isUploaded: isTrueUploaded, fileName: trueFileName });
+            copies.push({ label: "Typed", item: typedItem, index: typedIdx, isUploaded: isTypedUploaded, fileName: typedFileName });
+        } else if (a.copyType === "translated copy") {
+            copies.push({ label: "Translated", item: trueItem, index: trueIdx, isUploaded: isTrueUploaded, fileName: trueFileName });
+        } else if (a.copyType === "typed copy") {
+            copies.push({ label: "Typed", item: trueItem, index: trueIdx, isUploaded: isTrueUploaded, fileName: trueFileName });
+        } else {
+            copies.push({ label: "True", item: trueItem, index: trueIdx, isUploaded: isTrueUploaded, fileName: trueFileName });
+        }
+
+        const isPending = copies.some(c => !c.isUploaded);
+        rightAnnexureEntries.push({
+            key: `annex_${a.id}`,
+            prefixAndNum,
+            title: cleanAnnexureTitle(a.title),
+            date: a.date || undefined,
+            isPending,
+            copies,
+        });
+    });
+
+    // Also add any IA ground annexures (A-series) to the Right Column
+    allIaAnnexures.forEach(a => {
+        const aNum = iaAnnexureNumberingMap.get(a.id);
+        const prefixAndNum = `A${aNum !== undefined ? aNum : '?'}`;
+        const idx = watchedItems.findIndex(it => it.id === `ia_annexure_${a.id}`);
+        const item = idx >= 0 ? watchedItems[idx] : undefined;
+        const isUploaded = (item?.userFile instanceof File) || (a.file instanceof File);
+        const fileName = item?.userFile instanceof File ? item.userFile.name : (a.file instanceof File ? a.file.name : (a.filePath ? String(a.filePath).split(/[\\/]/).pop() : ""));
+
+        rightAnnexureEntries.push({
+            key: `ia_annex_${a.id}`,
+            prefixAndNum,
+            title: cleanAnnexureTitle(a.title),
+            date: a.date || undefined,
+            isPending: !isUploaded,
+            copies: [{ label: "True", item, index: idx, isUploaded, fileName }],
+        });
+    });
+
+    const visibleLeft = showFilter === "pending" ? leftEntries.filter(e => e.isPending) : leftEntries;
+    const visibleRight = showFilter === "pending" ? rightAnnexureEntries.filter(e => e.isPending) : rightAnnexureEntries;
+
     const GoButtonWrapper = ({ children }: { children: React.ReactNode }) => {
         return <>{children}</>;
     };
 
     return (
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-6xl max-h-[92vh] flex flex-col">
             <DialogHeader>
                 <DialogTitle>Paperbook Generator</DialogTitle>
-                <DialogDescription>
-                    Gray items are system-generated (click any to override with your own file), red items need your upload, yellow are optional. The final PDF is merged in the order below.
-                </DialogDescription>
             </DialogHeader>
 
             {/* Readiness summary — synced with the per-section status chips */}
@@ -1252,204 +1598,343 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                 <StatusChip status={overallStatus} />
             </div>
 
+            {/* Show filter toggle */}
+            <div className="flex items-center justify-between py-1">
+                <div className="flex items-center gap-2 text-xs select-none">
+                    <span className="text-muted-foreground font-medium">Show:</span>
+                    <div className="inline-flex items-center rounded-md border border-input/60 bg-muted/40 p-0.5 text-xs">
+                        <button
+                            type="button"
+                            onClick={() => setShowFilter('pending')}
+                            className={cn(
+                                "rounded px-2.5 py-1 font-medium transition-all cursor-pointer",
+                                showFilter === 'pending'
+                                    ? "bg-background text-primary shadow-xs font-semibold"
+                                    : "text-muted-foreground hover:text-foreground"
+                            )}
+                        >
+                            Pending Items
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setShowFilter('all')}
+                            className={cn(
+                                "rounded px-2.5 py-1 font-medium transition-all cursor-pointer",
+                                showFilter === 'all'
+                                    ? "bg-background text-foreground shadow-xs font-semibold"
+                                    : "text-muted-foreground hover:text-foreground"
+                            )}
+                        >
+                            All Items
+                        </button>
+                    </div>
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                    {showFilter === 'pending'
+                        ? `${visibleLeft.length + visibleRight.length} pending items`
+                        : `${leftEntries.length + rightAnnexureEntries.length} total items`}
+                </div>
+            </div>
+
             <FormProvider {...uploadForm}>
-                <form onSubmit={handleSubmit(onSubmit)} id="pdf-upload-form">
-                    <ScrollArea className="h-[60vh] pr-4">
-                       <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead className="w-[60px] text-xs">S. No.</TableHead>
-                                    <TableHead className="text-xs">Particulars</TableHead>
-                                    <TableHead className="w-[180px] text-center text-xs">Status</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {sections.map((sec) => {
-                                  const collapsed = !!collapsedSections[sec.key];
-                                  return (
-                                    <React.Fragment key={sec.key}>
-                                      <TableRow className="bg-muted/40 hover:bg-muted/40">
-                                        <TableCell colSpan={3} className="py-1.5">
-                                          <button
-                                            type="button"
-                                            onClick={() => setCollapsedSections((p) => ({ ...p, [sec.key]: !p[sec.key] }))}
-                                            className="flex w-full items-center justify-between gap-2 text-left cursor-pointer"
-                                          >
-                                            <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                                              <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", !collapsed && "rotate-90")} />
-                                              {sec.label}
-                                              <span className="font-normal normal-case text-muted-foreground/60">({sec.rows.length})</span>
-                                            </span>
-                                            <StatusChip status={sec.status} />
-                                          </button>
-                                        </TableCell>
-                                      </TableRow>
-                                      {!collapsed && sec.rows.map((row) => {
-                                    // Non-upload requirement (e.g. the receipt date): shown as a
-                                    // row so it can't block generation invisibly, with a pointer
-                                    // to the tab where it's filled in.
-                                    if (row.kind === 'requirement') {
-                                        const req = row.req;
-                                        return (
-                                            <TableRow key={req.id}>
-                                                <TableCell className="text-xs font-mono text-muted-foreground">—</TableCell>
-                                                <TableCell className="text-xs">{req.label}</TableCell>
-                                                <TableCell className="text-center">
-                                                    {req.value ? (
-                                                        <TooltipProvider>
-                                                            <Tooltip>
-                                                                <TooltipTrigger asChild>
-                                                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400">
-                                                                        <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
-                                                                        Ready
-                                                                    </span>
-                                                                </TooltipTrigger>
-                                                                <TooltipContent>
-                                                                    <p className="text-xs">{req.value}</p>
-                                                                </TooltipContent>
-                                                            </Tooltip>
-                                                        </TooltipProvider>
-                                                    ) : (
-                                                        <TooltipProvider>
-                                                            <Tooltip>
-                                                                <TooltipTrigger asChild>
-                                                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400">
-                                                                        <AlertCircle className="h-3 w-3 flex-shrink-0" />
-                                                                        Upload
-                                                                    </span>
-                                                                </TooltipTrigger>
-                                                                <TooltipContent>
-                                                                    <p className="text-xs">{req.fix}</p>
-                                                                </TooltipContent>
-                                                            </Tooltip>
-                                                        </TooltipProvider>
+                <form onSubmit={handleSubmit(onSubmit)} id="pdf-upload-form" className="flex flex-col flex-1 min-h-0">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 min-h-0 pt-1">
+                        {/* LEFT COLUMN: Petition & Applications */}
+                        <div className="flex flex-col border rounded-lg bg-card overflow-hidden">
+                            <div className="px-3 py-2 bg-muted/40 border-b flex items-center justify-between">
+                                <span className="text-xs font-semibold uppercase tracking-wide text-foreground flex items-center gap-1.5">
+                                    Petition & Applications
+                                    <span className="text-[11px] font-normal text-muted-foreground">({visibleLeft.length})</span>
+                                </span>
+                                <div className="inline-flex items-center rounded-md border border-input/60 bg-muted/40 p-0.5 text-[10px] leading-none select-none">
+                                    <button
+                                        type="button"
+                                        onClick={() => setLeftWrap(true)}
+                                        className={cn(
+                                            "rounded px-2 py-0.5 font-medium transition-all cursor-pointer",
+                                            leftWrap
+                                                ? "bg-background text-primary shadow-xs font-semibold"
+                                                : "text-muted-foreground hover:text-foreground"
+                                        )}
+                                    >
+                                        Wrap
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setLeftWrap(false)}
+                                        className={cn(
+                                            "rounded px-2 py-0.5 font-medium transition-all cursor-pointer",
+                                            !leftWrap
+                                                ? "bg-background text-foreground shadow-xs font-semibold"
+                                                : "text-muted-foreground hover:text-foreground"
+                                        )}
+                                    >
+                                        No Wrap
+                                    </button>
+                                </div>
+                            </div>
+                            <ScrollArea className="h-[48vh] w-full">
+                                <div className={cn("px-3 py-1.5 space-y-0.5", leftWrap ? "w-full" : "min-w-[480px]")}>
+                                    {visibleLeft.map((entry) => {
+                                        if (entry.kind === 'ia') {
+                                            const isIaOverridden = entry.iaMainItem?.userFile instanceof File;
+                                            const isAffUploaded = entry.iaAffidavitItem?.userFile instanceof File;
+                                            const isRecUploaded = entry.iaReceiptItem?.userFile instanceof File;
+
+                                            return (
+                                                <div
+                                                    key={entry.key}
+                                                    className={cn(
+                                                        "flex justify-between py-1.5 px-2 rounded-md hover:bg-muted/40 transition-colors border-b border-border/40 last:border-b-0 gap-2 text-xs",
+                                                        leftWrap ? "items-start" : "items-center"
                                                     )}
-                                                </TableCell>
-                                            </TableRow>
-                                        );
-                                    }
-
-                                    const { item, index, sNo } = row;
-                                    const currentItem = item;
-
-                                    const isLocked = isLockedId(currentItem.id);
-                                    const hasFile = currentItem.userFile instanceof File;
-                                    const isSystemMode = currentItem.useSystem;
-                                    const isOptionalCriminal = currentItem.id === 'custodyCertificate' || currentItem.id === 'firDetails' || currentItem.id === 'proofOfService';
-                                    const isOptional = isOptionalCriminal || isOptionalUpload(currentItem.id);
-                                    const lockedTooltip = currentItem.id === 'ci'
-                                        ? 'Cover page & index contains auto-calculated page numbers; cannot be replaced'
-                                        : currentItem.id === 'slod'
-                                        ? 'Synopsis & list of dates contains auto-embedded annexure references; cannot be replaced'
-                                        : 'File frozen, cannot be replaced';
-
-                                    return (
-                                        <TableRow key={item.id}>
-                                            <TableCell className="text-xs font-mono text-muted-foreground">{sNo}</TableCell>
-                                            <TableCell className="text-xs">{item.label}</TableCell>
-                                            <TableCell className="text-center">
-                                                {isLocked ? (
-                                                    <TooltipProvider>
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 opacity-90 cursor-not-allowed">
-                                                                    <Lock className="h-3 w-3 flex-shrink-0" />
-                                                                    Ready
-                                                                </span>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent>
-                                                                <p className="max-w-[240px] text-xs">{lockedTooltip}</p>
-                                                            </TooltipContent>
-                                                        </Tooltip>
-                                                    </TooltipProvider>
-                                                ) : hasFile ? (
-                                                    <div className="inline-flex items-center gap-1">
-                                                        <TooltipProvider>
-                                                            <Tooltip>
-                                                                <TooltipTrigger asChild>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => triggerFileUpload(index)}
-                                                                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20 cursor-pointer"
-                                                                    >
-                                                                        <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
-                                                                        Ready
-                                                                    </button>
-                                                                </TooltipTrigger>
-                                                                <TooltipContent>
-                                                                    <p className="text-xs max-w-[260px] truncate">
-                                                                        File uploaded, click to replace: {currentItem.userFile!.name}.
-                                                                    </p>
-                                                                </TooltipContent>
-                                                            </Tooltip>
-                                                        </TooltipProvider>
-                                                        {isOptional && (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleRemoveFile(index)}
-                                                                title="Remove file"
-                                                                aria-label="Remove file"
-                                                                className="inline-flex items-center justify-center h-5 w-5 rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer"
-                                                            >
-                                                                <X className="h-3.5 w-3.5" />
-                                                            </button>
+                                                >
+                                                    <span
+                                                        className={cn(
+                                                            "text-foreground font-medium",
+                                                            leftWrap ? "min-w-0 flex-1 break-words leading-tight" : "truncate"
+                                                        )}
+                                                        title={entry.title}
+                                                    >
+                                                        {entry.title}
+                                                    </span>
+                                                    <div className={cn("shrink-0 flex items-center gap-1.5", leftWrap && "mt-0.5")}>
+                                                        {entry.iaMainIndex !== undefined && entry.iaMainIndex >= 0 && (
+                                                            <ActionPill
+                                                                label="Ready"
+                                                                isUploaded={true}
+                                                                fileName={isIaOverridden ? entry.iaMainItem!.userFile!.name : undefined}
+                                                                onClick={() => triggerFileUpload(entry.iaMainIndex!)}
+                                                                onRemove={isIaOverridden ? () => handleRemoveFile(entry.iaMainIndex!) : undefined}
+                                                            />
+                                                        )}
+                                                        {entry.iaAffidavitIndex !== undefined && entry.iaAffidavitIndex >= 0 && (
+                                                            <ActionPill
+                                                                label="Affidavit"
+                                                                isUploaded={isAffUploaded}
+                                                                isOptional={true}
+                                                                fileName={isAffUploaded ? entry.iaAffidavitItem!.userFile!.name : undefined}
+                                                                onClick={() => triggerFileUpload(entry.iaAffidavitIndex!)}
+                                                                onRemove={isAffUploaded ? () => handleRemoveFile(entry.iaAffidavitIndex!) : undefined}
+                                                            />
+                                                        )}
+                                                        {entry.iaReceiptIndex !== undefined && entry.iaReceiptIndex >= 0 && (
+                                                            <ActionPill
+                                                                label="Receipt"
+                                                                isUploaded={isRecUploaded}
+                                                                isOptional={true}
+                                                                fileName={isRecUploaded ? entry.iaReceiptItem!.userFile!.name : undefined}
+                                                                onClick={() => triggerFileUpload(entry.iaReceiptIndex!)}
+                                                                onRemove={isRecUploaded ? () => handleRemoveFile(entry.iaReceiptIndex!) : undefined}
+                                                            />
                                                         )}
                                                     </div>
-                                                ) : isSystemMode ? (
-                                                    <TooltipProvider>
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => triggerFileUpload(index)}
-                                                                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400 hover:bg-green-500/20 cursor-pointer"
-                                                                >
-                                                                    <CheckCircle2 className="h-3 w-3 flex-shrink-0" />
-                                                                    Ready
-                                                                </button>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent>
-                                                                <p className="text-xs">Click to replace</p>
-                                                            </TooltipContent>
-                                                        </Tooltip>
-                                                    </TooltipProvider>
-                                                ) : (
-                                                    <TooltipProvider>
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => triggerFileUpload(index)}
-                                                                    className={cn(
-                                                                        "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs cursor-pointer",
-                                                                        isOptional
-                                                                            ? "border border-yellow-500/40 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 hover:bg-yellow-500/20"
-                                                                            : "border border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20"
-                                                                    )}
-                                                                >
-                                                                    <AlertCircle className="h-3 w-3 flex-shrink-0" />
-                                                                    Upload
-                                                                </button>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent>
-                                                                <p className="text-xs">
-                                                                    {isOptional ? "Please upload a PDF here (Optional)." : "Please upload a PDF here."}
-                                                                </p>
-                                                            </TooltipContent>
-                                                        </Tooltip>
-                                                    </TooltipProvider>
+                                                </div>
+                                            );
+                                        }
+
+                                        if (entry.kind === 'requirement') {
+                                            return (
+                                                <div
+                                                    key={entry.key}
+                                                    className={cn(
+                                                        "flex justify-between py-1.5 px-2 rounded-md hover:bg-muted/40 transition-colors border-b border-border/40 last:border-b-0 gap-2 text-xs",
+                                                        leftWrap ? "items-start" : "items-center"
+                                                    )}
+                                                >
+                                                    <span
+                                                        className={cn(
+                                                            "text-muted-foreground",
+                                                            leftWrap ? "min-w-0 flex-1 break-words leading-tight" : "truncate"
+                                                        )}
+                                                        title={entry.title}
+                                                    >
+                                                        {entry.title}
+                                                    </span>
+                                                    <div className={cn("shrink-0", leftWrap && "mt-0.5")}>
+                                                        {entry.req?.value ? (
+                                                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400">
+                                                                <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />
+                                                                {entry.req.value}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium border border-red-500/40 bg-red-500/10 text-red-600 dark:text-red-400" title={entry.req?.fix}>
+                                                                <AlertCircle className="h-2.5 w-2.5 shrink-0" />
+                                                                {entry.req?.fix}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        }
+
+                                        // Regular petition item
+                                        const item = entry.regularItem!;
+                                        const index = entry.regularIndex!;
+                                        const isSystemMode = item.useSystem;
+                                        const hasFile = item.userFile instanceof File;
+                                        const isOptionalCriminal = item.id === 'custodyCertificate' || item.id === 'firDetails' || item.id === 'proofOfService';
+                                        const isOptional = isOptionalCriminal || isOptionalUpload(item.id);
+                                        const isLocked = item.id === 'ci';
+
+                                        return (
+                                            <div
+                                                key={entry.key}
+                                                className={cn(
+                                                    "flex justify-between py-1.5 px-2 rounded-md hover:bg-muted/40 transition-colors border-b border-border/40 last:border-b-0 gap-2 text-xs",
+                                                    leftWrap ? "items-start" : "items-center"
                                                 )}
-                                            </TableCell>
-                                        </TableRow>
-                                    );
-                                      })}
-                                    </React.Fragment>
-                                  );
-                                })}
-                                 {watchedItems.length === 0 && <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground">No components to display.</TableCell></TableRow>}
-                            </TableBody>
-                       </Table>
-                    </ScrollArea>
+                                            >
+                                                <span
+                                                    className={cn(
+                                                        "text-foreground font-medium",
+                                                        leftWrap ? "min-w-0 flex-1 break-words leading-tight" : "truncate"
+                                                    )}
+                                                    title={entry.title}
+                                                >
+                                                    {entry.title}
+                                                </span>
+                                                <div className={cn("shrink-0 flex items-center gap-1", leftWrap && "mt-0.5")}>
+                                                    {isLocked ? (
+                                                        <ActionPill
+                                                            label="Ready"
+                                                            isUploaded={true}
+                                                            disabled={true}
+                                                        />
+                                                    ) : hasFile ? (
+                                                        <ActionPill
+                                                            label="Ready"
+                                                            isUploaded={true}
+                                                            fileName={item.userFile!.name}
+                                                            onClick={() => triggerFileUpload(index)}
+                                                            onRemove={isOptional ? () => handleRemoveFile(index) : undefined}
+                                                        />
+                                                    ) : isSystemMode ? (
+                                                        <ActionPill
+                                                            label="Ready"
+                                                            isUploaded={true}
+                                                            disabled={false}
+                                                            onClick={() => triggerFileUpload(index)}
+                                                        />
+                                                    ) : (
+                                                        <ActionPill
+                                                            label="Upload"
+                                                            isUploaded={false}
+                                                            isOptional={isOptional}
+                                                            onClick={() => triggerFileUpload(index)}
+                                                        />
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                    {visibleLeft.length === 0 && (
+                                        <div className="h-36 flex flex-col items-center justify-center text-center p-4 text-muted-foreground text-xs gap-1">
+                                            <CheckCircle2 className="h-5 w-5 text-green-500/80 mb-0.5" />
+                                            <span className="font-medium text-foreground">
+                                                {showFilter === 'pending' ? 'All items ready' : 'No components to display'}
+                                            </span>
+                                            {showFilter === 'pending' && (
+                                                <span className="text-[11px] text-muted-foreground/80">No pending uploads or requirements.</span>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                {!leftWrap && <ScrollBar orientation="horizontal" />}
+                            </ScrollArea>
+                        </div>
+
+                        {/* RIGHT COLUMN: Annexures */}
+                        <div className="flex flex-col border rounded-lg bg-card overflow-hidden">
+                            <div className="px-3 py-2 bg-muted/40 border-b flex items-center justify-between">
+                                <span className="text-xs font-semibold uppercase tracking-wide text-foreground flex items-center gap-1.5">
+                                    Annexures
+                                    <span className="text-[11px] font-normal text-muted-foreground">({visibleRight.length})</span>
+                                </span>
+                                <div className="inline-flex items-center rounded-md border border-input/60 bg-muted/40 p-0.5 text-[10px] leading-none select-none">
+                                    <button
+                                        type="button"
+                                        onClick={() => setRightWrap(true)}
+                                        className={cn(
+                                            "rounded px-2 py-0.5 font-medium transition-all cursor-pointer",
+                                            rightWrap
+                                                ? "bg-background text-primary shadow-xs font-semibold"
+                                                : "text-muted-foreground hover:text-foreground"
+                                        )}
+                                    >
+                                        Wrap
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setRightWrap(false)}
+                                        className={cn(
+                                            "rounded px-2 py-0.5 font-medium transition-all cursor-pointer",
+                                            !rightWrap
+                                                ? "bg-background text-foreground shadow-xs font-semibold"
+                                                : "text-muted-foreground hover:text-foreground"
+                                        )}
+                                    >
+                                        No Wrap
+                                    </button>
+                                </div>
+                            </div>
+                            <ScrollArea className="h-[48vh] w-full">
+                                <div className={cn("px-3 py-1.5 space-y-0.5", rightWrap ? "w-full" : "min-w-[540px]")}>
+                                    {visibleRight.map((entry) => (
+                                        <div
+                                            key={entry.key}
+                                            className={cn(
+                                                "flex justify-between py-1.5 px-2 rounded-md hover:bg-muted/40 transition-colors border-b border-border/40 last:border-b-0 gap-3 text-xs",
+                                                rightWrap ? "items-start" : "items-center"
+                                            )}
+                                        >
+                                            <div
+                                                className={cn(
+                                                    "pr-2",
+                                                    rightWrap ? "min-w-0 flex-1 break-words leading-tight" : "min-w-0 flex-1 truncate"
+                                                )}
+                                                title={`${entry.prefixAndNum}: ${entry.title}${entry.date ? ` [${entry.date}]` : ''}`}
+                                            >
+                                                <span className="font-semibold text-primary mr-1.5 whitespace-nowrap">{entry.prefixAndNum}:</span>
+                                                <span className="text-foreground">{entry.title}</span>
+                                                {entry.date && (
+                                                    <span className="text-muted-foreground ml-1.5 font-normal whitespace-nowrap">[{entry.date}]</span>
+                                                )}
+                                            </div>
+                                            <div className={cn("shrink-0 flex items-center gap-1.5 ml-auto", rightWrap && "mt-0.5")}>
+                                                {entry.copies.map((copy, cIdx) => (
+                                                    <ActionPill
+                                                        key={`${entry.key}_copy_${cIdx}`}
+                                                        label={copy.label}
+                                                        isUploaded={copy.isUploaded}
+                                                        isOptional={false}
+                                                        fileName={copy.fileName}
+                                                        onClick={() => {
+                                                            if (copy.index >= 0) {
+                                                                triggerFileUpload(copy.index);
+                                                            }
+                                                        }}
+                                                    />
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {visibleRight.length === 0 && (
+                                        <div className="h-36 flex flex-col items-center justify-center text-center p-4 text-muted-foreground text-xs gap-1">
+                                            <CheckCircle2 className="h-5 w-5 text-green-500/80 mb-0.5" />
+                                            <span className="font-medium text-foreground">
+                                                {showFilter === 'pending' ? 'All annexures uploaded' : 'No annexures in this case'}
+                                            </span>
+                                            {showFilter === 'pending' && (
+                                                <span className="text-[11px] text-muted-foreground/80">Every annexure copy has been uploaded.</span>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                {!rightWrap && <ScrollBar orientation="horizontal" />}
+                            </ScrollArea>
+                        </div>
+                    </div>
                     <input
                         type="file"
                         ref={fileInputRef}
@@ -1459,41 +1944,28 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                     />
                 </form>
                 <div className="mt-4 border-t pt-3 space-y-1.5">
-                    <div className="flex items-start space-x-2">
+                    <div className="flex items-center space-x-2">
                         <Checkbox
                             id="is-refiling"
                             checked={isRefiling}
                             onCheckedChange={(checked) => setIsRefiling(checked as boolean)}
                             disabled={isGenerating}
-                            className="mt-0.5"
                         />
-                        <label htmlFor="is-refiling" className="text-xs leading-snug peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                            <span className="font-medium">Refiling after defects</span>
-                            <span className="block text-[11px] text-muted-foreground">
-                                Opens the paper-book with a declaration that the defects marked by the registry stand cured. Not an Index entry.
-                            </span>
+                        <label htmlFor="is-refiling" className="text-xs font-medium cursor-pointer peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                            Include Re-filing Declaration
                         </label>
                     </div>
-                    <div className="flex items-start space-x-2">
+                    <div className="flex items-center space-x-2">
                         <Checkbox
                             id="enable-ocr"
                             checked={enableOcr}
                             onCheckedChange={(checked) => setEnableOcr(checked as boolean)}
                             disabled={isGenerating || isMac}
-                            className="mt-0.5"
                         />
-                        <label htmlFor="enable-ocr" className="text-xs leading-snug peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                            <span className="font-medium">Run OCR on the merged PDF</span>
-                            <span className="block text-[11px] text-muted-foreground">
-                                {isMac
-                                    ? "Unavailable on macOS — generate on Windows to make scanned pages text-searchable."
-                                    : "Makes scanned/image pages text-searchable. Use only if your uploads include scanned documents — it takes much longer."}
-                            </span>
+                        <label htmlFor="enable-ocr" className="text-xs font-medium cursor-pointer peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                            OCR (Windows-only, takes longer)
                         </label>
                     </div>
-                    <p className="text-[11px] text-muted-foreground">
-                        Large paper books are split into separate volumes automatically (configurable in Settings → Paperbook).
-                    </p>
                     {(isGenerating || isProcessingOcr) && (progressLabel || isProcessingOcr) && (
                         <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
                             <Loader2 className="h-3 w-3 animate-spin" /> {isProcessingOcr ? "Running OCR…" : progressLabel}
@@ -1514,35 +1986,42 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             </DialogFooter>
             {/* Warning for missing mandatory documents (generate with placeholders) */}
             <AlertDialog open={showIncompleteWarning} onOpenChange={setShowIncompleteWarning}>
-                <AlertDialogContent>
+                <AlertDialogContent className="max-w-md">
                     <AlertDialogHeader>
-                        <AlertDialogTitle className="text-amber-600 dark:text-amber-500 flex items-center gap-2">
-                            <AlertCircle className="h-5 w-5" />
-                            Incomplete Paperbook
+                        <AlertDialogTitle className="text-base font-semibold text-amber-600 dark:text-amber-500 flex items-center gap-2">
+                            <AlertCircle className="h-5 w-5 shrink-0" />
+                            <span>Incomplete Paperbook</span>
                         </AlertDialogTitle>
-                        <AlertDialogDescription className="text-sm text-foreground/90 space-y-2">
-                            <span>
-                                WARNING: This will generate an INCOMPLETE paperbook which is NOT ready to be filed. Since the following mandatory documents have not been uploaded, Drafto will use placeholders in their stead:
-                            </span>
+                        <AlertDialogDescription className="text-xs text-muted-foreground leading-relaxed">
+                            <strong className="font-semibold text-foreground">Warning:</strong> This will generate an{" "}
+                            <strong className="font-semibold text-foreground">incomplete paperbook</strong> which is not ready to be filed. Since the following mandatory documents have not been uploaded, Drafto will use placeholders in their stead:
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <div className="max-h-48 overflow-y-auto pl-2 my-2">
-                        <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
+                    <div className="max-h-44 overflow-y-auto rounded-md border bg-muted/30 p-2.5 my-1">
+                        <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-1">
                             {missingUploads.map((label, idx) => (
-                                <li key={idx} className="font-medium text-foreground">{label}</li>
+                                <li key={idx} className="text-foreground leading-snug">
+                                    {label}
+                                </li>
                             ))}
                         </ul>
                     </div>
-                    <p className="text-sm font-medium">Proceed anyway?</p>
+                    <p className="text-xs font-medium text-foreground">Do you wish to proceed anyway?</p>
                     <AlertDialogFooter>
-                        <AlertDialogCancel onClick={() => { setShowIncompleteWarning(false); pendingSubmitData.current = null; }}>
+                        <AlertDialogCancel
+                            onClick={() => { setShowIncompleteWarning(false); pendingSubmitData.current = null; }}
+                            className="text-xs h-8 cursor-pointer"
+                        >
                             No
                         </AlertDialogCancel>
-                        <AlertDialogAction onClick={() => {
-                            setShowIncompleteWarning(false);
-                            confirmedIncompleteRef.current = true;
-                            if (pendingSubmitData.current) onSubmit(pendingSubmitData.current);
-                        }}>
+                        <AlertDialogAction
+                            onClick={() => {
+                                setShowIncompleteWarning(false);
+                                confirmedIncompleteRef.current = true;
+                                if (pendingSubmitData.current) onSubmit(pendingSubmitData.current);
+                            }}
+                            className="text-xs h-8 cursor-pointer"
+                        >
                             Yes
                         </AlertDialogAction>
                     </AlertDialogFooter>
@@ -1551,27 +2030,37 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
 
             {/* Warning for missing optional Criminal SLP documents */}
             <AlertDialog open={showCriminalDocWarning} onOpenChange={setShowCriminalDocWarning}>
-                <AlertDialogContent>
+                <AlertDialogContent className="max-w-md">
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Missing Optional Documents</AlertDialogTitle>
-                        <AlertDialogDescription className="text-xs">
+                        <AlertDialogTitle className="text-base font-semibold flex items-center gap-2">
+                            <span>Missing Optional Documents</span>
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="text-xs text-muted-foreground leading-relaxed">
                             The following documents have not been attached. They are optional — you can proceed without them:
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <ul className="list-disc pl-5 text-xs text-muted-foreground space-y-1">
-                        {pendingSubmitData.current && getMissingOptionalDocs(pendingSubmitData.current).map(label => (
-                            <li key={label}>{label}</li>
-                        ))}
-                    </ul>
+                    <div className="max-h-44 overflow-y-auto rounded-md border bg-muted/30 p-2.5 my-1">
+                        <ul className="list-disc pl-4 text-xs text-muted-foreground space-y-1">
+                            {pendingSubmitData.current && getMissingOptionalDocs(pendingSubmitData.current).map(label => (
+                                <li key={label} className="text-foreground leading-snug">{label}</li>
+                            ))}
+                        </ul>
+                    </div>
                     <AlertDialogFooter>
-                        <AlertDialogCancel onClick={() => { setShowCriminalDocWarning(false); pendingSubmitData.current = null; }}>
+                        <AlertDialogCancel
+                            onClick={() => { setShowCriminalDocWarning(false); pendingSubmitData.current = null; }}
+                            className="text-xs h-8 cursor-pointer"
+                        >
                             Go Back
                         </AlertDialogCancel>
-                        <AlertDialogAction onClick={() => {
-                            setShowCriminalDocWarning(false);
-                            confirmedOptionalRef.current = true;
-                            if (pendingSubmitData.current) onSubmit(pendingSubmitData.current);
-                        }}>
+                        <AlertDialogAction
+                            onClick={() => {
+                                setShowCriminalDocWarning(false);
+                                confirmedOptionalRef.current = true;
+                                if (pendingSubmitData.current) onSubmit(pendingSubmitData.current);
+                            }}
+                            className="text-xs h-8 cursor-pointer"
+                        >
                             Proceed Anyway
                         </AlertDialogAction>
                     </AlertDialogFooter>

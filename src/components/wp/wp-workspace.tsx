@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useFormContext, useWatch, useFieldArray } from "react-hook-form";
-import { Sparkles, PlusCircle, Columns2, LayoutList, ListPlus, RotateCcw } from "lucide-react";
+import { useStickyState } from "@/hooks/useStickyState";
+import { Sparkles, PlusCircle, Columns2, Columns3, LayoutList, ListPlus, RotateCcw, Maximize2, Minimize2, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DraftoProject } from "@/lib/schema";
 import { customIaSchema } from "@/lib/schema";
@@ -24,7 +25,6 @@ import { AamTable } from "@/components/custom/aam-table";
 import { BadhiyaBox } from "@/components/custom/badhiya-box";
 import { EditorProvider } from "@/components/custom/editor-provider";
 import { EditorToolbar } from "@/components/custom/editor-toolbar";
-import { SectionDialog } from "@/components/custom/section-dialog";
 import { DateInput } from "@/components/custom/date-input";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 import { UseFirstPartyButton } from "@/components/custom/use-first-party-button";
@@ -32,18 +32,78 @@ import { getWpFiledBy } from "@/lib/wp/wp-settings";
 import { countParties, getPartyGrammar, adaptPartyText } from "@/lib/party-grammar";
 import { MayurButton } from "@/components/custom/mayur-button";
 
-// ── Shared little components (mirrors the SLP tab) ───────────────────────────
-function ViewToggle({ mode, onChange }: { mode: "splitter" | "navigation"; onChange: (m: "splitter" | "navigation") => void }) {
+// ── Header for modular pane in High Court Writ Petitions ────────────────────
+function WpPaneHeader({
+  paneIndex,
+  section,
+  onSelectSection,
+  sections,
+  isMaximized,
+  onToggleMaximize,
+}: {
+  paneIndex: number;
+  section: EditorSection;
+  onSelectSection: (section: EditorSection) => void;
+  sections: { id: EditorSection; label: string; active: boolean }[];
+  isMaximized: boolean;
+  onToggleMaximize: () => void;
+}) {
+  const current = sections.find((s) => s.id === section);
+  const mayurSecMap: Record<EditorSection, string> = {
+    synopsis: "synopsis",
+    listOfDates: "lod",
+    reliefs: "reliefs",
+    facts: "facts",
+    grounds: "grounds",
+  };
+
   return (
-    <div data-ro-nav className="flex items-center overflow-hidden rounded-md border">
-      <button type="button" title="Splitter view" onClick={() => onChange("splitter")}
-        className={cn("flex items-center gap-1 px-2 py-1 text-xs transition-colors", mode === "splitter" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
-        <Columns2 className="h-3 w-3" />Split
-      </button>
-      <button type="button" title="Navigation view" onClick={() => onChange("navigation")}
-        className={cn("flex items-center gap-1 border-l px-2 py-1 text-xs transition-colors", mode === "navigation" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
-        <LayoutList className="h-3 w-3" />Nav
-      </button>
+    <div className="flex items-center justify-between gap-1 pb-1 mb-1 border-b border-border/50 shrink-0">
+      <div className="flex items-center gap-1.5 min-w-0">
+        <Select value={section} onValueChange={(v) => onSelectSection(v as EditorSection)}>
+          <SelectTrigger className="h-7 text-xs font-semibold px-2 py-0 border-0 bg-transparent hover:bg-muted/60 shadow-none gap-1.5 focus:ring-0 w-auto cursor-pointer">
+            <span className="flex items-center gap-1.5 truncate">
+              <span
+                className={cn(
+                  "h-2 w-2 rounded-full flex-shrink-0 transition-colors",
+                  current?.active ? "bg-green-500" : "bg-muted-foreground/30"
+                )}
+              />
+              <SelectValue />
+            </span>
+          </SelectTrigger>
+          <SelectContent className="text-xs">
+            {sections.map((s) => (
+              <SelectItem key={s.id} value={s.id} className="cursor-pointer">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "h-2 w-2 rounded-full flex-shrink-0",
+                      s.active ? "bg-green-500" : "bg-muted-foreground/30"
+                    )}
+                  />
+                  <span>{s.label}</span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {mayurSecMap[section] && <MayurButton section={mayurSecMap[section]} />}
+      </div>
+
+      <div className="flex items-center gap-0.5 shrink-0">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 text-muted-foreground hover:text-foreground cursor-pointer"
+          title={isMaximized ? "Restore split view" : "Maximize this pane"}
+          onClick={onToggleMaximize}
+        >
+          {isMaximized ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -88,15 +148,83 @@ export function WpWorkspace() {
   );
   const customCms = useFieldArray({ control: form.control, name: "wp.customCms" });
 
-  // Editor-tab view mode (shares the SLP default + new-project event).
-  const [viewMode, setViewMode] = useState<"splitter" | "navigation">(() => getSettings().slpTabView ?? "splitter");
-  useEffect(() => {
-    const onNew = (e: Event) => setViewMode((e as CustomEvent).detail?.mode ?? getSettings().slpTabView ?? "splitter");
-    window.addEventListener("drafto-new-project", onNew);
-    return () => window.removeEventListener("drafto-new-project", onNew);
-  }, []);
+  // Modular 2-pane / 3-pane state for High Court Writ Petitions
+  const defaultWpSlots: [EditorSection, EditorSection, EditorSection] = [
+    "listOfDates",
+    "grounds",
+    "synopsis",
+  ];
 
-  const [editorSection, setEditorSection] = useState<EditorSection>("synopsis");
+  const [paneCount, setPaneCount] = useStickyState<2 | 3>("wp-tab-pane-count", getSettings().defaultPanes ?? 3);
+  const [paneSlots, setPaneSlots] = useStickyState<[EditorSection, EditorSection, EditorSection]>(
+    "wp-tab-pane-slots",
+    defaultWpSlots
+  );
+  const [maximizedPane, setMaximizedPane] = useState<number | null>(null);
+
+  // Sequences for "View Next" cycling (5 sections)
+  const twoPaneSets: [EditorSection, EditorSection][] = useMemo(() => [
+    ["listOfDates", "synopsis"],
+    ["grounds", "facts"],
+    ["reliefs", "listOfDates"],
+  ], []);
+
+  const threePaneSets: [EditorSection, EditorSection, EditorSection][] = useMemo(() => [
+    ["listOfDates", "grounds", "synopsis"],
+    ["facts", "reliefs", "grounds"],
+  ], []);
+
+  const handleTogglePaneCount = () => {
+    const nextCount: 2 | 3 = paneCount === 3 ? 2 : 3;
+    setPaneCount(nextCount);
+    setMaximizedPane(null);
+    if (nextCount === 2) {
+      const current = [paneSlots[0], paneSlots[1]];
+      const match = twoPaneSets.some(([a, b]) => a === current[0] && b === current[1]);
+      if (!match) {
+        const [s0, s1] = twoPaneSets[0];
+        setPaneSlots((prev) => [s0, s1, prev[2]]);
+      }
+    } else {
+      const match = threePaneSets.some(([a, b, c]) => a === paneSlots[0] && b === paneSlots[1] && c === paneSlots[2]);
+      if (!match) {
+        setPaneSlots(threePaneSets[0]);
+      }
+    }
+  };
+
+  const handleViewNext = () => {
+    setMaximizedPane(null);
+    if (paneCount === 2) {
+      const current = [paneSlots[0], paneSlots[1]];
+      const matchIdx = twoPaneSets.findIndex(
+        ([a, b]) => a === current[0] && b === current[1]
+      );
+      const nextIdx = (matchIdx + 1) % twoPaneSets.length;
+      const [s0, s1] = twoPaneSets[nextIdx];
+      setPaneSlots((prev) => [s0, s1, prev[2]]);
+    } else {
+      const matchIdx = threePaneSets.findIndex(
+        ([a, b, c]) => a === paneSlots[0] && b === paneSlots[1] && c === paneSlots[2]
+      );
+      const nextIdx = (matchIdx + 1) % threePaneSets.length;
+      const [s0, s1, s2] = threePaneSets[nextIdx];
+      setPaneSlots([s0, s1, s2]);
+    }
+  };
+
+  const handleSelectPane = (paneIndex: number, newSection: EditorSection) => {
+    setPaneSlots((prev) => {
+      const next = [...prev] as [EditorSection, EditorSection, EditorSection];
+      const maxSlots = paneCount;
+      const existingIndex = next.slice(0, maxSlots).findIndex((s, idx) => s === newSection && idx !== paneIndex);
+      if (existingIndex !== -1) {
+        next[existingIndex] = next[paneIndex];
+      }
+      next[paneIndex] = newSection;
+      return next;
+    });
+  };
   const [prelim, setPrelim] = useState<"parties" | "details" | "advocate" | "deponent">("parties");
   const [cmSection, setCmSection] = useState<"stay" | "lengthySynopsis" | "exemptionCopies" | "custom">(isIoWrit ? "stay" : "lengthySynopsis");
 
@@ -236,83 +364,156 @@ export function WpWorkspace() {
     ["grounds", "Grounds"],
   ];
 
-  // ── Petition tab (splitter / nav) ───────────────────────────────────────────
+  const editorSectionsList: { id: EditorSection; label: string; active: boolean }[] = [
+    { id: "listOfDates", label: "List of Dates", active: active.listOfDates },
+    { id: "grounds", label: "Grounds", active: active.grounds },
+    { id: "synopsis", label: "Synopsis", active: active.synopsis },
+    { id: "facts", label: "Facts", active: active.facts },
+    { id: "reliefs", label: "Reliefs", active: active.reliefs },
+  ];
+
+  // ── Petition tab (modular 2-pane or 3-pane workspace) ───────────────────────
   const petitionTab = (
     <EditorProvider>
-      {viewMode === "navigation" ? (
-        <div className={cn("flex flex-col", PANEL_H)}>
-          <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId="wp-editor-nav">
-            <ResizablePanel defaultSize={22} minSize={16} maxSize={40}>
-              <div className="flex h-full flex-col space-y-1 p-2">
-                {editorLabels.map(([id, label]) => (
-                  <NavRow key={id} label={label} active={active[id]} selected={editorSection === id} onClick={() => setEditorSection(id)} />
-                ))}
-              </div>
-            </ResizablePanel>
-            <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={78} minSize={60}>
-              <div className="flex h-full flex-col space-y-2 p-2">
-                <div className="flex shrink-0 items-center gap-1">
-                  {editorSection === "synopsis" && <MayurButton section="synopsis" />}
-                  {editorSection === "listOfDates" && <MayurButton section="lod" />}
-                  {editorSection === "reliefs" && <MayurButton section="reliefs" />}
-                  {editorSection === "facts" && <MayurButton section="facts" />}
-                  {editorSection === "grounds" && <MayurButton section="grounds" />}
-                  <div className="flex-grow" />
-                  <EditorToolbar />
-                  <ViewToggle mode={viewMode} onChange={setViewMode} />
-                </div>
-                {/* Keyed so switching sections remounts the inputs — reusing a
-                    mounted Controller with a different `name` makes values bleed
-                    between fields (blank/garbled data on return). */}
-                <div key={editorSection} className="flex-grow overflow-auto">{editorContent[editorSection]}</div>
-              </div>
-            </ResizablePanel>
-          </ResizablePanelGroup>
+      <div className={cn("flex flex-col", PANEL_H)}>
+        <div className="mb-1 flex items-center gap-1.5">
+          {/* Panes Switch Button: 1-click toggle between 3 Panes and 2 Panes */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleTogglePaneCount}
+            className="h-8 text-xs gap-1.5 px-2.5 font-normal cursor-pointer select-none"
+            title={paneCount === 3 ? "Click to switch to 2 Panes" : "Click to switch to 3 Panes"}
+          >
+            {paneCount === 3 ? (
+              <>
+                <Columns3 className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>3 Panes</span>
+              </>
+            ) : (
+              <>
+                <Columns2 className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>2 Panes</span>
+              </>
+            )}
+          </Button>
+
+          {/* View Next Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleViewNext}
+            className="h-8 text-xs gap-1.5 px-2.5 font-normal cursor-pointer"
+            title="Cycle to next set of sections"
+          >
+            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+            <span>View Next</span>
+          </Button>
+
+          <div className="flex-grow" />
+          <EditorToolbar />
         </div>
-      ) : (
-        <div className={cn("flex flex-col", PANEL_H)}>
-          <div className="mb-1 flex items-center gap-1">
-            {/* Sections not shown as panels in split view open in dialogs. */}
-            <SectionDialog label="Reliefs" active={active.reliefs}>{reliefsEditor}</SectionDialog>
-            <SectionDialog label="Facts" active={active.facts}>{factsEditor}</SectionDialog>
-            <div className="flex-grow" />
-            <EditorToolbar />
-            <ViewToggle mode={viewMode} onChange={setViewMode} />
+
+        {maximizedPane !== null ? (
+          <div className="flex-grow rounded-lg border p-1.5 flex flex-col min-h-0 bg-card">
+            <WpPaneHeader
+              paneIndex={maximizedPane}
+              section={paneSlots[maximizedPane]}
+              onSelectSection={(s) => handleSelectPane(maximizedPane, s)}
+              sections={editorSectionsList}
+              isMaximized={true}
+              onToggleMaximize={() => setMaximizedPane(null)}
+            />
+            <div key={paneSlots[maximizedPane]} className="flex-grow overflow-auto min-h-0 pt-1">
+              {editorContent[paneSlots[maximizedPane]]}
+            </div>
           </div>
-          <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId="wp-editor-split">
-            <ResizablePanel defaultSize={50}>
-              <div className="flex h-full flex-col p-1">
-                <div className="mb-1 flex items-center justify-between gap-1">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">List of Dates</h4>
-                  <MayurButton section="lod" />
+        ) : paneCount === 2 ? (
+          <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId="wp-editor-panels-2">
+            <ResizablePanel defaultSize={50} minSize={25}>
+              <div className="flex flex-col h-full p-1.5">
+                <WpPaneHeader
+                  paneIndex={0}
+                  section={paneSlots[0]}
+                  onSelectSection={(s) => handleSelectPane(0, s)}
+                  sections={editorSectionsList}
+                  isMaximized={false}
+                  onToggleMaximize={() => setMaximizedPane(0)}
+                />
+                <div key={paneSlots[0]} className="flex-grow overflow-auto min-h-0 pt-1">
+                  {editorContent[paneSlots[0]]}
                 </div>
-                <div className="flex-grow overflow-auto">{lodEditor}</div>
               </div>
             </ResizablePanel>
             <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={30}>
-              <div className="flex h-full flex-col p-1">
-                <div className="mb-1 flex items-center justify-between gap-1">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Grounds</h4>
-                  <MayurButton section="grounds" />
+            <ResizablePanel defaultSize={50} minSize={25}>
+              <div className="flex flex-col h-full p-1.5">
+                <WpPaneHeader
+                  paneIndex={1}
+                  section={paneSlots[1]}
+                  onSelectSection={(s) => handleSelectPane(1, s)}
+                  sections={editorSectionsList}
+                  isMaximized={false}
+                  onToggleMaximize={() => setMaximizedPane(1)}
+                />
+                <div key={paneSlots[1]} className="flex-grow overflow-auto min-h-0 pt-1">
+                  {editorContent[paneSlots[1]]}
                 </div>
-                <div className="flex-grow overflow-auto">{groundsEditor}</div>
-              </div>
-            </ResizablePanel>
-            <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={20}>
-              <div className="flex h-full flex-col p-1">
-                <div className="mb-1 flex items-center justify-between gap-1">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground dark:text-slate-300">Synopsis</h4>
-                  <MayurButton section="synopsis" />
-                </div>
-                <div className="flex-grow overflow-auto">{synopsisEditor}</div>
               </div>
             </ResizablePanel>
           </ResizablePanelGroup>
-        </div>
-      )}
+        ) : (
+          <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId="wp-editor-panels-3">
+            <ResizablePanel defaultSize={48} minSize={20}>
+              <div className="flex flex-col h-full p-1.5">
+                <WpPaneHeader
+                  paneIndex={0}
+                  section={paneSlots[0]}
+                  onSelectSection={(s) => handleSelectPane(0, s)}
+                  sections={editorSectionsList}
+                  isMaximized={false}
+                  onToggleMaximize={() => setMaximizedPane(0)}
+                />
+                <div key={paneSlots[0]} className="flex-grow overflow-auto min-h-0 pt-1">
+                  {editorContent[paneSlots[0]]}
+                </div>
+              </div>
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+            <ResizablePanel defaultSize={32} minSize={20}>
+              <div className="flex flex-col h-full p-1.5">
+                <WpPaneHeader
+                  paneIndex={1}
+                  section={paneSlots[1]}
+                  onSelectSection={(s) => handleSelectPane(1, s)}
+                  sections={editorSectionsList}
+                  isMaximized={false}
+                  onToggleMaximize={() => setMaximizedPane(1)}
+                />
+                <div key={paneSlots[1]} className="flex-grow overflow-auto min-h-0 pt-1">
+                  {editorContent[paneSlots[1]]}
+                </div>
+              </div>
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+            <ResizablePanel defaultSize={20} minSize={15}>
+              <div className="flex flex-col h-full p-1.5">
+                <WpPaneHeader
+                  paneIndex={2}
+                  section={paneSlots[2]}
+                  onSelectSection={(s) => handleSelectPane(2, s)}
+                  sections={editorSectionsList}
+                  isMaximized={false}
+                  onToggleMaximize={() => setMaximizedPane(2)}
+                />
+                <div key={paneSlots[2]} className="flex-grow overflow-auto min-h-0 pt-1">
+                  {editorContent[paneSlots[2]]}
+                </div>
+              </div>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        )}
+      </div>
     </EditorProvider>
   );
 

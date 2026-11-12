@@ -12,15 +12,15 @@ import {
 } from "@/components/ui/resizable";
 import { LoDTable } from "@/components/custom/lod-table";
 import { AamTable } from "@/components/custom/aam-table";
-import { AppendixDialog, AppendixContent } from "@/components/dialogs/appendix-dialog";
+import { AppendixContent } from "@/components/dialogs/appendix-dialog";
 import { appendixHasContent } from "@/lib/appendix";
 import { EditorToolbar } from "@/components/custom/editor-toolbar";
 import { EditorProvider } from "@/components/custom/editor-provider";
 import { BadhiyaBox } from "@/components/custom/badhiya-box";
 import { FormControl, FormField, FormItem } from "@/components/ui/form";
-import { SectionDialog } from "@/components/custom/section-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getSettings } from "@/components/dialogs/settings-dialog";
-import { Columns2, LayoutList, Sparkles, ListPlus } from "lucide-react";
+import { Columns2, Columns3, Sparkles, ListPlus, Maximize2, Minimize2, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FactsSection } from "@/components/custom/facts-section";
 import { isPil } from "@/lib/court-family";
@@ -31,60 +31,79 @@ const EDITOR_SECTIONS: ScWpPetitionSection[] = ['synopsis', 'listOfDates', 'reli
 
 const RESIDUAL_PRAYER = "Pass any such other order(s) as this Hon'ble Court may deem fit in the facts and circumstances of this case.";
 
-function ViewToggle({ mode, onChange }: { mode: 'splitter' | 'navigation'; onChange: (m: 'splitter' | 'navigation') => void }) {
-  return (
-    <div data-ro-nav className="flex items-center rounded-md border overflow-hidden">
-      <button
-        type="button"
-        title="Splitter view"
-        onClick={() => onChange('splitter')}
-        className={cn(
-          "flex items-center gap-1 px-2 py-1 text-xs transition-colors",
-          mode === 'splitter'
-            ? "bg-primary text-primary-foreground"
-            : "text-muted-foreground hover:text-foreground hover:bg-muted"
-        )}
-      >
-        <Columns2 className="h-3 w-3" />
-        Split
-      </button>
-      <button
-        type="button"
-        title="Navigation view"
-        onClick={() => onChange('navigation')}
-        className={cn(
-          "flex items-center gap-1 px-2 py-1 text-xs transition-colors border-l",
-          mode === 'navigation'
-            ? "bg-primary text-primary-foreground"
-            : "text-muted-foreground hover:text-foreground hover:bg-muted"
-        )}
-      >
-        <LayoutList className="h-3 w-3" />
-        Nav
-      </button>
-    </div>
-  );
-}
+function ScWpPaneHeader({
+  paneIndex,
+  section,
+  onSelectSection,
+  sections,
+  isMaximized,
+  onToggleMaximize,
+}: {
+  paneIndex: number;
+  section: ScWpPetitionSection;
+  onSelectSection: (section: ScWpPetitionSection) => void;
+  sections: { id: ScWpPetitionSection; label: string; active: boolean }[];
+  isMaximized: boolean;
+  onToggleMaximize: () => void;
+}) {
+  const current = sections.find((s) => s.id === section);
+  const mayurSecMap: Record<ScWpPetitionSection, string> = {
+    synopsis: "synopsis",
+    listOfDates: "lod",
+    reliefs: "reliefs",
+    facts: "facts",
+    grounds: "grounds",
+    appendix: "",
+  };
 
-function NavRow({ label, active, selected, onClick }: { label: string; active: boolean; selected: boolean; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      data-ro-nav
-      onClick={onClick}
-      className={cn(
-        "w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors flex items-center gap-2",
-        selected ? "bg-primary text-primary-foreground dark:text-white" : "hover:bg-muted text-foreground"
-      )}
-    >
-      <span className={cn(
-        "h-2 w-2 rounded-full flex-shrink-0",
-        active
-          ? selected ? "bg-green-300" : "bg-green-500"
-          : selected ? "bg-primary-foreground/40" : "bg-muted-foreground/30"
-      )} />
-      <span className="leading-snug">{label}</span>
-    </button>
+    <div className="flex items-center justify-between gap-1 pb-1 mb-1 border-b border-border/50 shrink-0">
+      <div className="flex items-center gap-1.5 min-w-0">
+        <Select value={section} onValueChange={(v) => onSelectSection(v as ScWpPetitionSection)}>
+          <SelectTrigger className="h-7 text-xs font-semibold px-2 py-0 border-0 bg-transparent hover:bg-muted/60 shadow-none gap-1.5 focus:ring-0 w-auto cursor-pointer">
+            <span className="flex items-center gap-1.5 truncate">
+              <span
+                className={cn(
+                  "h-2 w-2 rounded-full flex-shrink-0 transition-colors",
+                  current?.active ? "bg-green-500" : "bg-muted-foreground/30"
+                )}
+              />
+              <SelectValue />
+            </span>
+          </SelectTrigger>
+          <SelectContent className="text-xs">
+            {sections.map((s) => (
+              <SelectItem key={s.id} value={s.id} className="cursor-pointer">
+                <div className="flex items-center gap-2">
+                  <span
+                    className={cn(
+                      "h-2 w-2 rounded-full flex-shrink-0",
+                      s.active ? "bg-green-500" : "bg-muted-foreground/30"
+                    )}
+                  />
+                  <span>{s.label}</span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {mayurSecMap[section] && <MayurButton section={mayurSecMap[section]} />}
+      </div>
+
+      <div className="flex items-center gap-0.5 shrink-0">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 text-muted-foreground hover:text-foreground cursor-pointer"
+          title={isMaximized ? "Restore split view" : "Maximize this pane"}
+          onClick={onToggleMaximize}
+        >
+          {isMaximized ? <Minimize2 className="h-3 w-3" /> : <Maximize2 className="h-3 w-3" />}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -110,9 +129,83 @@ export function ScWpPetitionTab() {
   const annexureMode = useWatch({ control: form.control, name: 'wp.annexureMode' as any }) || 'lod';
   const factsRowsWatch = useWatch({ control: form.control, name: 'wp.factsRows' as any });
 
-  // View mode + sticky section
-  const [viewMode, setViewMode] = useStickyState<'splitter' | 'navigation'>('sc-wp-petition-tab-view', getSettings().slpTabView ?? 'splitter');
-  const [selectedSection, setSelectedSection] = useStickyState<ScWpPetitionSection>('sc-wp-petition-tab-section', 'synopsis');
+  // Modular 2-pane / 3-pane state for SC Writ Petitions
+  const defaultScWpSlots: [ScWpPetitionSection, ScWpPetitionSection, ScWpPetitionSection] = [
+    'listOfDates',
+    'grounds',
+    'synopsis',
+  ];
+
+  const [paneCount, setPaneCount] = useStickyState<2 | 3>('sc-wp-tab-pane-count', getSettings().defaultPanes ?? 3);
+  const [paneSlots, setPaneSlots] = useStickyState<[ScWpPetitionSection, ScWpPetitionSection, ScWpPetitionSection]>(
+    'sc-wp-tab-pane-slots',
+    defaultScWpSlots
+  );
+  const [maximizedPane, setMaximizedPane] = useState<number | null>(null);
+
+  // Sequences for "View Next" cycling (6 sections)
+  const twoPaneSets: [ScWpPetitionSection, ScWpPetitionSection][] = useMemo(() => [
+    ['listOfDates', 'synopsis'],
+    ['grounds', 'facts'],
+    ['reliefs', 'appendix'],
+  ], []);
+
+  const threePaneSets: [ScWpPetitionSection, ScWpPetitionSection, ScWpPetitionSection][] = useMemo(() => [
+    ['listOfDates', 'grounds', 'synopsis'],
+    ['facts', 'reliefs', 'appendix'],
+  ], []);
+
+  const handleTogglePaneCount = () => {
+    const nextCount: 2 | 3 = paneCount === 3 ? 2 : 3;
+    setPaneCount(nextCount);
+    setMaximizedPane(null);
+    if (nextCount === 2) {
+      const current = [paneSlots[0], paneSlots[1]];
+      const match = twoPaneSets.some(([a, b]) => a === current[0] && b === current[1]);
+      if (!match) {
+        const [s0, s1] = twoPaneSets[0];
+        setPaneSlots((prev) => [s0, s1, prev[2]]);
+      }
+    } else {
+      const match = threePaneSets.some(([a, b, c]) => a === paneSlots[0] && b === paneSlots[1] && c === paneSlots[2]);
+      if (!match) {
+        setPaneSlots(threePaneSets[0]);
+      }
+    }
+  };
+
+  const handleViewNext = () => {
+    setMaximizedPane(null);
+    if (paneCount === 2) {
+      const current = [paneSlots[0], paneSlots[1]];
+      const matchIdx = twoPaneSets.findIndex(
+        ([a, b]) => a === current[0] && b === current[1]
+      );
+      const nextIdx = (matchIdx + 1) % twoPaneSets.length;
+      const [s0, s1] = twoPaneSets[nextIdx];
+      setPaneSlots((prev) => [s0, s1, prev[2]]);
+    } else {
+      const matchIdx = threePaneSets.findIndex(
+        ([a, b, c]) => a === paneSlots[0] && b === paneSlots[1] && c === paneSlots[2]
+      );
+      const nextIdx = (matchIdx + 1) % threePaneSets.length;
+      const [s0, s1, s2] = threePaneSets[nextIdx];
+      setPaneSlots([s0, s1, s2]);
+    }
+  };
+
+  const handleSelectPane = (paneIndex: number, newSection: ScWpPetitionSection) => {
+    setPaneSlots((prev) => {
+      const next = [...prev] as [ScWpPetitionSection, ScWpPetitionSection, ScWpPetitionSection];
+      const maxSlots = paneCount;
+      const existingIndex = next.slice(0, maxSlots).findIndex((s, idx) => s === newSection && idx !== paneIndex);
+      if (existingIndex !== -1) {
+        next[existingIndex] = next[paneIndex];
+      }
+      next[paneIndex] = newSection;
+      return next;
+    });
+  };
 
   // Dot watches
   const synopsis = useWatch({ control: form.control, name: 'synopsis' });
@@ -136,7 +229,7 @@ export function ScWpPetitionTab() {
   const factsActive = (factsRowsWatch || []).length > 0 || !!String(facts ?? "").trim();
   const groundsActive = hasAamRow(grounds);
   const appendixRows = (appendixItems ?? []) as any[];
-  const appendixActive = !wantsAppendix || (appendixRows.length > 0 && appendixRows.every(appendixHasContent));
+  const appendixActive = appendixRows.length === 0 || appendixRows.every(appendixHasContent);
 
   // Section Editors
   const synopsisEditor = (
@@ -202,114 +295,167 @@ export function ScWpPetitionTab() {
 
   const groundsEditor = <AamTable name="grounds" defaultRows={10} allowHeadings />;
 
-  if (viewMode === 'navigation') {
-    return (
-      <EditorProvider>
-        <div className="flex flex-col h-[calc(100vh-160px)]">
-          <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId="sc-wp-petition-nav-panels">
-            <ResizablePanel defaultSize={25} minSize={18} maxSize={40}>
-              <div className="flex flex-col h-full p-2 space-y-1">
-                <NavRow label="Synopsis" active={synopsisActive} selected={selectedSection === 'synopsis'} onClick={() => setSelectedSection('synopsis')} />
-                <NavRow label="List of Dates" active={lodActive} selected={selectedSection === 'listOfDates'} onClick={() => setSelectedSection('listOfDates')} />
-                <NavRow label="Relief(s)" active={reliefsActive} selected={selectedSection === 'reliefs'} onClick={() => setSelectedSection('reliefs')} />
-                <NavRow label="Facts" active={factsActive} selected={selectedSection === 'facts'} onClick={() => setSelectedSection('facts')} />
-                <NavRow label="Grounds" active={groundsActive} selected={selectedSection === 'grounds'} onClick={() => setSelectedSection('grounds')} />
-                <NavRow label="Appendix" active={appendixActive} selected={selectedSection === 'appendix'} onClick={() => setSelectedSection('appendix')} />
+  const editorSectionsList: { id: ScWpPetitionSection; label: string; active: boolean }[] = [
+    { id: 'listOfDates', label: 'List of Dates', active: lodActive },
+    { id: 'grounds', label: 'Grounds', active: groundsActive },
+    { id: 'synopsis', label: 'Synopsis', active: synopsisActive },
+    { id: 'facts', label: 'Facts', active: factsActive },
+    { id: 'reliefs', label: 'Relief(s)', active: reliefsActive },
+    { id: 'appendix', label: 'Appendix', active: appendixActive },
+  ];
+
+  const renderSectionContent = (sec: ScWpPetitionSection) => {
+    switch (sec) {
+      case 'synopsis': return synopsisEditor;
+      case 'listOfDates': return lodEditor;
+      case 'reliefs': return reliefsEditor;
+      case 'facts': return factsEditor;
+      case 'grounds': return groundsEditor;
+      case 'appendix': return <AppendixContent />;
+      default: return null;
+    }
+  };
+
+  return (
+    <EditorProvider>
+      <div className="flex flex-col h-[calc(100vh-160px)]">
+        <div className="flex items-center gap-1.5 mb-1">
+          {/* Panes Switch Button: 1-click toggle between 3 Panes and 2 Panes */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleTogglePaneCount}
+            className="h-8 text-xs gap-1.5 px-2.5 font-normal cursor-pointer select-none"
+            title={paneCount === 3 ? "Click to switch to 2 Panes" : "Click to switch to 3 Panes"}
+          >
+            {paneCount === 3 ? (
+              <>
+                <Columns3 className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>3 Panes</span>
+              </>
+            ) : (
+              <>
+                <Columns2 className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>2 Panes</span>
+              </>
+            )}
+          </Button>
+
+          {/* View Next Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleViewNext}
+            className="h-8 text-xs gap-1.5 px-2.5 font-normal cursor-pointer"
+            title="Cycle to next set of sections"
+          >
+            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+            <span>View Next</span>
+          </Button>
+
+          <div className="flex-grow"></div>
+          <EditorToolbar />
+        </div>
+
+        {maximizedPane !== null ? (
+          <div className="flex-grow rounded-lg border p-1.5 flex flex-col min-h-0 bg-card">
+            <ScWpPaneHeader
+              paneIndex={maximizedPane}
+              section={paneSlots[maximizedPane]}
+              onSelectSection={(s) => handleSelectPane(maximizedPane, s)}
+              sections={editorSectionsList}
+              isMaximized={true}
+              onToggleMaximize={() => setMaximizedPane(null)}
+            />
+            <div key={paneSlots[maximizedPane]} className="flex-grow overflow-auto min-h-0 pt-1">
+              {renderSectionContent(paneSlots[maximizedPane])}
+            </div>
+          </div>
+        ) : paneCount === 2 ? (
+          <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId="sc-wp-petition-panels-2">
+            <ResizablePanel defaultSize={50} minSize={25}>
+              <div className="flex flex-col h-full p-1.5">
+                <ScWpPaneHeader
+                  paneIndex={0}
+                  section={paneSlots[0]}
+                  onSelectSection={(s) => handleSelectPane(0, s)}
+                  sections={editorSectionsList}
+                  isMaximized={false}
+                  onToggleMaximize={() => setMaximizedPane(0)}
+                />
+                <div key={paneSlots[0]} className="flex-grow overflow-auto min-h-0 pt-1">
+                  {renderSectionContent(paneSlots[0])}
+                </div>
               </div>
             </ResizablePanel>
             <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={75} minSize={60}>
-              <div className="flex flex-col h-full p-2 space-y-2">
-                <div className="flex items-center gap-1 shrink-0">
-                  {selectedSection === 'synopsis' && <MayurButton section="synopsis" />}
-                  {selectedSection === 'listOfDates' && <MayurButton section="lod" />}
-                  {selectedSection === 'reliefs' && <MayurButton section="reliefs" />}
-                  {selectedSection === 'facts' && <MayurButton section="facts" />}
-                  {selectedSection === 'grounds' && <MayurButton section="grounds" />}
-                  <div className="flex-grow"></div>
-                  {EDITOR_SECTIONS.includes(selectedSection) && <EditorToolbar />}
-                  <ViewToggle mode={viewMode} onChange={setViewMode} />
-                </div>
-                <div key={selectedSection} className="flex-grow overflow-auto">
-                  {selectedSection === 'synopsis' && synopsisEditor}
-                  {selectedSection === 'listOfDates' && lodEditor}
-                  {selectedSection === 'reliefs' && reliefsEditor}
-                  {selectedSection === 'facts' && factsEditor}
-                  {selectedSection === 'grounds' && groundsEditor}
-                  {selectedSection === 'appendix' && <AppendixContent />}
+            <ResizablePanel defaultSize={50} minSize={25}>
+              <div className="flex flex-col h-full p-1.5">
+                <ScWpPaneHeader
+                  paneIndex={1}
+                  section={paneSlots[1]}
+                  onSelectSection={(s) => handleSelectPane(1, s)}
+                  sections={editorSectionsList}
+                  isMaximized={false}
+                  onToggleMaximize={() => setMaximizedPane(1)}
+                />
+                <div key={paneSlots[1]} className="flex-grow overflow-auto min-h-0 pt-1">
+                  {renderSectionContent(paneSlots[1])}
                 </div>
               </div>
             </ResizablePanel>
           </ResizablePanelGroup>
-        </div>
-      </EditorProvider>
-    );
-  }
-
-  // Splitter view (default)
-  return (
-    <EditorProvider>
-      <div className="flex flex-col h-[calc(100vh-160px)]">
-        <div className="flex items-center gap-1 mb-1">
-          <SectionDialog label="Relief(s)" title="Relief(s) / Prayers" active={reliefsActive}>
-            <div className="space-y-2">
-              <div className="flex justify-end">
-                <MayurButton section="reliefs" />
+        ) : (
+          <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId="sc-wp-petition-panels-3">
+            <ResizablePanel defaultSize={48} minSize={20}>
+              <div className="flex flex-col h-full p-1.5">
+                <ScWpPaneHeader
+                  paneIndex={0}
+                  section={paneSlots[0]}
+                  onSelectSection={(s) => handleSelectPane(0, s)}
+                  sections={editorSectionsList}
+                  isMaximized={false}
+                  onToggleMaximize={() => setMaximizedPane(0)}
+                />
+                <div key={paneSlots[0]} className="flex-grow overflow-auto min-h-0 pt-1">
+                  {renderSectionContent(paneSlots[0])}
+                </div>
               </div>
-              {reliefsEditor}
-            </div>
-          </SectionDialog>
-          <SectionDialog label="Facts" title="Facts (transposed from List of Dates)" active={factsActive}>
-            <div className="h-[600px] flex flex-col space-y-2">
-              <div className="flex justify-end">
-                <MayurButton section="facts" />
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+            <ResizablePanel defaultSize={32} minSize={20}>
+              <div className="flex flex-col h-full p-1.5">
+                <ScWpPaneHeader
+                  paneIndex={1}
+                  section={paneSlots[1]}
+                  onSelectSection={(s) => handleSelectPane(1, s)}
+                  sections={editorSectionsList}
+                  isMaximized={false}
+                  onToggleMaximize={() => setMaximizedPane(1)}
+                />
+                <div key={paneSlots[1]} className="flex-grow overflow-auto min-h-0 pt-1">
+                  {renderSectionContent(paneSlots[1])}
+                </div>
               </div>
-              <div className="flex-grow min-h-0 flex flex-col">{factsEditor}</div>
-            </div>
-          </SectionDialog>
-          <AppendixDialog />
-          <div className="flex-grow"></div>
-          <EditorToolbar />
-          <ViewToggle mode={viewMode} onChange={setViewMode} />
-        </div>
-
-        <ResizablePanelGroup direction="horizontal" className="flex-grow rounded-lg border" autoSaveId="sc-wp-petition-split-panels">
-          <ResizablePanel defaultSize={50}>
-            <div className="flex flex-col h-full p-1">
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">List of Dates</h4>
-                <MayurButton section="lod" />
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+            <ResizablePanel defaultSize={20} minSize={15}>
+              <div className="flex flex-col h-full p-1.5">
+                <ScWpPaneHeader
+                  paneIndex={2}
+                  section={paneSlots[2]}
+                  onSelectSection={(s) => handleSelectPane(2, s)}
+                  sections={editorSectionsList}
+                  isMaximized={false}
+                  onToggleMaximize={() => setMaximizedPane(2)}
+                />
+                <div key={paneSlots[2]} className="flex-grow overflow-auto min-h-0 pt-1">
+                  {renderSectionContent(paneSlots[2])}
+                </div>
               </div>
-              <div className="flex-grow overflow-auto">
-                <LoDTable />
-              </div>
-            </div>
-          </ResizablePanel>
-          <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={30}>
-            <div className="flex flex-col h-full p-1">
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Grounds</h4>
-                <MayurButton section="grounds" />
-              </div>
-              <div className="flex-grow overflow-auto">
-                <AamTable name="grounds" defaultRows={10} allowHeadings />
-              </div>
-            </div>
-          </ResizablePanel>
-          <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={20}>
-            <div className="flex flex-col h-full p-1">
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <h4 className="text-xs font-semibold text-muted-foreground dark:text-slate-300 uppercase tracking-wide">Synopsis</h4>
-                <MayurButton section="synopsis" />
-              </div>
-              <div className="flex-grow overflow-auto">
-                {synopsisEditor}
-              </div>
-            </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        )}
       </div>
     </EditorProvider>
   );

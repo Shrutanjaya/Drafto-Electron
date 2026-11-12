@@ -11,6 +11,7 @@ import { annexureDetails } from "@/lib/annexure-details";
 import {
   PaperbookGeneratorView,
   type PaperbookItem,
+  type PaperbookNote,
 } from "./paperbook-generator-view";
 
 /**
@@ -82,6 +83,7 @@ export function OaPdfGenerationDialog({
     id: "memo",
     sNo: sNoCounter++,
     particulars: "Memo of Parties",
+    notes: [{ text: "Auto-generated from case details.", type: "info" }],
     status: "auto_ready",
   });
 
@@ -90,6 +92,7 @@ export function OaPdfGenerationDialog({
     id: "synopsis",
     sNo: sNoCounter++,
     particulars: "Synopsis and List of Dates",
+    notes: [{ text: "Auto-generated from Synopsis and LoD.", type: "info" }],
     status: "auto_frozen",
     lockedTooltip: "Synopsis and List of Dates contains auto-calculated references; cannot be replaced",
   });
@@ -124,14 +127,8 @@ export function OaPdfGenerationDialog({
     initialItems.push({
       id: `ma_${m.id}`,
       sNo: sNoCounter++,
-      particulars: (
-        <div>
-          <span className="font-medium">{maKindLabel(m)}</span>
-          <p className="text-[11px] text-muted-foreground">
-            Application auto-generated. Signed affidavit optional.
-          </p>
-        </div>
-      ),
+      particulars: maKindLabel(m),
+      notes: [{ text: "Application auto-generated. Signed affidavit optional.", type: "info" }],
       status: hasAff ? "user_uploaded" : "optional_missing",
       fileName,
       onUpload: () => handlePick(path),
@@ -147,16 +144,8 @@ export function OaPdfGenerationDialog({
   initialItems.push({
     id: "oa",
     sNo: sNoCounter++,
-    particulars: (
-      <div>
-        <span className="font-medium">
-          Original Application under Section 19 of the Administrative Tribunals Act, 1985
-        </span>
-        <p className="text-[11px] text-muted-foreground">
-          Body auto-generated. Signed last page(s) optional.
-        </p>
-      </div>
-    ),
+    particulars: "Original Application under Section 19 of the Administrative Tribunals Act, 1985",
+    notes: [{ text: "Body auto-generated. Signed last page(s) optional.", type: "info" }],
     status: hasLastPage ? "user_uploaded" : "auto_ready",
     fileName: lastPageFileName,
     onUpload: () => handlePick("oa.uploads.signedLastPage"),
@@ -193,39 +182,36 @@ export function OaPdfGenerationDialog({
       annexureItems.push({
         id: `annex_${e.annex.id}`,
         sNo: sNoCounter++,
-        particulars: (
-          <div>
-            <span className="font-medium">{title}</span>
+        particulars: title,
+        notes:
+          constituents.length === 0
+            ? [{ text: "No constituent documents added yet on List of Dates.", type: "warning" }]
+            : undefined,
+        extra:
+          constituents.length > 0 ? (
             <div className="mt-1 space-y-1 pl-2 border-l">
-              {constituents.length === 0 ? (
-                <p className="text-[11px] italic text-amber-600 dark:text-amber-500">
-                  No constituent documents added yet on List of Dates.
-                </p>
-              ) : (
-                constituents.map((c: any, k: number) => {
-                  const cPath = `${path}.collyDocuments.${k}`;
-                  const cHas = hasUsableFile(c);
-                  return (
-                    <div key={k} className="flex items-center justify-between text-[11px]">
-                      <span>{c.title || `Document ${k + 1}`}</span>
-                      <button
-                        type="button"
-                        onClick={() => handlePick(cPath)}
-                        className={`text-[10px] px-2 py-0.5 rounded border ${
-                          cHas
-                            ? "bg-green-500/10 text-green-700 border-green-500/40"
-                            : "bg-red-500/10 text-red-600 border-red-500/40"
-                        }`}
-                      >
-                        {cHas ? "Ready" : "Upload"}
-                      </button>
-                    </div>
-                  );
-                })
-              )}
+              {constituents.map((c: any, k: number) => {
+                const cPath = `${path}.collyDocuments.${k}`;
+                const cHas = hasUsableFile(c);
+                return (
+                  <div key={k} className="flex items-center justify-between text-[11px]">
+                    <span className="truncate max-w-[200px]">{c.title || `Document ${k + 1}`}</span>
+                    <button
+                      type="button"
+                      onClick={() => handlePick(cPath)}
+                      className={`text-[10px] px-2 py-0.5 rounded border ${
+                        cHas
+                          ? "bg-green-500/10 text-green-700 border-green-500/40"
+                          : "bg-red-500/10 text-red-600 border-red-500/40"
+                      }`}
+                    >
+                      {cHas ? "Ready" : "Upload"}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-          </div>
-        ),
+          ) : undefined,
         status: hasAnyFile ? "user_uploaded" : "mandatory_missing",
         fileName: hasAnyFile ? `${constituents.length} documents attached` : undefined,
       });
@@ -256,14 +242,8 @@ export function OaPdfGenerationDialog({
   tailItems.push({
     id: "vakalatnama",
     sNo: sNoCounter++,
-    particulars: (
-      <div>
-        <span className="font-medium">Vakalatnama(s) and Authority Letter(s)</span>
-        <p className="text-[11px] text-muted-foreground">
-          Auto-generated clean copy is ready. Signed copy optional.
-        </p>
-      </div>
-    ),
+    particulars: "Vakalatnama(s) and Authority Letter(s)",
+    notes: [{ text: "Auto-generated clean copy is ready. Signed copy optional.", type: "info" }],
     status: hasVak ? "user_uploaded" : "auto_ready",
     fileName: vakFileName,
     onUpload: () => handlePick("oa.uploads.signedVakalatnama"),
@@ -279,6 +259,7 @@ export function OaPdfGenerationDialog({
     id: "courtFee",
     sNo: sNoCounter++,
     particulars: "Court Fee (e-Court Fee receipt)",
+    notes: [{ text: "e-Court Fee receipt required under CAT Rules.", type: "info" }],
     status: hasCourtFee ? "user_uploaded" : "mandatory_missing",
     fileName: courtFeeFileName,
     onUpload: () => handlePick("oa.uploads.courtFee"),
@@ -294,6 +275,7 @@ export function OaPdfGenerationDialog({
     id: "proofOfService",
     sNo: sNoCounter++,
     particulars: "Proof of Service (Advance-service acknowledgement)",
+    notes: [{ text: "Advance-service acknowledgement required.", type: "info" }],
     status: hasService ? "user_uploaded" : "mandatory_missing",
     fileName: serviceFileName,
     onUpload: () => handlePick("oa.uploads.proofOfService"),

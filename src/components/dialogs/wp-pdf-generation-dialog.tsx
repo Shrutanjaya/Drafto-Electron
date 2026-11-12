@@ -20,6 +20,7 @@ import { incrementGenerationCount } from "@/lib/firebase/usage-service";
 import {
   PaperbookGeneratorView,
   type PaperbookItem,
+  type PaperbookNote,
 } from "./paperbook-generator-view";
 
 const FRONT_LABELS: Record<"notice" | "urgency" | "memo", string> = {
@@ -211,30 +212,25 @@ export function WpPdfGenerationDialog({
   const issues = open ? wpPreflight(form.getValues()) : [];
   const issuesFor = (target: string) => issues.filter((i) => i.target === target);
 
-  const IssueList = ({ target }: { target: string }) => {
-    const list = issuesFor(target);
-    if (!list.length) return null;
-    return (
-      <ul className="mt-1 space-y-0.5">
-        {list.map((issue, i) => (
-          <li
-            key={i}
-            className={`flex items-start gap-1.5 text-[11px] leading-snug ${
-              issue.severity === "error"
-                ? "text-destructive"
-                : "text-amber-600 dark:text-amber-500"
-            }`}
-          >
-            {issue.severity === "error" ? (
-              <OctagonAlert className="mt-0.5 h-3 w-3 shrink-0" />
-            ) : (
-              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-            )}
-            <span>{issue.message}</span>
-          </li>
-        ))}
-      </ul>
-    );
+  const getItemNotes = (
+    desc?: string,
+    target?: string | string[]
+  ): (string | PaperbookNote)[] => {
+    const notes: (string | PaperbookNote)[] = [];
+    if (desc) notes.push({ text: desc, type: "info" });
+    if (target) {
+      const targets = Array.isArray(target) ? target : [target];
+      targets.forEach((t) => {
+        const list = issuesFor(t);
+        list.forEach((iss) => {
+          notes.push({
+            text: iss.message,
+            type: iss.severity === "error" ? "error" : "warning",
+          });
+        });
+      });
+    }
+    return notes;
   };
 
   // --- SECTIONS MATCHING INDEX ORDER ---
@@ -248,14 +244,9 @@ export function WpPdfGenerationDialog({
     initialItems.push({
       id: k,
       sNo: sNoCounter++,
-      particulars: (
-        <div>
-          <span className="font-medium">{FRONT_LABELS[k]}</span>
-          <p className="text-[11px] text-muted-foreground">Auto-generated from case details.</p>
-        </div>
-      ),
+      particulars: FRONT_LABELS[k],
+      notes: getItemNotes("Auto-generated from case details.", k === "memo" ? "parties" : k),
       status: "auto_ready",
-      extra: <IssueList target={k === "memo" ? "parties" : k} />,
     });
   });
 
@@ -263,15 +254,10 @@ export function WpPdfGenerationDialog({
   initialItems.push({
     id: "slod",
     sNo: sNoCounter++,
-    particulars: (
-      <div>
-        <span className="font-medium">Synopsis and List of Dates</span>
-        <p className="text-[11px] text-muted-foreground">Auto-generated from Synopsis and LoD.</p>
-      </div>
-    ),
+    particulars: "Synopsis and List of Dates",
+    notes: getItemNotes("Auto-generated from Synopsis and LoD.", "synopsis"),
     status: "auto_frozen",
     lockedTooltip: "Synopsis and List of Dates contains auto-calculated references; cannot be replaced",
-    extra: <IssueList target="synopsis" />,
   });
 
   // Writ Petition
@@ -283,21 +269,15 @@ export function WpPdfGenerationDialog({
     id: "petition",
     label: "Writ Petition Affidavit",
     sNo: sNoCounter++,
-    particulars: (
-      <div>
-        <span className="font-medium">
-          Writ Petition under Article {project.wp?.articleBasis || "226"} of the Constitution of India, with affidavit
-        </span>
-        <p className="text-[11px] text-muted-foreground">
-          Petition auto-generated. Signed/notarized affidavit required.
-        </p>
-      </div>
+    particulars: `Writ Petition under Article ${project.wp?.articleBasis || "226"} of the Constitution of India, with affidavit`,
+    notes: getItemNotes(
+      "Petition auto-generated. Signed/notarized affidavit required.",
+      "affidavit"
     ),
     status: hasPetitionAff ? "user_uploaded" : "mandatory_missing",
     fileName: petitionAffFileName,
     onUpload: () => handlePick("wp.uploads.signedAffidavit"),
     onRemove: hasPetitionAff ? () => handleClear("wp.uploads.signedAffidavit") : undefined,
-    extra: <IssueList target="affidavit" />,
   });
 
   // 2. ANNEXURES
@@ -323,46 +303,46 @@ export function WpPdfGenerationDialog({
     if (isColly) {
       const constituents = annex.collyDocuments || [];
       const hasAny = constituents.some((c: any) => hasUsableFile(c));
+      const collyNotes = getItemNotes(undefined, `annex:${annex.id}`);
+      if (constituents.length === 0) {
+        collyNotes.push({
+          text: "No constituent documents added yet on List of Dates.",
+          type: "warning",
+        });
+      }
+
       annexureItems.push({
         id: `annex:${annex.id}`,
         label: title,
         sNo: sNoCounter++,
-        particulars: (
-          <div>
-            <span className="font-medium">{title}</span>
-            <div className="mt-1 space-y-1 pl-2 border-l">
-              {constituents.length === 0 ? (
-                <p className="text-[11px] italic text-amber-600 dark:text-amber-500">
-                  No constituent documents added yet on List of Dates.
-                </p>
-              ) : (
-                constituents.map((c: any, k: number) => {
-                  const cPath = `${aPath}.collyDocuments.${k}`;
-                  const cHas = hasUsableFile(c);
-                  return (
-                    <div key={k} className="flex items-center justify-between text-[11px]">
-                      <span>{c.title || `Document ${k + 1}`}</span>
-                      <button
-                        type="button"
-                        onClick={() => handlePick(cPath, annex.id, k)}
-                        className={`text-[10px] px-2 py-0.5 rounded border ${
-                          cHas
-                            ? "bg-green-500/10 text-green-700 border-green-500/40"
-                            : "bg-red-500/10 text-red-600 border-red-500/40"
-                        }`}
-                      >
-                        {cHas ? "Ready" : "Upload"}
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+        particulars: title,
+        notes: collyNotes,
+        extra: constituents.length > 0 ? (
+          <div className="mt-1 space-y-1 pl-2 border-l">
+            {constituents.map((c: any, k: number) => {
+              const cPath = `${aPath}.collyDocuments.${k}`;
+              const cHas = hasUsableFile(c);
+              return (
+                <div key={k} className="flex items-center justify-between text-[11px]">
+                  <span className="truncate max-w-[200px]">{c.title || `Document ${k + 1}`}</span>
+                  <button
+                    type="button"
+                    onClick={() => handlePick(cPath, annex.id, k)}
+                    className={`text-[10px] px-2 py-0.5 rounded border ${
+                      cHas
+                        ? "bg-green-500/10 text-green-700 border-green-500/40"
+                        : "bg-red-500/10 text-red-600 border-red-500/40"
+                    }`}
+                  >
+                    {cHas ? "Ready" : "Upload"}
+                  </button>
+                </div>
+              );
+            })}
           </div>
-        ),
+        ) : undefined,
         status: hasAny ? "user_uploaded" : "mandatory_missing",
         fileName: hasAny ? `${constituents.length} documents attached` : undefined,
-        extra: <IssueList target={`annex:${annex.id}`} />,
       });
     } else {
       const val = annex;
@@ -374,10 +354,10 @@ export function WpPdfGenerationDialog({
         label: title,
         sNo: sNoCounter++,
         particulars: title,
+        notes: getItemNotes(undefined, `annex:${annex.id}`),
         status: has ? "user_uploaded" : "mandatory_missing",
         fileName,
         onUpload: aPath ? () => handlePick(aPath, annex.id) : undefined,
-        extra: <IssueList target={`annex:${annex.id}`} />,
       });
     }
   });
@@ -406,26 +386,15 @@ export function WpPdfGenerationDialog({
       id: `cm:${i}`,
       label: `${wpCmTitle(cm)} — Affidavit`,
       sNo: sNoCounter++,
-      particulars: (
-        <div>
-          <span className="font-medium">
-            C.M. No. ____ of {year}: {wpCmTitle(cm)}, with affidavit.
-          </span>
-          <p className="text-[11px] text-muted-foreground">
-            Application auto-generated. Signed affidavit required.
-          </p>
-        </div>
+      particulars: `C.M. No. ____ of ${year}: ${wpCmTitle(cm)}, with affidavit`,
+      notes: getItemNotes(
+        "Application auto-generated. Signed affidavit required.",
+        [`cm:${i}`, `customcm:${cm.key.replace(/^custom:/, "")}`]
       ),
       status: hasAff ? "user_uploaded" : "mandatory_missing",
       fileName: affFileName,
       onUpload: affPath ? () => handlePick(affPath) : undefined,
       onRemove: hasAff && affPath ? () => handleClear(affPath) : undefined,
-      extra: (
-        <>
-          <IssueList target={`cm:${i}`} />
-          <IssueList target={`customcm:${cm.key.replace(/^custom:/, "")}`} />
-        </>
-      ),
     });
   });
 
@@ -438,19 +407,12 @@ export function WpPdfGenerationDialog({
     id: "vakalatnama",
     label: "Vakalatnama",
     sNo: sNoCounter++,
-    particulars: (
-      <div>
-        <span className="font-medium">Vakalatnama</span>
-        <p className="text-[11px] text-muted-foreground">
-          Signed copy required.
-        </p>
-      </div>
-    ),
+    particulars: "Vakalatnama",
+    notes: getItemNotes("Signed copy required.", "vakalatnama"),
     status: hasVak ? "user_uploaded" : "mandatory_missing",
     fileName: vakFileName,
     onUpload: () => handlePick("wp.uploads.signedVakalatnama"),
     onRemove: hasVak ? () => handleClear("wp.uploads.signedVakalatnama") : undefined,
-    extra: <IssueList target="vakalatnama" />,
   });
 
   // Court Fee
@@ -463,11 +425,11 @@ export function WpPdfGenerationDialog({
     label: "Court Fee (e-Court Fee receipt)",
     sNo: sNoCounter++,
     particulars: "Court Fee (e-Court Fee receipt)",
+    notes: getItemNotes("e-Court Fee receipt required under High Court rules.", "courtFee"),
     status: hasCourtFee ? "user_uploaded" : "mandatory_missing",
     fileName: courtFeeFileName,
     onUpload: () => handlePick("wp.uploads.courtFee"),
     onRemove: hasCourtFee ? () => handleClear("wp.uploads.courtFee") : undefined,
-    extra: <IssueList target="courtFee" />,
   });
 
   // Proof of Service
@@ -480,11 +442,11 @@ export function WpPdfGenerationDialog({
     label: "Proof of Service (Advance-service email / acknowledgement)",
     sNo: sNoCounter++,
     particulars: "Proof of Service (Advance-service email / acknowledgement)",
+    notes: getItemNotes("Advance-service email / acknowledgement required.", "proofOfService"),
     status: hasService ? "user_uploaded" : "mandatory_missing",
     fileName: serviceFileName,
     onUpload: () => handlePick("wp.uploads.proofOfService"),
     onRemove: hasService ? () => handleClear("wp.uploads.proofOfService") : undefined,
-    extra: <IssueList target="proofOfService" />,
   });
 
   const missingMandatoryLabels: string[] = [];
