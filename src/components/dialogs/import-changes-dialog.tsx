@@ -99,7 +99,7 @@ export function ImportChangesDialog({ open: controlledOpen, onOpenChange }: Impo
         <DialogHeader>
           <DialogTitle>Import tracked changes</DialogTitle>
           <DialogDescription className="text-xs">
-            Upload a .docx that came back with tracked changes. Drafto reads each revision and applies it to the matching field. Nothing is saved until you save the project.
+            Upload a .docx that came back with tracked changes. PaperBook reads each revision and applies it to the matching field. Nothing is saved until you save the project.
           </DialogDescription>
         </DialogHeader>
 

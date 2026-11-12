@@ -3,12 +3,44 @@ import { db, auth } from './config';
 
 export type GenerationType = 'paperbook' | 'docx';
 
+const LOCAL_USAGE_KEY = 'paperbook_local_usage_cache';
+
+function getLocalUsageCache(): UsageCounts {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = window.localStorage.getItem(LOCAL_USAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    }
+  } catch { /* silent */ }
+  return { paperbooksGenerated: 0, docxGenerated: 0 };
+}
+
+function updateLocalUsageCache(type: GenerationType) {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const cur = getLocalUsageCache();
+      if (type === 'paperbook') cur.paperbooksGenerated = (cur.paperbooksGenerated || 0) + 1;
+      else cur.docxGenerated = (cur.docxGenerated || 0) + 1;
+      window.localStorage.setItem(LOCAL_USAGE_KEY, JSON.stringify(cur));
+    }
+  } catch { /* silent */ }
+}
+
+export function computeHoursSaved(counts: UsageCounts): number {
+  return (counts.paperbooksGenerated || 0) * 2 + (counts.docxGenerated || 0) * 0.5;
+}
+
+export function formatHours(hours: number): string {
+  return Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
+}
+
 /**
  * Increments the generation counter for the currently logged-in user.
  * Creates the document if it doesn't exist yet.
  * Fire-and-forget — never throws to the caller.
  */
 export async function incrementGenerationCount(type: GenerationType): Promise<void> {
+  updateLocalUsageCache(type);
   const user = auth.currentUser;
   if (!user) return;
 
@@ -55,21 +87,28 @@ export interface UsageCounts {
  * Fetches the current generation counts for the logged-in user.
  */
 export async function getGenerationCounts(): Promise<UsageCounts> {
+  const local = getLocalUsageCache();
   const user = auth.currentUser;
-  if (!user) return { paperbooksGenerated: 0, docxGenerated: 0 };
+  if (!user) return local;
 
   try {
     const snap = await getDoc(doc(db, 'usage', user.uid));
-    if (!snap.exists()) return { paperbooksGenerated: 0, docxGenerated: 0 };
+    if (!snap.exists()) return local;
     const data = snap.data();
-    return {
-      paperbooksGenerated: data.paperbooksGenerated ?? 0,
-      docxGenerated: data.docxGenerated ?? 0,
+    const result: UsageCounts = {
+      paperbooksGenerated: Math.max(data.paperbooksGenerated ?? 0, local.paperbooksGenerated ?? 0),
+      docxGenerated: Math.max(data.docxGenerated ?? 0, local.docxGenerated ?? 0),
       lastPaperbookGeneratedAt: data.lastPaperbookGeneratedAt ?? null,
       lastDocxGeneratedAt: data.lastDocxGeneratedAt ?? null,
       lastGeneratedAt: data.lastGeneratedAt ?? null,
     };
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(LOCAL_USAGE_KEY, JSON.stringify(result));
+      }
+    } catch { /* silent */ }
+    return result;
   } catch {
-    return { paperbooksGenerated: 0, docxGenerated: 0 };
+    return local;
   }
 }

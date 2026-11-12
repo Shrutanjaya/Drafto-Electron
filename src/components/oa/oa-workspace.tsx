@@ -371,6 +371,16 @@ export function OaWorkspace() {
 
   const lodEditor = (
     <div className="space-y-2">
+      <FormField
+        control={form.control}
+        name="oa.splitSynopsisAndLod"
+        render={({ field }) => (
+          <div className="flex items-center gap-2">
+            <Checkbox id="oa-split" checked={field.value} onCheckedChange={field.onChange} />
+            <label htmlFor="oa-split" className="text-xs cursor-pointer">Start List of Dates on a fresh page</label>
+          </div>
+        )}
+      />
       <LoDTable hideAnnexures={annexureMode === "facts"} />
     </div>
   );

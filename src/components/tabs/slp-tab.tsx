@@ -23,6 +23,7 @@ import { EditorToolbar } from "../custom/editor-toolbar";
 import { EditorProvider } from "@/components/custom/editor-provider";
 import { BadhiyaBox } from "../custom/badhiya-box";
 import { FormControl, FormField, FormItem } from "../ui/form";
+import { Checkbox } from "@/components/ui/checkbox";
 import { AffidavitDialog } from "../dialogs/affidavit-dialog";
 import { VakalatnamaDialog } from "../dialogs/vakalatnama-dialog";
 import { getSettings } from "../dialogs/settings-dialog";
@@ -99,7 +100,21 @@ function SectionContent({
         />
       );
     case 'listOfDates':
-      return <LoDTable hideAnnexures={isAppealProject && annexureMode === "facts"} />;
+      return (
+        <div className="space-y-2">
+          <FormField
+            control={form.control}
+            name="splitSynopsisAndLod"
+            render={({ field }) => (
+              <div className="flex items-center gap-2">
+                <Checkbox id="slp-split" checked={field.value} onCheckedChange={field.onChange} />
+                <label htmlFor="slp-split" className="text-xs cursor-pointer">Start List of Dates on a fresh page</label>
+              </div>
+            )}
+          />
+          <LoDTable hideAnnexures={isAppealProject && annexureMode === "facts"} />
+        </div>
+      );
     case 'facts':
       return isAppealProject ? <>{factsEditor}</> : null;
     case 'grounds':

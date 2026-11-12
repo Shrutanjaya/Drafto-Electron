@@ -18,6 +18,7 @@ import { EditorToolbar } from "@/components/custom/editor-toolbar";
 import { EditorProvider } from "@/components/custom/editor-provider";
 import { BadhiyaBox } from "@/components/custom/badhiya-box";
 import { FormControl, FormField, FormItem } from "@/components/ui/form";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 import { Columns2, Columns3, Sparkles, ListPlus, Maximize2, Minimize2, ArrowRight } from "lucide-react";
@@ -248,9 +249,21 @@ export function ScWpPetitionTab() {
 
   const lodEditor = (
     <div className="space-y-2 h-full flex flex-col">
-      <p className="text-xs text-muted-foreground">
-        Chronology of events with attached annexures. In Writ Petitions, annexure sentences appear only in the Facts section, while Impugned Orders (marked IO) appear in Paragraph 1.
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          Chronology of events with attached annexures. In Writ Petitions, annexure sentences appear only in the Facts section, while Impugned Orders (marked IO) appear in Paragraph 1.
+        </p>
+        <FormField
+          control={form.control}
+          name="splitSynopsisAndLod"
+          render={({ field }) => (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Checkbox id="scwp-split" checked={field.value} onCheckedChange={field.onChange} />
+              <label htmlFor="scwp-split" className="text-xs cursor-pointer whitespace-nowrap">Start List of Dates on fresh page</label>
+            </div>
+          )}
+        />
+      </div>
       <div className="flex-grow overflow-auto">
         <LoDTable hideAnnexures={annexureMode === "facts"} />
       </div>

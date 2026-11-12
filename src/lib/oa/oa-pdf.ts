@@ -16,6 +16,8 @@ import { PDFDocument, rgb, degrees } from "pdf-lib";
 import { embedStampFont } from "@/lib/pdf-stamp-fonts";
 import { withAnnexureCustomText } from "@/lib/wp/wp-facts";
 import type { DraftoProject } from "@/lib/schema";
+import { getPaperbookFileName } from "@/lib/project-name";
+import { shortAnnexureTitle, findLodPageOffset } from "@/lib/short-bookmarks";
 import {
   b64ToBytes, bytesToB64, docxToPdf, fileBytes, pdfFromBytes,
   applyWpBookmarks, visualFrame, stampVisualText, type WpBookmark,
@@ -43,8 +45,8 @@ interface Item {
 export async function generateOaPdf(
   project: DraftoProject,
   onProgress?: (label: string) => void,
-): Promise<{ success: boolean; pdfBase64?: string; fileName: string; error?: string }> {
-  const fileName = "Original Application.pdf";
+): Promise<{ success: boolean; pdfBase64?: string; shortPdfBase64?: string; shortBookmarksFileName?: string; fileName: string; error?: string; annexureFirstPages?: Record<string, string | number> }> {
+  const fileName = getPaperbookFileName(project, "Original Application");
   try {
     const merged = await PDFDocument.create();
     const bookmarks: WpBookmark[] = [];
@@ -119,6 +121,7 @@ export async function generateOaPdf(
 
     // ── Annexures (in A-order), each stamped and True-Copy marked ──
     onProgress?.("Adding annexures…");
+    const annexCopiesMeta: Record<string, { typedOffset: number; trueOffset: number }> = {};
     for (const entry of wpAnnexureOrder(project)) {
       const a: any = entry.annex;
       const label = oaAnnexLabel(entry.pNumber, a);
@@ -146,7 +149,8 @@ export async function generateOaPdf(
           const firstBytes = translatedFirst ? typedBytes : bytes;
           const secondBytes = translatedFirst ? bytes : typedBytes;
           const p1 = await pdfFromBytes(firstBytes!);
-          if (p1 && p1.getPageCount() > 0) {
+          const c1 = p1 ? p1.getPageCount() : 0;
+          if (p1 && c1 > 0) {
             const cp = await src.copyPages(p1, p1.getPageIndices());
             cp.forEach((pg) => src!.addPage(pg));
           }
@@ -155,6 +159,10 @@ export async function generateOaPdf(
             const cp = await src.copyPages(p2, p2.getPageIndices());
             cp.forEach((pg) => src!.addPage(pg));
           }
+          annexCopiesMeta[a.id] = {
+            typedOffset: translatedFirst ? 0 : c1,
+            trueOffset: translatedFirst ? c1 : 0,
+          };
         } else if (hasTyped && !bytes) {
           src = await pdfFromBytes(typedBytes!);
         } else {
@@ -249,6 +257,30 @@ export async function generateOaPdf(
     // then splice the Index pages in at the front.
     for (const it of items) await addToMerged(it);
 
+    const annexureFirstPages: Record<string, string | number> = {};
+    for (const k in pageRanges) {
+      const m = k.match(/^annex:(.+)$/);
+      if (m) {
+        const id = m[1];
+        const val = pageRanges[k];
+        const start = Number(String(val).split(/[-–]/)[0]);
+        const meta = annexCopiesMeta[id];
+        if (meta) {
+          const typedStart = start + meta.typedOffset;
+          const trueStart = start + meta.trueOffset;
+          annexureFirstPages[id] = `${typedStart} [${trueStart}]`;
+        } else if (!isNaN(start)) {
+          annexureFirstPages[id] = start;
+        }
+      }
+    }
+    if (pageRanges["oa"]) {
+      const oaStart = Number(String(pageRanges["oa"]).split(/[-–]/)[0]);
+      if (!isNaN(oaStart)) {
+        annexureFirstPages["petition"] = oaStart;
+      }
+    }
+
     onProgress?.("Building the Index…");
     const indexRes = await generateOaIndexDoc(project, pageRanges);
     const indexPdf = indexRes.docx ? await docxToPdf(indexRes.docx) : null;
@@ -335,8 +367,57 @@ export async function generateOaPdf(
     onProgress?.("Adding bookmarks…");
     applyWpBookmarks(merged, bookmarks);
 
+    let oaLodOffset = -1;
+    const synItem = items.find((it) => it.key === "synopsis");
+    if (synItem?.pdf) {
+      try {
+        oaLodOffset = await findLodPageOffset(await synItem.pdf.save());
+      } catch (e) {
+        console.warn("Could not find LoD page offset in OA:", e);
+      }
+    }
+
+    const shortBookmarks: WpBookmark[] = [];
+    for (const b of bookmarks) {
+      if (b.title === "Index" || b.title === "Memo of Parties") {
+        continue;
+      }
+      if (b.title.includes("Synopsis")) {
+        const synStart = b.startPage ?? 1;
+        shortBookmarks.push({ title: `Synopsis @${synStart}`, pageIndex: b.pageIndex });
+        if (oaLodOffset > 0) {
+          shortBookmarks.push({
+            title: `List of Dates @${synStart + oaLodOffset}`,
+            pageIndex: b.pageIndex + oaLodOffset,
+          });
+        }
+      } else if (b.title.includes("Original Application")) {
+        shortBookmarks.push({ title: "OA", pageIndex: b.pageIndex });
+      } else if (b.title.startsWith("Annexure A-") || b.title.startsWith("Annexure ")) {
+        const m = b.title.match(/^Annexure [A-Za-z0-9-]+:\s*(.+)$/);
+        const desc = m ? shortAnnexureTitle(m[1]) : "Annexure";
+        shortBookmarks.push({ title: desc, pageIndex: b.pageIndex });
+      } else if (b.title.includes("Application")) {
+        shortBookmarks.push({ title: shortAnnexureTitle(b.title), pageIndex: b.pageIndex });
+      } else if (b.title.includes("Vakalatnama") || b.title.includes("Proof of Service")) {
+        shortBookmarks.push({ title: b.title, pageIndex: b.pageIndex });
+      }
+    }
+
+    let shortPdfBase64: string | undefined;
+    try {
+      const shortDoc = await PDFDocument.create();
+      const cp = await shortDoc.copyPages(merged, merged.getPageIndices());
+      cp.forEach((p) => shortDoc.addPage(p));
+      applyWpBookmarks(shortDoc, shortBookmarks);
+      shortPdfBase64 = bytesToB64(await shortDoc.save());
+    } catch (err) {
+      console.warn("Failed to generate short bookmarks copy:", err);
+    }
+    const shortBookmarksFileName = getPaperbookFileName(project, "Paperbook (Short Bookmarks)");
+
     const bytes = await merged.save();
-    return { success: true, pdfBase64: bytesToB64(bytes), fileName };
+    return { success: true, pdfBase64: bytesToB64(bytes), fileName, shortPdfBase64, shortBookmarksFileName, annexureFirstPages };
   } catch (e: any) {
     return { success: false, fileName, error: e?.message || "OA PDF assembly failed" };
   }

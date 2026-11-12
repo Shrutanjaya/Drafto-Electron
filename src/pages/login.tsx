@@ -181,10 +181,10 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle>{isSignUp ? 'Create Account' : 'Welcome to Drafto'}</CardTitle>
+          <CardTitle>{isSignUp ? 'Create Account' : 'Welcome to PaperBook'}</CardTitle>
           <CardDescription>
             {isSignUp 
-              ? 'Sign up to start using Drafto' 
+              ? 'Sign up to start using PaperBook' 
               : 'Sign in to your account to continue'}
           </CardDescription>
         </CardHeader>

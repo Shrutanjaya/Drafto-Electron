@@ -478,7 +478,7 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
     ...groundsParagraphs,
     // 4–7 boilerplate
     listItem(boilerplateRef, `This Hon’ble Court has the necessary jurisdiction to entertain this Writ Petition as the ${g.Res} ${g.resIs} situated within, and the cause of action has arisen within, the territorial jurisdiction of this Hon’ble Court.`, { before: 120 }),
-    listItem(boilerplateRef, `The ${g.Pet} ${g.has} no other equally efficacious alternate remedy available to approach this Hon’ble Court.`, { before: 120 }),
+    listItem(boilerplateRef, project.wp?.indexDisclosures?.alternativeRemedyDetails?.trim() || `The ${g.Pet} ${g.has} no other equally efficacious alternate remedy available to approach this Hon’ble Court.`, { before: 120 }),
     listItem(boilerplateRef, `The ${g.Pet} ${g.has} not filed any other Writ Petition or proceeding before the Hon’ble Supreme Court or before this Hon’ble Court or any other Court seeking the same or similar relief.`, { before: 120 }),
     listItem(boilerplateRef, `The ${g.Pet} ${g.craves} leave of this Hon’ble Court to produce additional documents and/or affidavits and to add, alter or amend this Writ Petition at a later stage of the proceedings, if required.`, { before: 120 }),
     // 8. Prayers
@@ -849,30 +849,41 @@ export function wpFrontMatterOrder(project: DraftoProject): ("notice" | "urgency
   return [...chosen, ...all.filter(k => !chosen.includes(k))];
 }
 
-export function wpIndexItems(project: DraftoProject): { key: string; runs: (TextRun | string)[] }[] {
+export function wpIndexItems(project: DraftoProject): { key: string; runs: (TextRun | string)[]; date?: string }[] {
   const year = new Date().getFullYear();
   const frontLabels: Record<"notice" | "urgency" | "memo", string> = {
     notice: "Notice of Motion",
     urgency: "Urgency Application",
     memo: "Memo of Parties",
   };
-  const items: { key: string; runs: (TextRun | string)[] }[] = [
-    ...wpFrontMatterOrder(project).map(k => ({ key: k, runs: [smartTextRun(frontLabels[k])] })),
-    { key: "slod", runs: [smartTextRun("Synopsis and List of Dates")] },
-    { key: "petition", runs: [smartTextRun(`Writ Petition under Article ${project?.wp?.articleBasis || "226"} of the Constitution of India, with affidavit.`)] },
+  const items: { key: string; runs: (TextRun | string)[]; date?: string }[] = [
+    ...wpFrontMatterOrder(project).map(k => ({ key: k, runs: [smartTextRun(frontLabels[k])], date: "-" })),
+    { key: "slod", runs: [smartTextRun("Synopsis and List of Dates")], date: "-" },
+    { key: "petition", runs: [smartTextRun(`Writ Petition under Article ${project?.wp?.articleBasis || "226"} of the Constitution of India, with affidavit.`)], date: "-" },
   ];
-  wpAnnexureOrder(project).forEach(({ annex, pNumber }) => items.push({ key: `annex:${annex.id}`, runs: annexIndexRuns(pNumber, annex) }));
+  wpAnnexureOrder(project).forEach(({ annex, pNumber }) =>
+    items.push({
+      key: `annex:${annex.id}`,
+      runs: annexIndexRuns(pNumber, annex),
+      date: (annex.date && String(annex.date).trim()) || "-",
+    })
+  );
   activeCms(project).forEach((cm, i) => {
-    items.push({ key: `cm:${i}`, runs: [smartTextRun({ text: `C.M. No. ____ of ${year}: `, bold: true }), convertToSmartQuotes(cm.title + ", with affidavit.")] });
+    items.push({
+      key: `cm:${i}`,
+      runs: [smartTextRun({ text: `C.M. No. ____ of ${year}: `, bold: true }), convertToSmartQuotes(cm.title + ", with affidavit.")],
+      date: "-",
+    });
     // The CM's own A-series annexures sit immediately after it.
     cm.annexures.forEach(({ annex, aNumber }) => items.push({
       key: `cmannex:${annex.id}`,
       runs: [smartTextRun({ text: `${cmAnnexLabel(aNumber)}: `, bold: true }), convertToSmartQuotes(cmAnnexIndexText(annex))],
+      date: (annex.date && String(annex.date).trim()) || "-",
     }));
   });
-  items.push({ key: "vakalatnama", runs: [smartTextRun("Vakalatnama")] });
-  items.push({ key: "courtfee", runs: [smartTextRun("Court Fee")] });
-  items.push({ key: "proofofservice", runs: [smartTextRun("Proof of Service")] });
+  items.push({ key: "vakalatnama", runs: [smartTextRun("Vakalatnama")], date: "-" });
+  items.push({ key: "courtfee", runs: [smartTextRun("Court Fee")], date: "-" });
+  items.push({ key: "proofofservice", runs: [smartTextRun("Proof of Service")], date: "-" });
   return items;
 }
 
@@ -882,28 +893,106 @@ export async function generateWpIndex(project: DraftoProject, pageRanges?: Recor
   const items = wpIndexItems(project);
 
   const headerRow = new TableRow({ children: [
-    new TableCell({ children: [centeredBoldCell("Sr. No.")], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
-    new TableCell({ children: [centeredBoldCell("Particulars")], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
-    new TableCell({ children: [centeredBoldCell("Pg.")], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
+    new TableCell({ children: [centeredBoldCell("Serial No.")], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
+    new TableCell({ children: [centeredBoldCell("Particulars of document")], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
+    new TableCell({ children: [centeredBoldCell("Date")], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
+    new TableCell({ children: [centeredBoldCell("Page")], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
   ]});
 
   const rows = items.map((it, i) => new TableRow({ children: [
-    new TableCell({ children: [new Paragraph({ text: `${i + 1}.`, alignment: AlignmentType.CENTER, spacing: tableSpacing })], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
+    new TableCell({ children: [new Paragraph({ text: `${i + 1}`, alignment: AlignmentType.CENTER, spacing: tableSpacing })], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
     new TableCell({ children: [new Paragraph({ children: it.runs.map(r => (typeof r === "string" ? smartTextRun(r) : r)), spacing: tableSpacing })], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
+    new TableCell({ children: [new Paragraph({ text: it.date || "-", alignment: AlignmentType.CENTER, spacing: tableSpacing })], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
     new TableCell({ children: [new Paragraph({ text: pageRanges?.[it.key] ?? "", alignment: AlignmentType.CENTER, spacing: tableSpacing })], verticalAlign: VerticalAlign.CENTER, margins: cellMargins }),
   ]}));
 
-  const table = new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: [1000, 7500, 1500], rows: [headerRow, ...rows] });
+  const table = new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: [1000, 6000, 1500, 1500], rows: [headerRow, ...rows] });
+
+  const d = project.wp?.indexDisclosures || ({} as any);
+
+  const noteItems = [
+    {
+      num: "(i)",
+      label: "Main law point involved mentioning the page and paragraph of the petition:",
+      text: [
+        d.mainLawPoint?.trim() || "[To be specified]",
+        d.lawPointPageAndPara?.trim() ? `(Page No. / Paragraph: ${d.lawPointPageAndPara.trim()})` : "",
+      ].filter(Boolean).join(" "),
+    },
+    {
+      num: "(ii)",
+      label: "Relevant Statute and Rules:",
+      text: d.relevantStatutes?.trim() || "Constitution of India, Article 226",
+    },
+    {
+      num: "(iii)",
+      label: "Any previous case involving the same point/challenging the same order of which the petitioner/appellant is aware, with brief statements showing how the case is similar:",
+      text: d.previousCaseDetails?.trim() || "None",
+    },
+    {
+      num: "(iv)",
+      label: "That no notice of caveat has been received by the petitioners as required U/S 148-A of CPC:",
+      text: d.caveatReceived ? (d.caveatDetails?.trim() || "Notice of Caveat received.") : "No notice of caveat has been received by the Petitioner(s) as required U/S 148-A of CPC.",
+    },
+    {
+      num: "(v)",
+      label: "Whether there is any alternative remedy, if yes, whether the petitioner has availed the same:",
+      text: d.hasAlternativeRemedy ? (d.alternativeRemedyDetails?.trim() || "Alternative remedy available/availed.") : (d.alternativeRemedyDetails?.trim() || "The Petitioner has no efficacious alternative statutory remedy available under law."),
+    },
+    {
+      num: "(vi)",
+      label: "Whether constitution validity of Act/Rule/Notification has been challenged?",
+      text: d.constitutionalValidityChallenged ? `Yes. ${d.constitutionalValidityDetails || ""}`.trim() : "No.",
+    },
+    {
+      num: "(vii)",
+      label: "A copy has been supplied to the official respondents:",
+      text: d.copySuppliedToOfficialRespondents ? (d.copySuppliedDetails?.trim() || "Yes, advance copy served upon the official respondents.") : "No.",
+    },
+    {
+      num: "(viii)",
+      label: "Whether any sitting/former MP/MLA is involved in the case or not?",
+      text: d.mpMlaInvolved ? `Yes. ${d.mpMlaDetails || ""}`.trim() : "No sitting or former MP / MLA is involved in the present case.",
+    },
+    {
+      num: "(ix)",
+      label: "The hard copy and soft copy are the same:",
+      text: d.hardAndSoftCopySame ? "Certified that the hard copy and soft copy are the same." : "Certified that the hard copy and soft copy are the same.",
+    },
+  ];
+
+  const noteParagraphs: Paragraph[] = [
+    new Paragraph({
+      spacing: { before: 240, after: 120, line: 240 },
+      children: [smartTextRun({ text: "Note-", bold: true })],
+    }),
+    ...noteItems.map(
+      (n) =>
+        new Paragraph({
+          spacing: { before: 60, after: 60, line: 240 },
+          indent: { left: 540, hanging: 540 },
+          children: [
+            smartTextRun({ text: `${n.num} `, bold: true }),
+            smartTextRun({ text: `${n.label} ` }),
+            smartTextRun(n.text),
+          ],
+        })
+    ),
+    new Paragraph({
+      spacing: { before: 120, after: 120, line: 240 },
+      children: [
+        smartTextRun({ text: "Note: ", bold: true }),
+        smartTextRun("The Petition has been duly bookmarked and an OCR version of the same has been served upon all the parties."),
+      ],
+    }),
+  ];
 
   const doc = wpDoc([
     ...createWpHeader(project.caseType),
     ...createWpPartiesHeader(petHeader, resHeader),
     centeredBold("INDEX", { before: 240 }),
     table,
-    new Paragraph({ spacing: { line: 240, before: 240, after: 120 }, children: [
-      smartTextRun({ text: "Note: ", bold: true }),
-      smartTextRun("The Petition has been duly bookmarked and an OCR version of the same has been served upon all the parties."),
-    ]}),
+    ...noteParagraphs,
     ...createWpFiledBy(project, { includeSignature }),
   ]);
   return pack(doc, "WP-Index.docx");

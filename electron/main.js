@@ -1163,7 +1163,7 @@ ipcMain.handle("open-drafto-file-dialog", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ["openFile"],
     filters: [
-      { name: "Drafto Projects", extensions: ["drafto", "scappeal", "scwp", "scpil", "dhcwp", "catoa"] },
+      { name: "PaperBook Projects", extensions: ["drafto", "scappeal", "scwp", "scpil", "dhcwp", "catoa"] },
       { name: "All Files", extensions: ["*"] },
     ],
   });
@@ -1408,7 +1408,7 @@ ipcMain.handle("process-ocr", async (_event, pdfBase64) => {
 
     const tesseractDir   = getTesseractDir();
     const ghostscriptDir = getGhostscriptDir();
-    if (!tesseractDir) return { success: false, error: "Tesseract OCR engine not found. Please reinstall DraftoSLP." };
+    if (!tesseractDir) return { success: false, error: "Tesseract OCR engine not found. Please reinstall PaperBook." };
 
     const extraDirs = [tesseractDir, ghostscriptDir].filter(Boolean);
     const gsRoot    = ghostscriptDir ? path.dirname(ghostscriptDir) : null;

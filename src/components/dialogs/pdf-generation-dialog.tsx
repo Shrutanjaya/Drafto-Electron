@@ -48,6 +48,8 @@ import { useEntitlement, useExportPermission } from "@/providers/entitlement-pro
 import { generatePdf } from "@/lib/actions";
 import { getSettings } from "./settings-dialog";
 import { incrementGenerationCount } from "@/lib/firebase/usage-service";
+import { cleanProjectName } from "@/lib/project-name";
+import { checkAnnexureChronology } from "@/lib/annexure-chronology";
 import { Upload, Loader2, Info, Lock, CheckCircle2, AlertCircle, Settings2, AlertTriangle, X, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -129,15 +131,11 @@ function validateProjectForPdf(data: DraftoProject): ValidationResult {
     // the paper-book altogether, so say so rather than filing silently short.
     const appendixRows = getAppendixItems(data);
     if (appendixRows.length > 0) {
-        const included = appendixRows.filter(appendixHasContent);
-        included.forEach((item, index) => {
+        appendixRows.forEach((item, index) => {
             if (!String(item.description ?? "").trim() && !String(item.indexTextOverride ?? "").trim()) {
-                slpIssues.push(`${appendixLabel(index, included.length)}: description (shown in the Index)`);
+                slpIssues.push(`${appendixLabel(index, appendixRows.length)}: description (shown in the Index)`);
             }
         });
-        if (appendixRows.length > included.length) {
-            slpIssues.push('Appendix: one or more documents have nothing attached and will be left out');
-        }
     }
     if (slpIssues.length) issues.push({ tab: isScWp ? 'Petition' : 'SLP', items: slpIssues });
 
@@ -408,9 +406,9 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         list.push({ id: 'slp', label: isScWp ? "Writ Petition" : "SLP with Certificate" });
         list.push({ id: 'slpAffidavit', label: isScWp ? "Writ Petition Affidavit (Executed)" : "SLP Affidavit (Executed)" });
 
-        // One merge component per attached Appendix document, in the same order
+        // One merge component per configured Appendix document, in the same order
         // (and with the same labels) as the Index rows.
-        const appendixItems = getActiveAppendixItems(projectData as DraftoProject);
+        const appendixItems = getAppendixItems(projectData as DraftoProject);
         appendixItems.forEach((item, index) => {
             list.push({
                 id: appendixComponentId(item),
@@ -681,7 +679,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             if (isAppendixComponentId(c.id)) {
                 const itemId = appendixItemIdFromComponentId(c.id);
                 const item = getAppendixItems(mainForm.getValues()).find(i => i.id === itemId);
-                const useManual = !!item?.useManual;
+                const useManual = !!item?.useManual && !!(item?.manualEntry || "").trim();
                 return {
                     ...c,
                     // Typed out: let the system generate it from the text.
@@ -992,8 +990,8 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                 const _firstWords = (s: string, n: number) => s.trim().split(/\s+/).slice(0, n).join(' ');
                 const _pet = projectData.petitioners?.[0]?.name?.trim();
                 const _res = projectData.respondents?.[0]?.name?.trim();
-                const _petPart = _pet ? _firstWords(_pet, 3) : '';
-                const _resPart = _res ? _firstWords(_res, 3) : '';
+                const _petPart = _pet ? cleanProjectName(_firstWords(_pet, 3)) || '' : '';
+                const _resPart = _res ? cleanProjectName(_firstWords(_res, 3)) || '' : '';
                 const caseName = _petPart && _resPart ? `${_petPart} v. ${_resPart}` : _petPart || _resPart || 'Untitled';
                 const settings = getSettings();
 
@@ -1031,7 +1029,13 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
 
                 // Offer the quick briefing note (List of Dates + page numbers)
                 // once the paper-book is saved/downloaded.
-                const offerBriefingNote = () => window.dispatchEvent(new CustomEvent("drafto-offer-briefing", { detail: { pageByAnnexId: (result as { annexureFirstPages?: Record<string, number> }).annexureFirstPages || {} } }));
+                const offerBriefingNote = () => window.dispatchEvent(new CustomEvent("drafto-offer-briefing", {
+                    detail: {
+                        pageByAnnexId: (result as any).annexureFirstPages || {},
+                        shortBookmarksPdf: (result as any).shortPdf,
+                        shortBookmarksFileName: (result as any).shortBookmarksFileName,
+                    }
+                }));
 
                 // If OCR is enabled, process it
                 if (enableOcr && window.electron) {
@@ -1068,8 +1072,8 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                 const _firstWords = (s: string, n: number) => s.trim().split(/\s+/).slice(0, n).join(' ');
                 const _pet = projectData.petitioners?.[0]?.name?.trim();
                 const _res = projectData.respondents?.[0]?.name?.trim();
-                const _petPart = _pet ? _firstWords(_pet, 3) : '';
-                const _resPart = _res ? _firstWords(_res, 3) : '';
+                const _petPart = _pet ? cleanProjectName(_firstWords(_pet, 3)) || '' : '';
+                const _resPart = _res ? cleanProjectName(_firstWords(_res, 3)) || '' : '';
                 const caseName = _petPart && _resPart ? `${_petPart} v. ${_resPart}` : _petPart || _resPart || 'Untitled';
                 const baseFileName = `${caseName} Paperbook.pdf`;
                 
@@ -1183,8 +1187,11 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                 if (isAppendixComponentId(item.id)) {
                     const appendixItem = getAppendixItems(mainForm.getValues())
                         .find(i => i.id === appendixItemIdFromComponentId(item.id));
-                    if (!appendixItem || appendixItem.useManual) return false;
-                    return !(appendixItem.file instanceof File);
+                    if (!appendixItem) return false;
+                    if (appendixItem.useManual) {
+                        return !(appendixItem.manualEntry || "").trim();
+                    }
+                    return !(item.userFile instanceof File || appendixItem.file instanceof File);
                 }
 
                 const isRequired =
@@ -1317,7 +1324,8 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
             if (appendixItem.useManual) {
                 return (appendixItem.manualEntry || '').trim() ? 'Typed out' : 'Upload Required';
             }
-            return appendixItem.file instanceof File ? (appendixItem.file as File).name : 'Upload Required';
+            const file = item.userFile instanceof File ? item.userFile : (appendixItem.file instanceof File ? (appendixItem.file as File) : null);
+            return file ? file.name : 'Upload Required';
         }
 
         if (item.id === 'certified_copy_receipt') {
@@ -1345,6 +1353,11 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         nonAdAnnexures.forEach(a => annexureNumberingMap.set(a.id, pCounter++));
         adAnnexures.forEach(a => annexureNumberingMap.set(a.id, pCounter++));
     }
+
+    const chronologyErrors = useMemo(
+        () => checkAnnexureChronology(allAnnexures, annexureNumberingMap),
+        [allAnnexures, annexureNumberingMap]
+    );
 
     // Collect IA ground annexures
     const allIaAnnexures: any[] = [];
@@ -1943,6 +1956,26 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                         onChange={handleFileChange}
                     />
                 </form>
+                {chronologyErrors.length > 0 && (
+                    <div className="mt-3 rounded-md border border-red-300 bg-red-50 p-2.5 text-red-900 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+                        <div className="flex items-start gap-2">
+                            <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+                            <div className="space-y-1 text-xs">
+                                <p className="font-semibold text-red-700 dark:text-red-300">
+                                    Annexures are not arranged chronologically:
+                                </p>
+                                <ul className="list-disc list-inside space-y-0.5 text-[11.5px]">
+                                    {chronologyErrors.map((err, idx) => (
+                                        <li key={idx}>{err}</li>
+                                    ))}
+                                </ul>
+                                <p className="text-[11px] text-red-600/90 dark:text-red-400/90 pt-1">
+                                    Note: PaperBook can make mistakes. Please check the ordering of annexures and proceed based on your judgment.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 <div className="mt-4 border-t pt-3 space-y-1.5">
                     <div className="flex items-center space-x-2">
                         <Checkbox

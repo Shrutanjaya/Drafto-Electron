@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center space-y-4">
           <Loader2 className="h-12 w-12 animate-spin mx-auto text-primary" />
-          <p className="text-muted-foreground">Loading Drafto...</p>
+          <p className="text-muted-foreground">Loading PaperBook...</p>
         </div>
       </div>
     );

@@ -137,7 +137,7 @@ export function getAppendixItems(project: Partial<DraftoProject> | undefined): A
 export function getActiveAppendixItems(project: Partial<DraftoProject> | undefined): AppendixItem[] {
   const items = getAppendixItems(project);
   if (items.length === 0) return [];
-  return items.filter(appendixHasContent);
+  return items.filter((i) => appendixHasContent(i) || (i.description || "").trim().length > 0);
 }
 
 // Merge-component id for an Appendix document (one per attached document).

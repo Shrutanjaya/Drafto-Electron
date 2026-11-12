@@ -89,7 +89,7 @@ export function EarlyBirdOfferDialog() {
         ) : (
           <div className="space-y-3 text-sm leading-6 text-muted-foreground">
             <p>
-              Drafto is slowly expanding to other courts and document types. The immediate
+              PaperBook is slowly expanding to other courts and document types. The immediate
               additions are <strong className="text-foreground">Writ Petitions in the High Court
               of Delhi at New Delhi</strong>, and <strong className="text-foreground">Original
               Applications before the Central Administrative Tribunal</strong> — covering the
@@ -99,8 +99,8 @@ export function EarlyBirdOfferDialog() {
             </p>
             <p>
               Amidst all this, we want to express our gratitude to you and our other earliest
-              customers for your faith in Drafto. As a token of our appreciation, your
-              subscription <strong className="text-foreground">will stand migrated to Drafto&rsquo;s
+              customers for your faith in PaperBook. As a token of our appreciation, your
+              subscription <strong className="text-foreground">will stand migrated to PaperBook&rsquo;s
               soon-to-be-announced Max Plan</strong>, which includes all court and document types,
               at no extra cost, until <strong className="text-foreground">{fmt(state.suiteUntil)}</strong>{" "}
               — including all updates and additions we release during that period. Your current
@@ -119,7 +119,7 @@ export function EarlyBirdOfferDialog() {
               it is today, for Supreme Court work — nothing is taken away.
             </p>
             <p>
-              We thank you once again for your faith in Drafto, and we welcome any feedback you
+              We thank you once again for your faith in PaperBook, and we welcome any feedback you
               might have. You can write to us at{" "}
               <span className="text-foreground">drafto@quindoph.com</span> or{" "}
               <span className="text-foreground">support@quindoph.com</span>.

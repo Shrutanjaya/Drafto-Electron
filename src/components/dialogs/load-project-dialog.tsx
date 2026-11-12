@@ -170,7 +170,7 @@ export function LoadProjectDialog({ open, onOpenChange, onLoadFromPath }: LoadPr
       onLoadFromPath(p);
       onOpenChange(false);
     } else if (f) {
-      toast({ variant: "destructive", title: "Not a Drafto file", description: "Drop a Drafto project file (.drafto, .scappeal, .scwp, .scpil, .dhcwp, .catoa)." });
+      toast({ variant: "destructive", title: "Not a PaperBook file", description: "Drop a PaperBook project file (.drafto, .scappeal, .scwp, .scpil, .dhcwp, .catoa)." });
     }
   };
 

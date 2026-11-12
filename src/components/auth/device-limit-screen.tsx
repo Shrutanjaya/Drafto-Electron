@@ -27,7 +27,7 @@ export function DeviceLimitScreen() {
         </div>
 
         <p className="text-sm text-muted-foreground">
-          To use Drafto on this device, sign out of one below. This device will be
+          To use PaperBook on this device, sign out of one below. This device will be
           admitted automatically as soon as a seat frees up.
         </p>
 

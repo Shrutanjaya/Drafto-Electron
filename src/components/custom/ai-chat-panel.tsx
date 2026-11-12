@@ -665,7 +665,7 @@ export function AiChatPanel() {
       // Show the assistant's prose (prefer its own summary message if present).
       const prose = proposal?.message || (looksLikeFailedJson ? "" : humanText);
       if (prose) addMessage("assistant", prose);
-      else if (looksLikeFailedJson) addMessage("system", "I drafted this, but couldn't format it cleanly into Drafto's fields. Please send that request again.");
+      else if (looksLikeFailedJson) addMessage("system", "I drafted this, but couldn't format it cleanly into PaperBook's fields. Please send that request again.");
       else if (!proposal) addMessage("assistant", replyText || "(no response)");
 
       if (proposal) presentFieldOps(proposal);
@@ -1132,7 +1132,7 @@ export function AiChatPanel() {
               <Sparkles className="h-6 w-6 mx-auto text-primary/60" />
               <p className="text-xs font-semibold text-foreground">Draft your {isWp ? "Writ Petition" : "SLP"} with Mayur</p>
               <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Point me at your {isWp ? "case documents" : "paperbook"} and I'll draft the whole petition into Drafto's fields for you to review. Nothing is saved without your say-so.
+                Point me at your {isWp ? "case documents" : "paperbook"} and I'll draft the whole petition into PaperBook's fields for you to review. Nothing is saved without your say-so.
               </p>
             </div>
 

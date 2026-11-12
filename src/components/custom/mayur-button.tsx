@@ -178,7 +178,7 @@ export function MayurProvider({ children }: { children: React.ReactNode }) {
 
   const scanSourceFiles = async (filePaths: string[], label?: string): Promise<boolean> => {
     if (!window.electron?.aiScanFiles) {
-      toast({ variant: "destructive", title: "Desktop required", description: "File scanning is only available in the Drafto desktop app." });
+      toast({ variant: "destructive", title: "Desktop required", description: "File scanning is only available in the PaperBook desktop app." });
       return false;
     }
     const validPaths = filePaths.filter((p) => /\.(pdf|docx)$/i.test(p));
@@ -208,7 +208,7 @@ export function MayurProvider({ children }: { children: React.ReactNode }) {
 
   const scanSourceFolder = async (folderPath: string): Promise<boolean> => {
     if (!window.electron?.aiScanFolder) {
-      toast({ variant: "destructive", title: "Desktop required", description: "Folder scanning is only available in the Drafto desktop app." });
+      toast({ variant: "destructive", title: "Desktop required", description: "Folder scanning is only available in the PaperBook desktop app." });
       return false;
     }
     setScanningRaw(true);
@@ -240,7 +240,7 @@ export function MayurProvider({ children }: { children: React.ReactNode }) {
 
   const loadVerbatimDraftFile = async (filePath: string) => {
     if (!window.electron?.aiExtractDraft) {
-      setDraftExtractError("Draft extraction is only available in the Drafto desktop app.");
+      setDraftExtractError("Draft extraction is only available in the PaperBook desktop app.");
       return;
     }
     if (!/\.(docx|pdf)$/i.test(filePath)) {
@@ -523,18 +523,18 @@ export function MayurProvider({ children }: { children: React.ReactNode }) {
               {activeMode === "verbatim" ? (
                 <>
                   Upload a single <code>.docx</code> or <code>.pdf</code> draft. Mayur will locate{" "}
-                  <strong>{effectiveLabel}</strong> and copy its text verbatim into Drafto&apos;s fields, preserving
+                  <strong>{effectiveLabel}</strong> and copy its text verbatim into PaperBook&apos;s fields, preserving
                   bold, italics, underline, strikethrough, capitalization, numbered/bulleted lists, Word Heading
                   styles, table cells, and annexure references.
                 </>
               ) : activeMode === "construct" ? (
                 <>
                   Supply the case papers below. Mayur will read them thoroughly and construct{" "}
-                  <strong>{effectiveLabel}</strong> according to Drafto&apos;s court-specific drafting guidelines.
+                  <strong>{effectiveLabel}</strong> according to PaperBook&apos;s court-specific drafting guidelines.
                 </>
               ) : (
                 <>
-                  Mayur will read the List of Dates, Grounds, and other fields already entered in Drafto and construct{" "}
+                  Mayur will read the List of Dates, Grounds, and other fields already entered in PaperBook and construct{" "}
                   <strong>{effectiveLabel}</strong> from them.
                 </>
               )}
@@ -591,7 +591,7 @@ export function MayurProvider({ children }: { children: React.ReactNode }) {
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  [iii] From Drafto fields
+                  [iii] From PaperBook fields
                 </button>
               )}
             </div>
@@ -686,12 +686,12 @@ export function MayurProvider({ children }: { children: React.ReactNode }) {
                     <li>Exact wording, capitalization, <b>bold</b>, <i>italics</i>, <u>underline</u>, Strikethrough, and nested lists.</li>
                     {activeSection === "lod" || activeSection === "master" ? (
                       <li>
-                        <strong>List of Dates &amp; Annexures:</strong> Places each table cell into Drafto&apos;s Date &amp; Particulars rows and automatically extracts Annexure sentences into Drafto&apos;s Annexure Dialog.
+                        <strong>List of Dates &amp; Annexures:</strong> Places each table cell into PaperBook&apos;s Date &amp; Particulars rows and automatically extracts Annexure sentences into PaperBook&apos;s Annexure Dialog.
                       </li>
                     ) : null}
                     {activeSection === "grounds" || activeSection === "qol" || activeSection === "master" ? (
                       <li>
-                        <strong>Grounds / Questions of Law:</strong> Splits each numbered/lettered ground into its own Drafto row and converts Word Heading styles (from <code>.docx</code>) into Ground Heading rows.
+                        <strong>Grounds / Questions of Law:</strong> Splits each numbered/lettered ground into its own PaperBook row and converts Word Heading styles (from <code>.docx</code>) into Ground Heading rows.
                       </li>
                     ) : null}
                   </ul>
@@ -869,7 +869,7 @@ export function MayurProvider({ children }: { children: React.ReactNode }) {
             {activeMode === "derive" && (
               <div className="space-y-2.5">
                 <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground leading-relaxed">
-                  Mayur will inspect the sections you have already filled in Drafto (such as the{" "}
+                  Mayur will inspect the sections you have already filled in PaperBook (such as the{" "}
                   <strong>List of Dates</strong>, <strong>Grounds</strong>, <strong>Memo of Parties</strong>, and{" "}
                   <strong>Impugned Order details</strong>) and construct <strong>{effectiveLabel}</strong> without
                   needing any external files.
@@ -1157,10 +1157,10 @@ export function MayurButton({
           >
             <div className="flex items-center gap-2 text-xs font-medium">
               <Wand2 className="h-3.5 w-3.5 text-primary shrink-0" />
-              <span>[iii] Construct from Drafto fields</span>
+              <span>[iii] Construct from PaperBook fields</span>
             </div>
             <span className="pl-5 text-[11px] text-muted-foreground leading-snug">
-              {meta.deriveHint || "Draft directly from the List of Dates & Grounds already in Drafto"}
+              {meta.deriveHint || "Draft directly from the List of Dates & Grounds already in PaperBook"}
             </span>
           </DropdownMenuItem>
         )}

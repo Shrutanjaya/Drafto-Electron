@@ -69,6 +69,7 @@ import {
 import { generateOaPdf } from "@/lib/oa/oa-pdf";
 import { OaPdfGenerationDialog } from "./dialogs/oa-pdf-generation-dialog";
 import { SettingsDialog, getSettings } from "./dialogs/settings-dialog";
+import { generateBriefingNoteDocx, getCachedPaperbookPages } from "@/lib/briefing-note";
 import { NotificationsPopover } from "./custom/notifications-popover";
 import { newBlankProject } from "@/lib/project-defaults";
 import { stemOf, cleanProjectName } from "@/lib/project-name";
@@ -1114,6 +1115,13 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         return;
       }
       if (opts?.ocr) result.pdfBase64 = await runOcrPass(result.pdfBase64);
+      const offerBriefing = () => window.dispatchEvent(new CustomEvent("drafto-offer-briefing", {
+        detail: {
+          pageByAnnexId: result.annexureFirstPages || {},
+          shortBookmarksPdf: result.shortPdfBase64,
+          shortBookmarksFileName: result.shortBookmarksFileName,
+        }
+      }));
       const settings = getSettings();
       try {
         if (typeof window !== "undefined" && window.electron?.savePdf) {
@@ -1127,12 +1135,14 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
             incrementGenerationCount('paperbook');
             toast({ title: "PDF Saved", description: savedPath });
             window.electron.revealFilePath?.(savedPath);
+            offerBriefing();
             return;
           }
         }
       } catch { /* fall through to browser download */ }
       const bytes = Uint8Array.from(atob(result.pdfBase64), (c) => c.charCodeAt(0));
       saveAs(new Blob([bytes], { type: "application/pdf" }), result.fileName);
+      offerBriefing();
     });
   };
 
@@ -1164,6 +1174,27 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
     });
   };
 
+  const handleGenerateBriefingNoteStandalone = () => {
+    startTransition(async () => {
+      try {
+        toast({ title: "Generating Skeletal Briefing Note…", description: "Preparing Skeletal Briefing Note (.docx)…" });
+        const project = form.getValues();
+        const cachedPages = getCachedPaperbookPages(project.id);
+        const res = await generateBriefingNoteDocx(project, cachedPages);
+        if (!res.success || !res.docx) {
+          throw new Error("Could not assemble Skeletal Briefing Note");
+        }
+        await downloadDocx(res.docx, res.fileName);
+      } catch (err) {
+        toast({
+          variant: "destructive",
+          title: "Skeletal Briefing Note Failed",
+          description: err instanceof Error ? err.message : String(err),
+        });
+      }
+    });
+  };
+
   const handleGenerateAllWp = () => {
     startTransition(async () => {
       const data = form.getValues();
@@ -1184,7 +1215,13 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
         return;
       }
       if (opts?.ocr) result.pdfBase64 = await runOcrPass(result.pdfBase64);
-      const offerBriefing = () => window.dispatchEvent(new CustomEvent("drafto-offer-briefing", { detail: { pageByAnnexId: result.annexureFirstPages || {} } }));
+      const offerBriefing = () => window.dispatchEvent(new CustomEvent("drafto-offer-briefing", {
+        detail: {
+          pageByAnnexId: result.annexureFirstPages || {},
+          shortBookmarksPdf: result.shortPdfBase64,
+          shortBookmarksFileName: result.shortBookmarksFileName,
+        }
+      }));
       const settings = getSettings();
       try {
         if (typeof window !== "undefined" && window.electron?.savePdf) {
@@ -1387,8 +1424,8 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   return (
     <header className="flex h-12 items-center justify-between border-b bg-card px-2">
       <div className="flex items-center gap-1">
-        <img src="./drafto-logo.png" alt="Drafto Logo" className="h-7 w-auto translate-x-0.5" />
-        <h1 className="text-base font-bold" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Drafto</h1>
+        <img src="./drafto-logo.png" alt="PaperBook Logo" className="h-7 w-auto translate-x-0.5" />
+        <h1 className="text-base font-bold" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>PaperBook</h1>
       </div>
       <ProjectNameField
         name={projectName}
@@ -1523,6 +1560,9 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
               </>
             )}
             <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={handleGenerateBriefingNoteStandalone}>
+              <FileText className="mr-2 h-4 w-4" />Skeletal Briefing Note (.docx)
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setImportOpen(true)}>
               <FileDiff className="mr-2" />Import tracked changes…
               <span className="ml-2 rounded bg-amber-100 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Beta</span>

@@ -49,6 +49,11 @@ export function wpPreflight(project: DraftoProject): WpPreflightIssue[] {
   if (!project.petitioners?.some(p => String(p?.name ?? "").trim())) err("No Petitioner name has been entered (Preliminary → Parties).", "parties");
   if (!project.respondents?.some(r => String(r?.name ?? "").trim())) err("No Respondent name has been entered (Preliminary → Parties).", "parties");
 
+  // ── Index Disclosures (Practice Directions No. 201/Rules/DHC) ──
+  if (!project.wp.indexDisclosures?.mainLawPoint?.trim()) {
+    warn("The main question of law in Index Disclosures is empty (Preliminary → Index Disclosures).", "synopsis");
+  }
+
   // ── Petition body ──
   const reliefs = (project.wp.reliefs || []).filter(r => htmlHasText(r.particulars));
   // The last relief is the residuary prayer — at least one substantive relief

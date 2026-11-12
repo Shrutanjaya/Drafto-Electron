@@ -1,9 +1,9 @@
-export const LICENSE_TEXT = `DRAFTO - SOFTWARE LICENSE AGREEMENT
+export const LICENSE_TEXT = `PAPERBOOK - SOFTWARE LICENSE AGREEMENT
 
 Copyright (c) 2026 Quindoph Legal Solutions Pvt. Ltd.  All rights reserved.
 
 IMPORTANT - PLEASE READ CAREFULLY BEFORE INSTALLING OR USING THIS SOFTWARE.
-BY CLICKING "I AGREE" OR BY INSTALLING, COPYING, OR USING DRAFTO ("SOFTWARE"),
+BY CLICKING "I AGREE" OR BY INSTALLING, COPYING, OR USING PAPERBOOK ("SOFTWARE"),
 YOU AGREE TO BE BOUND BY THE TERMS OF THIS AGREEMENT.  IF YOU DO NOT AGREE,
 DO NOT INSTALL OR USE THE SOFTWARE.
 
@@ -251,7 +251,7 @@ New Delhi, India
 quindoph.com
 -------------------------------------------------------------------------`;
 
-export const TERMS_TEXT = `DRAFTO - TERMS AND CONDITIONS OF USE
+export const TERMS_TEXT = `PAPERBOOK - TERMS AND CONDITIONS OF USE
 
 Effective Date: 16 March 2026
 Issued by:     Quindoph Legal Solutions Pvt. Ltd.
@@ -259,13 +259,13 @@ Issued by:     Quindoph Legal Solutions Pvt. Ltd.
 Website:       quindoph.com
 
 PLEASE READ THESE TERMS AND CONDITIONS ("TERMS") CAREFULLY.  BY INSTALLING
-OR USING DRAFTO ("SOFTWARE"), YOU AGREE TO BE BOUND BY THESE TERMS.
+OR USING PAPERBOOK ("SOFTWARE"), YOU AGREE TO BE BOUND BY THESE TERMS.
 IF YOU DO NOT AGREE, DO NOT USE THE SOFTWARE.
 
 
-1. ABOUT DRAFTO
+1. ABOUT PAPERBOOK
 
-Drafto is a desktop legal drafting and document formatting application
+PaperBook is a desktop legal drafting and document formatting application
 developed and owned by Quindoph Legal Solutions Pvt. Ltd. ("Company").
 The Software assists users in preparing draft documents and does not
 constitute legal advice.

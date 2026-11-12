@@ -110,7 +110,7 @@ export function ImportProjectDataDialog({
       toast({
         variant: "destructive",
         title: "Invalid Project File",
-        description: "The selected file could not be parsed as a valid Drafto project.",
+        description: "The selected file could not be parsed as a valid PaperBook project.",
       });
     } finally {
       setIsLoading(false);
@@ -248,7 +248,7 @@ export function ImportProjectDataDialog({
                     <FolderOpen className="h-5 w-5" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-foreground">Select an existing Drafto project file</p>
+                    <p className="text-sm font-semibold text-foreground">Select an existing PaperBook project file</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       Supports .drafto, .scappeal, .scwp, .scpil, .dhcwp, and .catoa files
                     </p>

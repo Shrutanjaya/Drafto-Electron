@@ -98,7 +98,7 @@ export function AutoUpdateBanner() {
         <div className="flex items-center gap-2.5">
           <RefreshCw className="h-4 w-4 shrink-0 animate-spin" style={{ animationDuration: "4s" }} />
           <span>
-            A new version of Drafto{version ? ` (v${version})` : ""} has been downloaded and is ready to install. Please restart now to apply the update.
+            A new version of PaperBook{version ? ` (v${version})` : ""} has been downloaded and is ready to install. Please restart now to apply the update.
           </span>
         </div>
         <Button

@@ -15,6 +15,8 @@ import { getWpStampSettings, type WpStampSettings } from "./wp-settings";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 import { convertDocxToPdf as ipcConvertDocxToPdf } from "@/lib/ipc/pdf";
 import type { DraftoProject } from "@/lib/schema";
+import { getPaperbookFileName } from "@/lib/project-name";
+import { shortAnnexureTitle, findLodPageOffset } from "@/lib/short-bookmarks";
 import { wpAnnexureOrder, cmAnnexLabel, cmAnnexIndexText } from "./wp-annexures";
 import { pageRotation } from "@/lib/pdf-rotation";
 import {
@@ -195,8 +197,8 @@ export async function generateWpPdf(
   project: DraftoProject,
   onProgress?: (label: string) => void,
   signal?: AbortSignal,
-): Promise<{ success: boolean; pdfBase64?: string; fileName: string; error?: string; annexureFirstPages?: Record<string, number> }> {
-  const fileName = "Writ Petition.pdf";
+): Promise<{ success: boolean; pdfBase64?: string; shortPdfBase64?: string; shortBookmarksFileName?: string; fileName: string; error?: string; annexureFirstPages?: Record<string, string | number> }> {
+  const fileName = getPaperbookFileName(project, "Writ Petition");
   try {
     if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
     const merged = await PDFDocument.create();
@@ -213,7 +215,7 @@ export async function generateWpPdf(
     // Court Fee / Proof of Service slots when nothing is uploaded (the printed
     // receipt/acknowledgement is inserted physically at that page).
     // `trueCopy` marks annexure pages that receive the True Copy stamp.
-    interface BodyItem { key: string; title: string; pdf: PDFDocument | null; paginated: boolean; colly?: { title: string; offset: number }[]; label?: string; phantomPages?: number; trueCopy?: boolean; }
+    interface BodyItem { key: string; title: string; pdf: PDFDocument | null; paginated: boolean; colly?: { title: string; offset: number }[]; label?: string; phantomPages?: number; trueCopy?: boolean; subCopy?: { typedOffset: number; trueOffset: number }; }
     const items: BodyItem[] = [];
 
     const genItem = async (gen: (p: DraftoProject) => Promise<{ docx?: string }>, key: string, title: string) => {
@@ -255,6 +257,7 @@ export async function generateWpPdf(
 
     // Annexures (impugned-order first). Colly annexures are assembled from their
     // constituent files with nested bookmarks; missing files get a placeholder.
+    const annexCopiesMeta: Record<string, { typedOffset: number; trueOffset: number }> = {};
     for (const { annex, pNumber } of wpAnnexureOrder(project)) {
       if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
       onProgress?.(`Annexure P-${pNumber}…`);
@@ -296,7 +299,8 @@ export async function generateWpPdf(
           const firstBytes = translatedFirst ? typedBytes : bytes;
           const secondBytes = translatedFirst ? bytes : typedBytes;
           const p1 = await pdfFromBytes(firstBytes!);
-          if (p1 && p1.getPageCount() > 0) {
+          const c1 = p1 ? p1.getPageCount() : 0;
+          if (p1 && c1 > 0) {
             const cp = await src.copyPages(p1, p1.getPageIndices());
             cp.forEach((p) => src!.addPage(p));
           }
@@ -305,6 +309,10 @@ export async function generateWpPdf(
             const cp = await src.copyPages(p2, p2.getPageIndices());
             cp.forEach((p) => src!.addPage(p));
           }
+          annexCopiesMeta[annex.id] = {
+            typedOffset: translatedFirst ? 0 : c1,
+            trueOffset: translatedFirst ? c1 : 0,
+          };
         } else if (hasTyped && !bytes) {
           src = await pdfFromBytes(typedBytes!);
         } else {
@@ -379,10 +387,24 @@ export async function generateWpPdf(
     for (const k in rangeByKey) pageRanges[k] = fmt(rangeByKey[k]);
     // Annexure-id → first paper-book page (P-series and CM A-series), for the
     // quick briefing note.
-    const annexureFirstPages: Record<string, number> = {};
+    const annexureFirstPages: Record<string, string | number> = {};
     for (const k in rangeByKey) {
       const m = k.match(/^(?:annex|cmannex):(.+)$/);
-      if (m) annexureFirstPages[m[1]] = rangeByKey[k].s;
+      if (m) {
+        const id = m[1];
+        const base = rangeByKey[k].s;
+        const meta = annexCopiesMeta[id];
+        if (meta) {
+          const typedStart = base + meta.typedOffset;
+          const trueStart = base + meta.trueOffset;
+          annexureFirstPages[id] = `${typedStart} [${trueStart}]`;
+        } else {
+          annexureFirstPages[id] = base;
+        }
+      }
+    }
+    if (rangeByKey["petition"]) {
+      annexureFirstPages["petition"] = rangeByKey["petition"].s;
     }
     // The Index "Writ Petition … with affidavit" row spans petition + affidavit.
     if (rangeByKey["petition"]) {
@@ -500,8 +522,58 @@ export async function generateWpPdf(
     onProgress?.("Adding bookmarks…");
     applyWpBookmarks(merged, bookmarks);
 
+    let wpLodOffset = -1;
+    const slodItem = items.find((it) => it.key === "slod");
+    if (slodItem?.pdf) {
+      try {
+        wpLodOffset = await findLodPageOffset(await slodItem.pdf.save());
+      } catch (e) {
+        console.warn("Could not find LoD page offset in WP:", e);
+      }
+    }
+
+    const shortBookmarks: WpBookmark[] = [];
+    for (const b of bookmarks) {
+      if (b.title === "Index" || b.title === "Notice of Motion" || b.title === "Urgent Application" || b.title === "Memo of Parties") {
+        continue;
+      }
+      if (b.title === "Synopsis and List of Dates") {
+        const slodStart = rangeByKey["slod"]?.s ?? b.startPage ?? 1;
+        shortBookmarks.push({ title: `Synopsis @${slodStart}`, pageIndex: b.pageIndex });
+        if (wpLodOffset > 0) {
+          shortBookmarks.push({
+            title: `List of Dates @${slodStart + wpLodOffset}`,
+            pageIndex: b.pageIndex + wpLodOffset,
+          });
+        }
+      } else if (b.title.startsWith("Writ Petition")) {
+        shortBookmarks.push({ title: `Writ Petition @${b.startPage || 1}`, pageIndex: b.pageIndex });
+      } else if (b.title.startsWith("Annexure P-")) {
+        const m = b.title.match(/^Annexure P-\d+:\s*(.+)$/);
+        const desc = m ? shortAnnexureTitle(m[1]) : "Annexure";
+        shortBookmarks.push({ title: `${desc} @${b.startPage || ""}`, pageIndex: b.pageIndex });
+      } else if (b.title.startsWith("CM Application")) {
+        const desc = shortAnnexureTitle(b.title.replace(/^CM Application \d+:\s*/, ""));
+        shortBookmarks.push({ title: `CM: ${desc} @${b.startPage || ""}`, pageIndex: b.pageIndex });
+      } else if (b.title === "Vakalatnama" || b.title === "Court Fee" || b.title === "Proof of Service") {
+        shortBookmarks.push({ title: `${b.title} @${b.startPage || ""}`, pageIndex: b.pageIndex });
+      }
+    }
+
+    let shortPdfBase64: string | undefined;
+    try {
+      const shortDoc = await PDFDocument.create();
+      const cp = await shortDoc.copyPages(merged, merged.getPageIndices());
+      cp.forEach((p) => shortDoc.addPage(p));
+      applyWpBookmarks(shortDoc, shortBookmarks);
+      shortPdfBase64 = bytesToB64(await shortDoc.save());
+    } catch (err) {
+      console.warn("Failed to generate short bookmarks copy:", err);
+    }
+    const shortBookmarksFileName = getPaperbookFileName(project, "Paperbook (Short Bookmarks)");
+
     const bytes = await merged.save();
-    return { success: true, pdfBase64: bytesToB64(bytes), fileName, annexureFirstPages };
+    return { success: true, pdfBase64: bytesToB64(bytes), fileName, shortPdfBase64, shortBookmarksFileName, annexureFirstPages };
   } catch (e: any) {
     return { success: false, fileName, error: e?.message || "WP PDF assembly failed" };
   }

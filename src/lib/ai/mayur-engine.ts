@@ -837,7 +837,7 @@ async function runSingleLlmCall(
 }> {
   const win = typeof window !== "undefined" ? (window as any).electron : undefined;
   if (!win?.aiRun) {
-    return { ok: false, error: "Mayur is only available in the Drafto desktop app." };
+    return { ok: false, error: "Mayur is only available in the PaperBook desktop app." };
   }
 
   const settings = getSettings();

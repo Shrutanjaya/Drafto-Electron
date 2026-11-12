@@ -45,8 +45,10 @@ import {
 import { isScWpFamily, isAppeal, annexurePrefix } from "@/lib/court-family";
 import { appealProvisionText, appealTitle, appealOrderRule, getAppealLimitation } from "@/lib/appeal/appeal-provisions";
 import { resolveFactsHtml, annexureRowsOf } from "@/lib/wp/facts-mode";
-import { transposeLodToFacts, injectAnnexurePageRangesIntoFacts } from "@/lib/wp/wp-facts";
+import { transposeLodToFacts, injectAnnexurePageRangesIntoFacts, injectIaAnnexurePageRanges } from "@/lib/wp/wp-facts";
 import { getOfficialCourtName } from "@/lib/court-names";
+import { getShortBookmarkTitle, findLodPageOffset } from "@/lib/short-bookmarks";
+import { getPaperbookFileName } from "@/lib/project-name";
 
 
 // The fourth argument to createSlpHeader, set only for the statutory appeal.
@@ -1491,7 +1493,7 @@ export async function generateSlodDocx(projectData: DraftoProject, annexurePageR
             children: [
                 new Paragraph({ children: [smartTextRun({ text: "SYNOPSIS", bold: true })], alignment: AlignmentType.CENTER, style: "Normal" }),
                 ...synopsisResult.paragraphs,
-                new Paragraph({ pageBreakBefore: true, children: [smartTextRun({ text: "LIST OF DATES", bold: true })], alignment: AlignmentType.CENTER, style: "Normal" }),
+                new Paragraph({ pageBreakBefore: projectData.splitSynopsisAndLod !== false, children: [smartTextRun({ text: "LIST OF DATES", bold: true })], alignment: AlignmentType.CENTER, style: "Normal" }),
                 lodTable,
             ],
         }],
@@ -2356,7 +2358,7 @@ export async function generateIaDocx(
     // Helper function to create IA annexure text with page range and period-appending
     const createIaAnnexureText = (aNumber: number, annex: { id?: string; title: string; date?: string }): (TextRun | string)[] => {
         const annexureLabel = `Annexure A-${aNumber}`;
-        const pageRange = annex.id ? iaAnnexurePageRanges?.get(annex.id) : undefined;
+        const pageRange = annex.id ? (iaAnnexurePageRanges?.get(annex.id) || iaAnnexurePageRanges?.get(`ia_annexure_${annex.id}`)) : undefined;
         let pageRangeText: string;
         if (pageRange) {
             pageRangeText = pageRange.start === pageRange.end
@@ -2423,7 +2425,8 @@ export async function generateIaDocx(
                 const groundsRows = grounds
                     .filter(g => g.particulars.trim() !== '')
                     .map((g, index) => {
-                        const { paragraphs, numbering } = parseHtml(g.particulars);
+                        const groundHtml = injectIaAnnexurePageRanges(g.particulars, groundsAnnexureMap, g.annexures, iaAnnexurePageRanges, "A");
+                        const { paragraphs, numbering } = parseHtml(groundHtml);
                         if (numbering.length > 0) allNumberingConfigs.push(...numbering);
                         
                         // Add annexure sentences for this ground
@@ -2493,7 +2496,8 @@ export async function generateIaDocx(
                 const refilingGroundsRows = refilingGrounds
                     .filter(g => g.particulars.trim() !== '')
                     .map((g, index) => {
-                        const { paragraphs, numbering } = parseHtml(g.particulars);
+                        const groundHtml = injectIaAnnexurePageRanges(g.particulars, refilingGroundsAnnexureMap, g.annexures, iaAnnexurePageRanges, "A");
+                        const { paragraphs, numbering } = parseHtml(groundHtml);
                         if (numbering.length > 0) allNumberingConfigs.push(...numbering);
                         
                         // Add annexure sentences for this ground
@@ -2581,7 +2585,7 @@ export async function generateIaDocx(
                 
                 const createAdAnnexureText = (pNumber: number, annex: Annexure): (TextRun | string)[] => {
                     const annexureLabel = `Annexure ${annexurePrefix(projectData.courtType)}-${pNumber}`;
-                    const pageRange = annex.id ? iaAnnexurePageRanges?.get(annex.id) : undefined;
+                    const pageRange = annex.id ? (iaAnnexurePageRanges?.get(annex.id) || iaAnnexurePageRanges?.get(`annexure_${annex.id}`) || iaAnnexurePageRanges?.get(`ia_annexure_${annex.id}`)) : undefined;
                     const pageRangeText = pageRange
                         ? pageRange.start === pageRange.end
                             ? `(p.${pageRange.start})`
@@ -2649,7 +2653,7 @@ export async function generateIaDocx(
                 adGrounds
                     .filter((g: any) => g.particulars && g.particulars.trim() !== '')
                     .forEach((g: any) => {
-                        const groundHtml = injectAnnexurePageRangesIntoFacts(g.particulars, projectData, iaAnnexurePageRanges);
+                        const groundHtml = injectIaAnnexurePageRanges(g.particulars, annexureNumberingMap, adAnnexures, iaAnnexurePageRanges, annexurePrefix(projectData.courtType));
                         const { paragraphs, numbering } = parseHtml(groundHtml, undefined, { reference: currentListRef, level: 0 });
                         if (numbering.length > 0) allNumberingConfigs.push(...numbering);
                         countNumbered(paragraphs);
@@ -2706,7 +2710,8 @@ export async function generateIaDocx(
                 const suspensionGroundsRows = suspensionGrounds
                     .filter(g => g.particulars.trim() !== '')
                     .map((g, index) => {
-                        const { paragraphs, numbering } = parseHtml(g.particulars);
+                        const groundHtml = injectIaAnnexurePageRanges(g.particulars, suspensionAnnexureMap, g.annexures, iaAnnexurePageRanges, "A");
+                        const { paragraphs, numbering } = parseHtml(groundHtml);
                         if (numbering.length > 0) allNumberingConfigs.push(...numbering);
                         if (g.annexures && g.annexures.length > 0) {
                             g.annexures.forEach(annex => {
@@ -2767,7 +2772,8 @@ export async function generateIaDocx(
                 const surrenderingGroundsRows = surrenderingGrounds
                     .filter(g => g.particulars.trim() !== '')
                     .map((g, index) => {
-                        const { paragraphs, numbering } = parseHtml(g.particulars);
+                        const groundHtml = injectIaAnnexurePageRanges(g.particulars, surrenderingAnnexureMap, g.annexures, iaAnnexurePageRanges, "A");
+                        const { paragraphs, numbering } = parseHtml(groundHtml);
                         if (numbering.length > 0) allNumberingConfigs.push(...numbering);
                         
                         // Add annexure sentences for this ground
@@ -2833,7 +2839,8 @@ export async function generateIaDocx(
             const groundsRows = customIa.grounds
                 .filter(g => g.particulars.trim() !== '')
                 .map((g, index) => {
-                    const { paragraphs, numbering } = parseHtml(g.particulars);
+                    const groundHtml = injectIaAnnexurePageRanges(g.particulars, customAnnexureMap, g.annexures, iaAnnexurePageRanges, "A");
+                    const { paragraphs, numbering } = parseHtml(groundHtml);
                     if (numbering.length > 0) allNumberingConfigs.push(...numbering);
                     
                     // Add annexure sentences for this ground
@@ -4152,6 +4159,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         isAPrefixed?: boolean;    // True if page numbers are A1, A2, A3… (the Listing Proforma)
     }
     const bookmarks: BookmarkEntry[] = [];
+    const shortBookmarks: BookmarkEntry[] = [];
 
     // Apply a list of BookmarkEntry objects to a PDFDocument (entries already have remapped pageIndex)
     const applyBookmarksToPdf = async (pdf: PDFDocument, entries: BookmarkEntry[]) => {
@@ -4456,6 +4464,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
     
     // Map from annexure ID to its page range in the final PDF
     const annexurePageRanges = new Map<string, {start: number, end: number}>();
+    const detailedAnnexurePageStrings = new Map<string, string>();
     
     // Reset to track page numbers for annexures (both P-annexures and A-annexures)
     let annexurePageNum = 1;
@@ -4466,8 +4475,8 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
         const pageInfo = docPageCounts.get(meta.id);
         if (!pageInfo) continue;
         
-        // Start tracking page numbers when we hit the first Impugned Order (or slp in SC WP)
-        if (isScWp ? meta.id === 'slp' : meta.id.startsWith('impugnedOrder_')) {
+        // Start tracking page numbers when we hit the first Impugned Order (or slp in SC WP / when no IO is present)
+        if (isScWp ? meta.id === 'slp' : (meta.id.startsWith('impugnedOrder_') || meta.id === 'slp')) {
             trackingAnnexures = true;
         }
         
@@ -4478,6 +4487,8 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
 
             if (!isSecondOfPair(meta.id, fileMetas)) {
                 let totalPages = pageInfo.pageCount;
+                const firstCopyPages = pageInfo.pageCount;
+                let hasSecondCopy = false;
 
                 // Add the other copy when it follows immediately.
                 if (pairedWithNext(meta.id, fileMetas)) {
@@ -4485,6 +4496,7 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                     const partnerPageInfo = partnerId ? docPageCounts.get(partnerId) : undefined;
                     if (partnerPageInfo) {
                         totalPages += partnerPageInfo.pageCount;
+                        hasSecondCopy = true;
                     }
                 }
                 
@@ -4495,12 +4507,29 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                     start: startPage,
                     end: endPage
                 });
+
+                if (hasSecondCopy) {
+                    const typedStart = meta.id.endsWith(TYPED_SUFFIX) ? startPage : startPage + firstCopyPages;
+                    const trueStart = meta.id.endsWith(TYPED_SUFFIX) ? startPage + firstCopyPages : startPage;
+                    detailedAnnexurePageStrings.set(baseAnnexureId, `${typedStart} [${trueStart}]`);
+                } else {
+                    detailedAnnexurePageStrings.set(baseAnnexureId, String(startPage));
+                }
                 
                 annexurePageNum = endPage + 1;
             }
             // The second copy of a pair is already counted above
         } else if (trackingAnnexures && pageInfo.pageCount > 0) {
             // Track pages for non-annexure documents after Impugned Order
+            if (meta.id.startsWith('impugnedOrder_')) {
+                detailedAnnexurePageStrings.set(meta.id, String(annexurePageNum));
+                if (!detailedAnnexurePageStrings.has('impugnedOrder')) {
+                    detailedAnnexurePageStrings.set('impugnedOrder', String(annexurePageNum));
+                }
+            } else if (meta.id === 'slp') {
+                detailedAnnexurePageStrings.set('petition', String(annexurePageNum));
+                detailedAnnexurePageStrings.set('slp', String(annexurePageNum));
+            }
             let totalPages = pageInfo.pageCount;
             
             // Add next item's pages if should combine
@@ -5043,6 +5072,44 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                             isAlphabetical,
                             isAPrefixed
                         });
+
+                        if (meta.id === 'slod') {
+                            shortBookmarks.push({
+                                title: 'Synopsis @B',
+                                pageIndex: totalPagesBefore,
+                                isPaginated: false,
+                            });
+                            let lodOffset = -1;
+                            try {
+                                const slodBytes = await pdfToMerge.save();
+                                lodOffset = await findLodPageOffset(slodBytes);
+                            } catch (e) {
+                                console.warn("Could not find LoD page offset:", e);
+                            }
+                            if (lodOffset === -1) {
+                                lodOffset = (projectData.splitSynopsisAndLod !== false && copiedPages.length > 1) ? 1 : 0;
+                            }
+                            const lodLetter = numberToAlphabet(2 + lodOffset);
+                            shortBookmarks.push({
+                                title: `List of Dates @${lodLetter}`,
+                                pageIndex: totalPagesBefore + lodOffset,
+                                isPaginated: false,
+                            });
+                        } else {
+                            const pageDisp = isAlphabetical && startPageNum !== undefined
+                                ? numberToAlphabet(startPageNum)
+                                : startPageNum !== undefined
+                                ? String(startPageNum)
+                                : undefined;
+                            const shortTitle = getShortBookmarkTitle(meta, projectData, pageDisp);
+                            if (shortTitle) {
+                                shortBookmarks.push({
+                                    title: shortTitle,
+                                    pageIndex: totalPagesBefore,
+                                    isPaginated: false,
+                                });
+                            }
+                        }
                     }
                 }
             } else {
@@ -5340,15 +5407,24 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
             await applyBookmarksToPdf(volPdf, volBookmarkEntries);
             // ─────────────────────────────────────────────────────────────────
 
+            const volShortBookmarkEntries: BookmarkEntry[] = [];
+            for (const bm of shortBookmarks) {
+                if (bm.pageIndex >= contentStart && bm.pageIndex < contentEnd) {
+                    const remappedIdx = ciStartInVol + ciPageCount + (bm.pageIndex - restStart);
+                    volShortBookmarkEntries.push({ ...bm, pageIndex: remappedIdx });
+                }
+            }
+
             const label = `Volume ${toRomanNumeral(v)}`;
             const volBase64 = await pdfToBase64(volPdf);
-            volumeResults.push({ pdf: volBase64, volumeNum: v, label, bookmarkEntries: volBookmarkEntries });
+            volumeResults.push({ pdf: volBase64, volumeNum: v, label, bookmarkEntries: volBookmarkEntries, shortBookmarkEntries: volShortBookmarkEntries } as any);
         }
 
         // If consolidated: merge all volumes and carry the full detailed bookmarks
         if (!separateVolumePdfs) {
             const consolidated = await PDFDocument.create();
             const allEntries: BookmarkEntry[] = [];
+            const allShortEntries: BookmarkEntry[] = [];
 
             for (const vr of volumeResults) {
                 const vPdf = await PDFDocument.load(Uint8Array.from(atob(vr.pdf), c => c.charCodeAt(0)));
@@ -5357,11 +5433,15 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                 // For Vol II+, add a "VOLUME X" section-header bookmark before the per-volume entries
                 if (vr.volumeNum > 1) {
                     allEntries.push({ title: `VOLUME ${toRomanNumeral(vr.volumeNum)}`, pageIndex: startIdx, isPaginated: false });
+                    allShortEntries.push({ title: `VOLUME ${toRomanNumeral(vr.volumeNum)}`, pageIndex: startIdx, isPaginated: false });
                 }
 
                 // Remap all per-volume bookmarks into the consolidated page space
                 for (const bm of vr.bookmarkEntries) {
                     allEntries.push({ ...bm, pageIndex: startIdx + bm.pageIndex });
+                }
+                for (const bm of (vr as any).shortBookmarkEntries || []) {
+                    allShortEntries.push({ ...bm, pageIndex: startIdx + bm.pageIndex });
                 }
 
                 const pages = await consolidated.copyPages(vPdf, vPdf.getPageIndices());
@@ -5370,10 +5450,30 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
 
             await applyBookmarksToPdf(consolidated, allEntries);
             const consolidatedBase64 = await pdfToBase64(consolidated);
-            return { success: true, pdf: consolidatedBase64, volumes: undefined, annexureFirstPages: firstPagesOf(annexurePageRanges) };
+
+            let shortPdfBase64: string | undefined;
+            try {
+                const shortConsolidated = await PDFDocument.create();
+                const pages = await shortConsolidated.copyPages(consolidated, consolidated.getPageIndices());
+                pages.forEach(p => shortConsolidated.addPage(p));
+                await applyBookmarksToPdf(shortConsolidated, allShortEntries);
+                shortPdfBase64 = await pdfToBase64(shortConsolidated);
+            } catch (err) {
+                console.warn('Failed to build short bookmarks PDF:', err);
+            }
+
+            const shortBookmarksFileName = getPaperbookFileName(projectData, "Paperbook (Short Bookmarks)");
+            return {
+                success: true,
+                pdf: consolidatedBase64,
+                shortPdf: shortPdfBase64,
+                shortBookmarksFileName,
+                volumes: undefined,
+                annexureFirstPages: firstPagesOf(annexurePageRanges, detailedAnnexurePageStrings),
+            };
         }
 
-        return { success: true, volumes: volumeResults.map(({ bookmarkEntries: _, ...rest }) => rest), annexureFirstPages: firstPagesOf(annexurePageRanges) };
+        return { success: true, volumes: volumeResults.map(({ bookmarkEntries: _, ...rest }) => rest), annexureFirstPages: firstPagesOf(annexurePageRanges, detailedAnnexurePageStrings) };
     }
 
     const pdfBytes = await mergedPdf.save();
@@ -5382,13 +5482,40 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
     for (let i = 0; i < pdfBytes.byteLength; i++) binary += String.fromCharCode(pdfBytes[i]);
     const pdfBase64 = btoa(binary);
 
-    return { success: true, pdf: pdfBase64, annexureFirstPages: firstPagesOf(annexurePageRanges) };
+    let shortPdfBase64: string | undefined;
+    try {
+        const shortPdf = await PDFDocument.create();
+        const pages = await shortPdf.copyPages(mergedPdf, mergedPdf.getPageIndices());
+        pages.forEach(p => shortPdf.addPage(p));
+        await applyBookmarksToPdf(shortPdf, shortBookmarks);
+        const shortBytes = await shortPdf.save();
+        let sBin = '';
+        for (let i = 0; i < shortBytes.byteLength; i++) sBin += String.fromCharCode(shortBytes[i]);
+        shortPdfBase64 = btoa(sBin);
+    } catch (err) {
+        console.warn('Failed to build short bookmarks PDF:', err);
+    }
+
+    const shortBookmarksFileName = getPaperbookFileName(projectData, "Paperbook (Short Bookmarks)");
+    return {
+        success: true,
+        pdf: pdfBase64,
+        shortPdf: shortPdfBase64,
+        shortBookmarksFileName,
+        annexureFirstPages: firstPagesOf(annexurePageRanges, detailedAnnexurePageStrings),
+    };
 }
 
 // Annexure-id → first paper-book page, for the quick briefing note.
-function firstPagesOf(ranges: Map<string, { start: number; end: number }>): Record<string, number> {
-    const out: Record<string, number> = {};
+function firstPagesOf(
+    ranges: Map<string, { start: number; end: number }>,
+    detailedStrings?: Map<string, string>
+): Record<string, string | number> {
+    const out: Record<string, string | number> = {};
     ranges.forEach((v, k) => { out[k] = v.start; });
+    if (detailedStrings) {
+        detailedStrings.forEach((v, k) => { out[k] = v; });
+    }
     return out;
 }
 

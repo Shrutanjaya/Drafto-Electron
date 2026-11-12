@@ -576,7 +576,11 @@ export function WpPdfGenerationDialog({
       incrementGenerationCount("paperbook");
       window.dispatchEvent(
         new CustomEvent("drafto-offer-briefing", {
-          detail: { pageByAnnexId: result.annexureFirstPages || {} },
+          detail: {
+            pageByAnnexId: result.annexureFirstPages || {},
+            shortBookmarksPdf: result.shortPdfBase64,
+            shortBookmarksFileName: result.shortBookmarksFileName,
+          },
         })
       );
       setOpen(false);

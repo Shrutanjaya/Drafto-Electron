@@ -32,3 +32,37 @@ export function cleanProjectName(input: string): string | null {
   if (WINDOWS_RESERVED.test(s)) return null;
   return s;
 }
+
+/**
+ * Builds a clean, legal-standard PDF filename incorporating party names.
+ * - Format for petitions: "{Petitioner} v. {Respondent} – {DocumentTitle}.pdf"
+ * - Format for paperbooks: "{Petitioner} v. {Respondent} Paperbook.pdf"
+ * Clamps each party to the first 3 words and sanitizes against illegal file path characters.
+ */
+export function getPaperbookFileName(
+  project?: { petitioners?: Array<{ name?: string }>; respondents?: Array<{ name?: string }>; courtType?: string } | null,
+  defaultDocumentTitle?: string
+): string {
+  const firstWords = (s: string, n: number) => s.trim().split(/\s+/).slice(0, n).join(" ");
+  const rawPet = project?.petitioners?.[0]?.name?.trim();
+  const rawRes = project?.respondents?.[0]?.name?.trim();
+  const pet = rawPet ? cleanProjectName(firstWords(rawPet, 3)) : null;
+  const res = rawRes ? cleanProjectName(firstWords(rawRes, 3)) : null;
+
+  const caseName = pet && res ? `${pet} v. ${res}` : pet || res || "";
+
+  let docTitle = defaultDocumentTitle;
+  if (!docTitle) {
+    if (project?.courtType === "WritPetitionDHC" || project?.courtType === "WritPetitionSC" || project?.courtType === "WritPetitionPIL") {
+      docTitle = "Writ Petition";
+    } else if (project?.courtType === "OriginalApplicationCAT") {
+      docTitle = "Original Application";
+    } else {
+      docTitle = "Paperbook";
+    }
+  }
+
+  if (!caseName) return `${docTitle}.pdf`;
+  if (docTitle === "Paperbook" || docTitle === "Paperbook (Short Bookmarks)") return `${caseName} ${docTitle}.pdf`;
+  return `${caseName} – ${docTitle}.pdf`;
+}

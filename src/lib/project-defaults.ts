@@ -24,6 +24,7 @@ export function newBlankProject(courtType: DraftoProject["courtType"] = "SLP"): 
       project.checklist.q3_papersArranged = "NA";
       project.standardIas.exemptionCertifiedCopy.active = false;
       project.standardIas.exemptionFromSurrendering.active = false;
+      project.splitSynopsisAndLod = false;
     }
     // A statutory appeal is not in Form 28 and is not arranged under Order XXI,
     // so checklist points 1 and 3 start as "NA" — the same two the writ

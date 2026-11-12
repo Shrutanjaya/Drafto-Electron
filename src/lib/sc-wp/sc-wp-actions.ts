@@ -21,6 +21,7 @@ import type { WpNumbering } from "@/lib/wp/wp-settings";
 import {
   annexureRangeText,
 } from "@/lib/actions";
+import { injectIaAnnexurePageRanges } from "@/lib/wp/wp-facts";
 
 // ── Supreme Court Writ Petition Settings Helpers ──────────────────────────────
 // Read settings from drafto-settings in localStorage, falling back to general/SLP settings.
@@ -929,7 +930,7 @@ export async function generateScWpSlodDocx(
         children: [
           new Paragraph({ children: [smartTextRun({ text: "SYNOPSIS", bold: true })], alignment: AlignmentType.CENTER }),
           ...synopsisResult.paragraphs,
-          new Paragraph({ children: [smartTextRun({ text: "LIST OF DATES", bold: true })], alignment: AlignmentType.CENTER }),
+          new Paragraph({ pageBreakBefore: Boolean(project.splitSynopsisAndLod), children: [smartTextRun({ text: "LIST OF DATES", bold: true })], alignment: AlignmentType.CENTER }),
           new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
             columnWidths: [2000, 8000],
@@ -1738,7 +1739,7 @@ export async function generateScWpIaDocx(
 
   const createIaAnnexText = (aNumber: number, annex: { id?: string; title?: string; date?: string }): (TextRun | string)[] => {
     const annexureLabel = `Annexure A-${aNumber}`;
-    const pageRange = annex.id ? iaAnnexurePageRanges?.get(annex.id) : undefined;
+    const pageRange = annex.id ? (iaAnnexurePageRanges?.get(annex.id) || iaAnnexurePageRanges?.get(`ia_annexure_${annex.id}`)) : undefined;
     let pageRangeText = pageRange
       ? pageRange.start === pageRange.end
         ? `(p.${pageRange.start})`
@@ -1812,7 +1813,8 @@ export async function generateScWpIaDocx(
       const groundsRows = (customIa.grounds || [])
         .filter(g => g.particulars.trim() !== "")
         .map((g, index) => {
-          const { paragraphs, numbering } = parseHtml(g.particulars);
+          const groundHtml = injectIaAnnexurePageRanges(g.particulars, customAnnexureMap, g.annexures, iaAnnexurePageRanges, "A");
+          const { paragraphs, numbering } = parseHtml(groundHtml);
           if (numbering.length > 0) allNumberingConfigs.push(...numbering);
           if (g.annexures && g.annexures.length > 0) {
             g.annexures.forEach(annex => {

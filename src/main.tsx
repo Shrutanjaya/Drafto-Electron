@@ -30,7 +30,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Route path="/" element={
           <ProtectedRoute requireAuth>
             <main className="w-full px-2 py-4">
-              <ErrorBoundary fallbackTitle="Drafto encountered an unexpected error">
+              <ErrorBoundary fallbackTitle="PaperBook encountered an unexpected error">
                 <React.Suspense fallback={null}><DraftoClient /></React.Suspense>
               </ErrorBoundary>
             </main>

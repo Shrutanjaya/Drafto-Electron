@@ -250,6 +250,50 @@ export function injectAnnexurePageRangesIntoFacts(
   return updated;
 }
 
+// Injects real annexure page numbers (or placeholders) into IA ground HTML (supports A- or P-series).
+export function injectIaAnnexurePageRanges(
+  html: string,
+  annexureMap: Map<string, number>,
+  annexures: { id?: string }[] | undefined,
+  pageRanges?: Map<string, { start: number; end: number }>,
+  prefix: string = "A"
+): string {
+  if (!html) return "";
+  let updated = html;
+  if (annexures && annexures.length > 0) {
+    for (const annex of annexures) {
+      if (!annex.id) continue;
+      const num = annexureMap.get(annex.id);
+      if (!num) continue;
+      const pr = pageRanges?.get(annex.id) || pageRanges?.get(`ia_annexure_${annex.id}`) || pageRanges?.get(`annexure_${annex.id}`);
+      const prText = pr
+        ? pr.start === pr.end
+          ? `(p.${pr.start})`
+          : `(pp.${pr.start} to ${pr.end})`
+        : "(pp.___ to ___)";
+
+      const basePattern = `Annexure\\s+${prefix}-${num}(?!\\d)(?:\\s*\\(Colly\\))?`;
+
+      // 1. Existing page range inside tag or plain: e.g. "Annexure A-1 (pp.___ to ___)" or "<b>Annexure A-1 (pp.___ to ___)</b>"
+      const regexParenInsideOrPlain = new RegExp(`(${basePattern})\\s*\\(pp?\\.?[^)]*\\)`, "gi");
+      updated = updated.replace(regexParenInsideOrPlain, `$1 ${prText}`);
+
+      // 2. Existing page range outside tag: e.g. "<b>Annexure A-1</b> (pp.___ to ___)" -> "<b>Annexure A-1 (pp.___ to ___)</b>"
+      const regexParenOutside = new RegExp(`(${basePattern})\\s*(</(?:b|strong)>)\\s*\\(pp?\\.?[^)]*\\)`, "gi");
+      updated = updated.replace(regexParenOutside, `$1 ${prText}$2`);
+
+      // 3. No existing page range, inside tag: e.g. "<b>Annexure A-1</b>" -> "<b>Annexure A-1 (pp.___ to ___)</b>"
+      const regexTagNoParen = new RegExp(`(${basePattern})\\s*(</(?:b|strong)>)(?!\\s*\\(pp?\\.?[^)]*\\))`, "gi");
+      updated = updated.replace(regexTagNoParen, `$1 ${prText}$2`);
+
+      // 4. No existing page range, plain text: e.g. "Annexure A-1 is a true copy" -> "Annexure A-1 (pp.___ to ___) is a true copy"
+      const regexPlainNoParen = new RegExp(`(${basePattern})(?!\\s*(?:\\(Colly\\))?\\s*(?:</(?:b|strong)>)?\\s*\\(pp?\\.?[^)]*\\))`, "gi");
+      updated = updated.replace(regexPlainNoParen, `$1 ${prText}`);
+    }
+  }
+  return updated;
+}
+
 // One transposed <li> (inner HTML) for a LoD row, or null when the row is empty.
 function factsItem(project: DraftoProject, lod: DraftoProject["listOfDates"][number], pMap: Map<string, { annex: Annexure; pNumber: number }>, prefix: string = "P"): string | null {
   // Both tools now render the Facts as a real list and emit an item's further

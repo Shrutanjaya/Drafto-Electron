@@ -220,6 +220,7 @@ export const draftoProjectSchema = z.object({
   intraCourtAppealStatus: z.enum(["", "no_appeal_lies", "appeal_lies_but"]).default(""),
   intraCourtAppealReason: z.string().default(""),
   para1BContent: z.string().default(""),
+  splitSynopsisAndLod: z.boolean().default(true),
 
   // ── Writ Petition (PIL) ─────────────────────────────────────────────────
   // Active only when courtType === "WritPetitionPIL". The petitioner's own
@@ -533,6 +534,7 @@ export const draftoProjectSchema = z.object({
       signedLastPage: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
       signedVakalatnama: collyDocumentSchema.pick({ file: true, filePath: true }).default({}),
     }).default({}),
+    splitSynopsisAndLod: z.boolean().default(true),
   }).default({}),
 
   wp: z.object({
@@ -588,6 +590,34 @@ export const draftoProjectSchema = z.object({
       enrolmentNo: z.string().default(""),
       email: z.string().default(""),
       phone: z.string().default(""),
+    }).default({}),
+    // Mandatory Practice Direction Disclosures (No. 201/Rules/DHC dated 15.09.2026)
+    // printed as Note (i)–(ix) beneath the opening sheet Index.
+    indexDisclosures: z.object({
+      // (i) Main law point involved mentioning the page and paragraph of the petition
+      mainLawPoint: z.string().default(""),
+      lawPointPageAndPara: z.string().default(""),
+      // (ii) Relevant Statute and Rules
+      relevantStatutes: z.string().default("Constitution of India, Article 226"),
+      // (iii) Any previous case involving the same point/challenging the same order
+      previousCaseDetails: z.string().default("None"),
+      // (iv) That no notice of caveat has been received by the petitioners as required U/S 148-A of CPC
+      caveatReceived: z.boolean().default(false),
+      caveatDetails: z.string().default(""),
+      // (v) Whether there is any alternative remedy, if yes, whether the petitioner has availed the same
+      hasAlternativeRemedy: z.boolean().default(false),
+      alternativeRemedyDetails: z.string().default("The Petitioner has no efficacious alternative statutory remedy available under law."),
+      // (vi) Whether constitutional validity of Act/Rule/Notification has been challenged
+      constitutionalValidityChallenged: z.boolean().default(false),
+      constitutionalValidityDetails: z.string().default(""),
+      // (vii) A copy has been supplied to the official respondents
+      copySuppliedToOfficialRespondents: z.boolean().default(true),
+      copySuppliedDetails: z.string().default("Yes, advance copy has been served upon the official respondents."),
+      // (viii) Whether any sitting/former MP/MLA is involved in the case or not
+      mpMlaInvolved: z.boolean().default(false),
+      mpMlaDetails: z.string().default(""),
+      // (ix) The hard copy and soft copy are the same
+      hardAndSoftCopySame: z.boolean().default(true),
     }).default({}),
     // CM applications: three standard (each toggleable) + custom (A-series
     // annexures, reusing the SLP custom-IA shape).

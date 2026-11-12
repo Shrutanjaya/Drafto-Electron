@@ -641,7 +641,8 @@ function buildOaSynopsisAndLod(project: DraftoProject, numbering: any[]): Child[
     ...lodRows,
   ] });
   // No OA header on this component — it opens with the SYNOPSIS title itself.
-  return [centered("SYNOPSIS", { bold: true }), ...(synopsis.paragraphs.length ? synopsis.paragraphs : [new Paragraph("")]), new Paragraph({ children: [new PageBreak()] }), centered("LIST OF DATES", { bold: true }), lodTable];
+  const splitLod = project.oa?.splitSynopsisAndLod !== false;
+  return [centered("SYNOPSIS", { bold: true }), ...(synopsis.paragraphs.length ? synopsis.paragraphs : [new Paragraph("")]), ...(splitLod ? [new Paragraph({ children: [new PageBreak()] })] : []), centered("LIST OF DATES", { bold: true }), lodTable];
 }
 
 // ── Vakalatnama ──────────────────────────────────────────────────────────────

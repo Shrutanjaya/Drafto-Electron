@@ -225,7 +225,7 @@ export function WpWorkspace() {
       return next;
     });
   };
-  const [prelim, setPrelim] = useState<"parties" | "details" | "advocate" | "deponent">("parties");
+  const [prelim, setPrelim] = useState<"parties" | "details" | "disclosures" | "advocate" | "deponent">("parties");
   const [cmSection, setCmSection] = useState<"stay" | "lengthySynopsis" | "exemptionCopies" | "custom">(isIoWrit ? "stay" : "lengthySynopsis");
 
   const annexureMode = useWatch({ control: form.control, name: "wp.annexureMode" as any }) || "lod";
@@ -244,6 +244,7 @@ export function WpWorkspace() {
   const wpAdv = useWatch({ control: form.control, name: "wp.advocate" });
   const filingPlaceWatch = useWatch({ control: form.control, name: "advocate.filingPlace" });
   const deponent = useWatch({ control: form.control, name: "deponent" });
+  const wpDisclosures = useWatch({ control: form.control, name: "wp.indexDisclosures" as any });
 
   // Auto-sync unedited preset CM body/prayer sentences between singular/plural when party counts change
   useEffect(() => {
@@ -292,6 +293,8 @@ export function WpWorkspace() {
   const prelimDetailsReady = !!caseType && !!articleBasis && listingIsFuture;
   // Advocate: name and address are required (firm, enrolment, email, phone optional)
   const prelimAdvocateReady = !!(String(wpAdv?.name ?? "").trim() && String(wpAdv?.address ?? "").trim());
+  // Disclosures: main law point is required
+  const prelimDisclosuresReady = Boolean(wpDisclosures?.mainLawPoint?.trim());
   // Deponent: everything except "presently at" (location) is mandatory.
   const prelimDeponentReady = (["name", "relationship", "fatherName", "age", "address", "role"] as const)
     .every((k) => String((deponent as any)?.[k] ?? "").trim());
@@ -696,7 +699,247 @@ export function WpWorkspace() {
     </div>
   );
 
-  const prelimContent = { parties: partiesContent, details: detailsContent, advocate: advocateContent, deponent: deponentContent }[prelim];
+  const disclosuresContent = (
+    <div className="space-y-4 max-w-3xl text-xs">
+      <div className="flex items-center justify-between pb-2 border-b">
+        <div>
+          <h3 className="font-semibold text-sm">Index Disclosures & Notes</h3>
+          <p className="text-muted-foreground text-xs">
+            Mandatory disclosures required to be printed immediately below the Index table as per Delhi High Court Practice Directions (Circular No. 201/Rules/DHC).
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {/* (i) Main Law Point & Page/Para */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 p-2.5 rounded-lg border bg-muted/20">
+          <div className="md:col-span-2">
+            <FormField
+              control={form.control}
+              name="wp.indexDisclosures.mainLawPoint"
+              render={({ field }) => (
+                <FormItem>
+                  <Field label="Note (i): Main question of law involved *" hint="Formulate the core legal issue raised in the writ">
+                    <Textarea
+                      {...field}
+                      rows={2}
+                      placeholder="e.g. Whether an order of termination passed in violation of natural justice without an inquiry is void ab initio..."
+                      className="text-xs"
+                    />
+                  </Field>
+                </FormItem>
+              )}
+            />
+          </div>
+          <div>
+            <FormField
+              control={form.control}
+              name="wp.indexDisclosures.lawPointPageAndPara"
+              render={({ field }) => (
+                <FormItem>
+                  <Field label="Page No. & Para" hint="Where formulated in petition">
+                    <Input {...field} placeholder="e.g. Page 14, Ground A" className="h-8 text-xs" />
+                  </Field>
+                </FormItem>
+              )}
+            />
+          </div>
+        </div>
+
+        {/* (ii) Relevant Statutes */}
+        <div className="p-2.5 rounded-lg border bg-muted/20">
+          <FormField
+            control={form.control}
+            name="wp.indexDisclosures.relevantStatutes"
+            render={({ field }) => (
+              <FormItem>
+                <Field label="Note (ii): Relevant enactment / statutes involved" hint="Key statutory enactments or rules governing the dispute">
+                  <Input {...field} placeholder="Constitution of India, Article 226" className="h-8 text-xs" />
+                </Field>
+              </FormItem>
+            )}
+          />
+        </div>
+
+        {/* (iii) Previous Case Details */}
+        <div className="p-2.5 rounded-lg border bg-muted/20">
+          <FormField
+            control={form.control}
+            name="wp.indexDisclosures.previousCaseDetails"
+            render={({ field }) => (
+              <FormItem>
+                <Field label="Note (iii): Particulars of any previous / pending case between the parties" hint="Provide case number and court/tribunal, or leave as 'None'">
+                  <Input {...field} placeholder="None" className="h-8 text-xs" />
+                </Field>
+              </FormItem>
+            )}
+          />
+        </div>
+
+        {/* (iv) Caveat Notice */}
+        <div className="p-2.5 rounded-lg border bg-muted/20 space-y-2">
+          <FormField
+            control={form.control}
+            name="wp.indexDisclosures.caveatReceived"
+            render={({ field }) => (
+              <div className="flex items-center gap-2">
+                <Checkbox id="wp-caveat" checked={field.value} onCheckedChange={field.onChange} />
+                <label htmlFor="wp-caveat" className="text-xs font-medium cursor-pointer">
+                  Note (iv): Caveat notice received from respondent(s)
+                </label>
+              </div>
+            )}
+          />
+          {form.watch("wp.indexDisclosures.caveatReceived") && (
+            <FormField
+              control={form.control}
+              name="wp.indexDisclosures.caveatDetails"
+              render={({ field }) => (
+                <FormItem>
+                  <Field label="Caveat Details & Proof of Service" hint="Caveat number, date served, and compliance">
+                    <Input {...field} placeholder="e.g. Caveat No. 123/2026 served on 10.09.2026; copy supplied" className="h-8 text-xs" />
+                  </Field>
+                </FormItem>
+              )}
+            />
+          )}
+        </div>
+
+        {/* (v) Alternative Remedy */}
+        <div className="p-2.5 rounded-lg border bg-muted/20 space-y-2">
+          <FormField
+            control={form.control}
+            name="wp.indexDisclosures.hasAlternativeRemedy"
+            render={({ field }) => (
+              <div className="flex items-center gap-2">
+                <Checkbox id="wp-alt-rem" checked={field.value} onCheckedChange={field.onChange} />
+                <label htmlFor="wp-alt-rem" className="text-xs font-medium cursor-pointer">
+                  Note (v): An alternative statutory remedy is available to the petitioner
+                </label>
+              </div>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="wp.indexDisclosures.alternativeRemedyDetails"
+            render={({ field }) => (
+              <FormItem>
+                <Field
+                  label={form.watch("wp.indexDisclosures.hasAlternativeRemedy") ? "Reasons why alternative remedy is not efficacious / bypassed" : "Statement on alternative statutory remedy"}
+                  hint="Rule 1 of Practice Directions: This statement is also reproduced in the petition body"
+                >
+                  <Textarea {...field} rows={2} placeholder="The Petitioner has no efficacious alternative statutory remedy available under law." className="text-xs" />
+                </Field>
+              </FormItem>
+            )}
+          />
+        </div>
+
+        {/* (vi) Constitutional / Statutory Validity */}
+        <div className="p-2.5 rounded-lg border bg-muted/20 space-y-2">
+          <FormField
+            control={form.control}
+            name="wp.indexDisclosures.constitutionalValidityChallenged"
+            render={({ field }) => (
+              <div className="flex items-center gap-2">
+                <Checkbox id="wp-const-validity" checked={field.value} onCheckedChange={field.onChange} />
+                <label htmlFor="wp-const-validity" className="text-xs font-medium cursor-pointer">
+                  Note (vi): Constitutional validity of any Act, Rule, Regulation or Bye-law is challenged
+                </label>
+              </div>
+            )}
+          />
+          {form.watch("wp.indexDisclosures.constitutionalValidityChallenged") && (
+            <FormField
+              control={form.control}
+              name="wp.indexDisclosures.constitutionalValidityDetails"
+              render={({ field }) => (
+                <FormItem>
+                  <Field label="Provisions Challenged & Notice Details" hint="Specify statutory provision and whether notice to AG / ASG is required">
+                    <Input {...field} placeholder="e.g. Challenge to Section 10(2) of XYZ Act; notice to Attorney General required" className="h-8 text-xs" />
+                  </Field>
+                </FormItem>
+              )}
+            />
+          )}
+        </div>
+
+        {/* (vii) Advance Service to Nominated Counsel / Standing Counsel */}
+        <div className="p-2.5 rounded-lg border bg-muted/20 space-y-2">
+          <FormField
+            control={form.control}
+            name="wp.indexDisclosures.copySuppliedToOfficialRespondents"
+            render={({ field }) => (
+              <div className="flex items-center gap-2">
+                <Checkbox id="wp-copy-supplied" checked={field.value} onCheckedChange={field.onChange} />
+                <label htmlFor="wp-copy-supplied" className="text-xs font-medium cursor-pointer">
+                  Note (vii): Advance copy served on nominated counsel / Standing Counsel for Government / authorities
+                </label>
+              </div>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="wp.indexDisclosures.copySuppliedDetails"
+            render={({ field }) => (
+              <FormItem>
+                <Field label="Service / Portal Details (Optional)" hint="e.g. Served on Standing Counsel (Civil), GNCTD / Delhi HC e-service portal">
+                  <Input {...field} placeholder="e.g. Served via Delhi HC e-filing portal" className="h-8 text-xs" />
+                </Field>
+              </FormItem>
+            )}
+          />
+        </div>
+
+        {/* (viii) MP / MLA Involvement */}
+        <div className="p-2.5 rounded-lg border bg-muted/20 space-y-2">
+          <FormField
+            control={form.control}
+            name="wp.indexDisclosures.mpMlaInvolved"
+            render={({ field }) => (
+              <div className="flex items-center gap-2">
+                <Checkbox id="wp-mp-mla" checked={field.value} onCheckedChange={field.onChange} />
+                <label htmlFor="wp-mp-mla" className="text-xs font-medium cursor-pointer">
+                  Note (viii): Matter involves sitting / former Member of Parliament (MP) or Member of Legislative Assembly (MLA)
+                </label>
+              </div>
+            )}
+          />
+          {form.watch("wp.indexDisclosures.mpMlaInvolved") && (
+            <FormField
+              control={form.control}
+              name="wp.indexDisclosures.mpMlaDetails"
+              render={({ field }) => (
+                <FormItem>
+                  <Field label="MP / MLA Details" hint="Name, constituency, and role in petition">
+                    <Input {...field} placeholder="e.g. Respondent No. 3 is sitting MLA from..." className="h-8 text-xs" />
+                  </Field>
+                </FormItem>
+              )}
+            />
+          )}
+        </div>
+
+        {/* (ix) Soft & Hard Copy Identity Certificate */}
+        <div className="p-2.5 rounded-lg border bg-muted/20">
+          <FormField
+            control={form.control}
+            name="wp.indexDisclosures.hardAndSoftCopySame"
+            render={({ field }) => (
+              <div className="flex items-center gap-2">
+                <Checkbox id="wp-copy-cert" checked={field.value} onCheckedChange={field.onChange} />
+                <label htmlFor="wp-copy-cert" className="text-xs font-medium cursor-pointer">
+                  Note (ix): Certified that soft copy and hard copy filed before the Court are identical in all respects
+                </label>
+              </div>
+            )}
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  const prelimContent = { parties: partiesContent, details: detailsContent, disclosures: disclosuresContent, advocate: advocateContent, deponent: deponentContent }[prelim];
 
   // ── Applications content ────────────────────────────────────────────────────
   const cmToggle = (name: any, id: string, label: string) => (
@@ -833,6 +1076,7 @@ export function WpWorkspace() {
           [
             { id: "parties", label: "Parties", active: prelimPartiesReady },
             { id: "details", label: "Petition Details", active: prelimDetailsReady },
+            { id: "disclosures", label: "Index Disclosures", active: prelimDisclosuresReady },
             { id: "advocate", label: "Advocate Details", active: prelimAdvocateReady },
             { id: "deponent", label: "Deponent", active: prelimDeponentReady },
           ],

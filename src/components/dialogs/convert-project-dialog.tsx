@@ -151,7 +151,7 @@ export function ConvertProjectDialog({
               <Info className="mx-auto h-8 w-8 text-muted-foreground/60" />
               <p className="mt-2 text-sm font-semibold">No other document types available for this court</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Drafto currently supports one document type for {currentOption.forumName}. Conversion across different courts is not permitted to preserve jurisdictional accuracy.
+                PaperBook currently supports one document type for {currentOption.forumName}. Conversion across different courts is not permitted to preserve jurisdictional accuracy.
               </p>
             </div>
           ) : (
