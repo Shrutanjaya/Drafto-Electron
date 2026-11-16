@@ -16,7 +16,8 @@ import { getSettings } from "@/components/dialogs/settings-dialog";
 import { convertDocxToPdf as ipcConvertDocxToPdf } from "@/lib/ipc/pdf";
 import type { DraftoProject } from "@/lib/schema";
 import { getPaperbookFileName } from "@/lib/project-name";
-import { shortAnnexureTitle, findLodPageOffset } from "@/lib/short-bookmarks";
+import { vakalatnamaIndexTitle } from "@/lib/vakalatnama";
+import { shortAnnexureTitle, findLodPageOffset, findHeadingPageOffset } from "@/lib/short-bookmarks";
 import { wpAnnexureOrder, cmAnnexLabel, cmAnnexIndexText } from "./wp-annexures";
 import { pageRotation } from "@/lib/pdf-rotation";
 import {
@@ -363,7 +364,32 @@ export async function generateWpPdf(
         });
       }
     }
-    if (!(await uploadItem(uploads.signedVakalatnama, "vakalatnama", "Vakalatnama"))) { const blank = await PDFDocument.create(); blank.addPage(); items.push({ key: "vakalatnama", title: "Vakalatnama", pdf: blank, paginated: true }); }
+    const vakTitle = vakalatnamaIndexTitle("Vakalatnama", project.vakalatnamaWithBoardResolution, project.vakalatnamaWithAuthorityLetter);
+    const vakExtras: PDFDocument[] = [];
+    for (const [enabled, entry] of [
+      [project.vakalatnamaWithBoardResolution, project.vakalatnamaBoardResolution],
+      [project.vakalatnamaWithAuthorityLetter, project.vakalatnamaAuthorityLetter],
+    ] as const) {
+      if (!enabled || !entry) continue;
+      const b = await fileBytes(entry?.file, entry?.filePath);
+      const p = b ? await pdfFromBytes(b) : null;
+      if (p && p.getPageCount() > 0) vakExtras.push(p);
+    }
+    const hadVak = await uploadItem(uploads.signedVakalatnama, "vakalatnama", vakTitle);
+    if (!hadVak) {
+      const blank = await PDFDocument.create();
+      if (vakExtras.length === 0) blank.addPage();
+      items.push({ key: "vakalatnama", title: vakTitle, pdf: blank, paginated: true });
+    }
+    if (vakExtras.length > 0) {
+      const vakItem = items.find((it) => it.key === "vakalatnama");
+      if (vakItem?.pdf) {
+        for (const extraPdf of vakExtras) {
+          const cp = await vakItem.pdf.copyPages(extraPdf, extraPdf.getPageIndices());
+          cp.forEach((p) => vakItem.pdf!.addPage(p));
+        }
+      }
+    }
     // Court Fee / Proof of Service: when not uploaded, the Index still reserves
     // one page each so the row carries the page number the physical insert will
     // occupy; nothing is added to the PDF itself.
@@ -421,8 +447,22 @@ export async function generateWpPdf(
     const idxRes = await generateWpIndex(project, pageRanges, true);
     const indexPdf = idxRes.docx ? await docxToPdf(idxRes.docx) : null;
 
+    // Locate the page offset of "PRAYERS:" in the Writ Petition and each CM so we
+    // can emit independent "PRAYER [pg.__]" bookmarks with the stamped page number.
+    const prayerOffsetByKey: Record<string, number> = {};
+    for (const it of items) {
+      if ((it.key === "petition" || /^cm:\d+$/.test(it.key)) && it.pdf) {
+        try {
+          const off = await findHeadingPageOffset(await it.pdf.save(), /\bPRAYERS\s*:/i);
+          if (off >= 0) prayerOffsetByKey[it.key] = off;
+        } catch (e) {
+          console.warn(`Could not find PRAYERS offset in ${it.key}:`, e);
+        }
+      }
+    }
+
     let printedPage = 1;
-    const addToMerged = async (src: PDFDocument | null, title: string, paginated: boolean, opts?: { colly?: { title: string; offset: number }[]; label?: string; phantomPages?: number; trueCopy?: boolean }) => {
+    const addToMerged = async (src: PDFDocument | null, title: string, paginated: boolean, opts?: { key?: string; colly?: { title: string; offset: number }[]; label?: string; phantomPages?: number; trueCopy?: boolean }) => {
       if (!src) {
         // Phantom slot: advance the printed page counter without adding pages
         // (no bookmark — there is no page to point at).
@@ -446,10 +486,20 @@ export async function generateWpPdf(
       if (opts?.label) annexLabelStamps.push({ pageIndex: startIndex, text: opts.label });
       if (opts?.trueCopy) for (let i = 0; i < count; i++) trueCopyPages.push(startIndex + i);
       bookmarks.push(bm);
+      if (opts?.key && prayerOffsetByKey[opts.key] !== undefined && paginated && bm.startPage !== undefined) {
+        const off = prayerOffsetByKey[opts.key];
+        const prayerPage = bm.startPage + off;
+        bookmarks.push({
+          title: `PRAYER [pg.${prayerPage}]`,
+          pageIndex: startIndex + off,
+          startPage: prayerPage,
+          endPage: prayerPage,
+        });
+      }
     };
 
     if (indexPdf) await addToMerged(indexPdf, "Index", false); // Index pages are unnumbered
-    for (const it of items) await addToMerged(it.pdf, it.title, it.paginated, { colly: it.colly, label: it.label, phantomPages: it.phantomPages, trueCopy: it.trueCopy });
+    for (const it of items) await addToMerged(it.pdf, it.title, it.paginated, { key: it.key, colly: it.colly, label: it.label, phantomPages: it.phantomPages, trueCopy: it.trueCopy });
 
     // Stamp page numbers, annexure labels (first page of each annexure) and the
     // True Copy mark — all settings-driven (Settings → Writ Petition) and
@@ -548,14 +598,16 @@ export async function generateWpPdf(
         }
       } else if (b.title.startsWith("Writ Petition")) {
         shortBookmarks.push({ title: `Writ Petition @${b.startPage || 1}`, pageIndex: b.pageIndex });
+      } else if (b.title.startsWith("PRAYER [pg.")) {
+        shortBookmarks.push({ title: b.title, pageIndex: b.pageIndex });
       } else if (b.title.startsWith("Annexure P-")) {
         const m = b.title.match(/^Annexure P-\d+:\s*(.+)$/);
         const desc = m ? shortAnnexureTitle(m[1]) : "Annexure";
         shortBookmarks.push({ title: `${desc} @${b.startPage || ""}`, pageIndex: b.pageIndex });
-      } else if (b.title.startsWith("CM Application")) {
-        const desc = shortAnnexureTitle(b.title.replace(/^CM Application \d+:\s*/, ""));
+      } else if ((b.title.startsWith("CM Appl.") || b.title.startsWith("CM Application")) && !b.title.endsWith("— Affidavit (signed)")) {
+        const desc = shortAnnexureTitle(b.title.replace(/^CM Appl(?:ication)?\.?\s*(?:No\.?\s*[^\s]+\s*of\s*\d+:|\d+:)\s*/i, ""));
         shortBookmarks.push({ title: `CM: ${desc} @${b.startPage || ""}`, pageIndex: b.pageIndex });
-      } else if (b.title === "Vakalatnama" || b.title === "Court Fee" || b.title === "Proof of Service") {
+      } else if (b.title.startsWith("Vakalatnama") || b.title === "Court Fee" || b.title === "Proof of Service") {
         shortBookmarks.push({ title: `${b.title} @${b.startPage || ""}`, pageIndex: b.pageIndex });
       }
     }

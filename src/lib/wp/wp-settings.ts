@@ -351,3 +351,30 @@ export function getWpVakFormatting(): WpVakFormatting {
     return d;
   }
 }
+
+// ── Writ Petition Title reliefs layout ──────────────────────────────────────
+// 'points' (default): centered title + "PRAYING FOR THE FOLLOWING RELIEFS:" + point-wise list.
+// 'inline': single bold, justified paragraph combining the title and all prayers inline.
+export type WpTitleStyle = "points" | "inline";
+export type WpTitleCaps = "none" | "smallCaps" | "allCaps";
+export interface WpTitleFormatting {
+  style: WpTitleStyle;
+  caps: WpTitleCaps;
+}
+export const DEFAULT_WP_TITLE_FORMATTING: WpTitleFormatting = {
+  style: "points",
+  caps: "none",
+};
+
+export function getWpTitleFormatting(): WpTitleFormatting {
+  if (typeof window === "undefined") return { ...DEFAULT_WP_TITLE_FORMATTING };
+  try {
+    const s = JSON.parse(window.localStorage.getItem("drafto-settings") || "{}");
+    const style: WpTitleStyle = s.wpTitleStyle === "inline" ? "inline" : "points";
+    const caps: WpTitleCaps =
+      s.wpTitleCaps === "smallCaps" || s.wpTitleCaps === "allCaps" ? s.wpTitleCaps : "none";
+    return { style, caps };
+  } catch {
+    return { ...DEFAULT_WP_TITLE_FORMATTING };
+  }
+}

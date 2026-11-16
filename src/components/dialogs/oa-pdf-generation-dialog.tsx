@@ -8,6 +8,8 @@ import { wpAnnexureOrder } from "@/lib/wp/wp-annexures";
 import { useExportPermission } from "@/providers/entitlement-provider";
 import { hasUsableFile, fileNameOf } from "@/lib/file-availability";
 import { annexureDetails } from "@/lib/annexure-details";
+import { vakalatnamaIndexTitle } from "@/lib/vakalatnama";
+import { VakalatnamaExtrasControl } from "./vakalatnama-extras-control";
 import {
   PaperbookGeneratorView,
   type PaperbookItem,
@@ -238,12 +240,18 @@ export function OaPdfGenerationDialog({
   const vakVal = project.oa?.uploads?.signedVakalatnama;
   const hasVak = hasUsableFile(vakVal);
   const vakFileName = vakVal?.file?.name || fileNameOf(vakVal?.filePath);
+  const vakTitle = vakalatnamaIndexTitle(
+    "Vakalatnama(s)",
+    project.vakalatnamaWithBoardResolution,
+    project.vakalatnamaWithAuthorityLetter || (project.petitioners?.length ?? 0) > 1
+  );
 
   tailItems.push({
     id: "vakalatnama",
     sNo: sNoCounter++,
-    particulars: "Vakalatnama(s) and Authority Letter(s)",
+    particulars: vakTitle,
     notes: [{ text: "Auto-generated clean copy is ready. Signed copy optional.", type: "info" }],
+    extra: <VakalatnamaExtrasControl pickFile={pickFile} />,
     status: hasVak ? "user_uploaded" : "auto_ready",
     fileName: vakFileName,
     onUpload: () => handlePick("oa.uploads.signedVakalatnama"),

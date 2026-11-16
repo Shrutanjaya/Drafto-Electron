@@ -151,6 +151,82 @@ export function cleanDraftoHtml(input: string): string {
   // 6. Clean up any <h1> or <h2> that has redundant nested <b> or <strong>
   html = html.replace(/<h([1-3])\b([^>]*)>\s*(?:<b>|<strong>)([\s\S]*?)(?:<\/b>|<\/strong>)\s*<\/h\1>/gi, "<h$1$2>$3</h$1>");
 
+  // 7. Normalize complex lists:
+  // Detect leading literal markers like (a), (i), (1), a., i., -, –, ▪ inside <li>
+  // and promote them to proper data-regime / data-bullet attributes while stripping redundant markers.
+  html = html.replace(/<ol\b([^>]*)>([\s\S]*?)<\/ol>/gi, (orig, attrs, inner) => {
+    const firstLiMatch = inner.match(/<li\b[^>]*>([\s\S]*?)<\/li>/i);
+    if (!firstLiMatch) return orig;
+    const firstText = firstLiMatch[1].replace(/<[^>]+>/g, "").trim();
+
+    let regime: string | null = null;
+    let stripRegex: RegExp | null = null;
+
+    if (/^\(([a-hj-z])\)\s+/i.test(firstText)) {
+      regime = "parens-lower-alpha";
+      stripRegex = /^\s*\(?[a-hj-z]\)?(?:\.|\))\s*/i;
+    } else if (/^\(([ivxlcdm]+)\)\s+/i.test(firstText)) {
+      regime = "parens-lower-roman";
+      stripRegex = /^\s*\(?[ivxlcdm]+\)?(?:\.|\))\s*/i;
+    } else if (/^\((\d+)\)\s+/.test(firstText)) {
+      regime = "parens-decimal";
+      stripRegex = /^\s*\(?\d+\)?(?:\.|\))\s*/;
+    } else if (/^([a-hj-z])\.\s+/.test(firstText)) {
+      regime = "lower-alpha";
+      stripRegex = /^\s*[a-hj-z]\.\s*/i;
+    } else if (/^([ivxlcdm]+)\.\s+/i.test(firstText)) {
+      regime = "lower-roman";
+      stripRegex = /^\s*[ivxlcdm]+\.\s*/i;
+    } else if (/^(\d+)\.\s+/.test(firstText)) {
+      stripRegex = /^\s*\d+\.\s*/;
+    }
+
+    let cleanInner = inner;
+    if (stripRegex) {
+      cleanInner = inner.replace(/<li\b([^>]*)>([\s\S]*?)<\/li>/gi, (_, liAttrs, liContent) => {
+        const stripped = liContent.replace(stripRegex!, "");
+        return `<li${liAttrs}>${stripped}</li>`;
+      });
+    }
+
+    if (regime && !/data-regime=/i.test(attrs)) {
+      return `<ol data-regime="${regime}"${attrs}>${cleanInner}</ol>`;
+    }
+    return `<ol${attrs}>${cleanInner}</ol>`;
+  });
+
+  html = html.replace(/<ul\b([^>]*)>([\s\S]*?)<\/ul>/gi, (orig, attrs, inner) => {
+    const firstLiMatch = inner.match(/<li\b[^>]*>([\s\S]*?)<\/li>/i);
+    if (!firstLiMatch) return orig;
+    const firstText = firstLiMatch[1].replace(/<[^>]+>/g, "").trim();
+
+    let bullet: string | null = null;
+    let stripRegex: RegExp | null = null;
+
+    if (/^[–—\-]\s+/.test(firstText)) {
+      bullet = "dash";
+      stripRegex = /^\s*[–—\-]\s*/;
+    } else if (/^[▪■]\s+/.test(firstText)) {
+      bullet = "square";
+      stripRegex = /^\s*[▪■]\s*/;
+    } else if (/^•\s+/.test(firstText)) {
+      stripRegex = /^\s*•\s*/;
+    }
+
+    let cleanInner = inner;
+    if (stripRegex) {
+      cleanInner = inner.replace(/<li\b([^>]*)>([\s\S]*?)<\/li>/gi, (_, liAttrs, liContent) => {
+        const stripped = liContent.replace(stripRegex!, "");
+        return `<li${liAttrs}>${stripped}</li>`;
+      });
+    }
+
+    if (bullet && !/data-bullet=/i.test(attrs)) {
+      return `<ul data-bullet="${bullet}"${attrs}>${cleanInner}</ul>`;
+    }
+    return `<ul${attrs}>${cleanInner}</ul>`;
+  });
+
   return html.trim();
 }
 

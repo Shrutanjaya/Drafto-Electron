@@ -13,6 +13,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import type { DraftoProject } from "@/lib/schema";
 import {
@@ -40,9 +41,10 @@ export function ImportChangesDialog({ open: controlledOpen, onOpenChange }: Impo
   const [loading, setLoading] = useState(false);
   const [fileName, setFileName] = useState("");
   const [results, setResults] = useState<MatchedChange[] | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const reset = () => { setResults(null); setFileName(""); };
+  const reset = () => { setResults(null); setFileName(""); setSelectedIds(new Set()); };
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -54,7 +56,9 @@ export function ImportChangesDialog({ open: controlledOpen, onOpenChange }: Impo
     try {
       const buf = await file.arrayBuffer();
       const changes = await parseTrackedChanges(buf);
-      setResults(matchChanges(form.getValues(), changes));
+      const matchedList = matchChanges(form.getValues(), changes);
+      setResults(matchedList);
+      setSelectedIds(new Set(matchedList.filter((r) => r.path).map((r) => r.id)));
     } catch (err) {
       toast({ variant: "destructive", title: "Couldn't read that file", description: err instanceof Error ? err.message : String(err) });
     } finally {
@@ -64,10 +68,20 @@ export function ImportChangesDialog({ open: controlledOpen, onOpenChange }: Impo
 
   const matched = (results ?? []).filter((r) => r.path);
   const unmatched = (results ?? []).filter((r) => !r.path);
+  const selectedMatched = matched.filter((r) => selectedIds.has(r.id));
+
+  const toggleId = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const applyAll = () => {
     let applied = 0;
-    for (const r of matched) {
+    for (const r of selectedMatched) {
       const cur = form.getValues(r.path as any);
       if (typeof cur !== "string") continue;
       const next = applyChangeToValue(cur, !!r.isHtml, r);
@@ -75,6 +89,9 @@ export function ImportChangesDialog({ open: controlledOpen, onOpenChange }: Impo
         form.setValue(r.path as any, next, { shouldDirty: true });
         applied += 1;
       }
+    }
+    if (applied > 0) {
+      window.dispatchEvent(new CustomEvent("drafto-table-reload"));
     }
     toast({
       title: applied > 0 ? `Applied ${applied} change${applied === 1 ? "" : "s"}` : "Nothing applied",
@@ -121,16 +138,28 @@ export function ImportChangesDialog({ open: controlledOpen, onOpenChange }: Impo
             </p>
 
             <div className="max-h-80 overflow-y-auto space-y-1.5 pr-1">
-              {matched.map((r) => (
-                <div key={r.id} className="rounded-md border p-2 text-[11px] leading-relaxed">
-                  <div className="text-[10px] font-medium text-muted-foreground mb-0.5">{r.group}</div>
-                  {r.original && <div><span className="line-through text-red-600 dark:text-red-400">{r.original}</span></div>}
-                  {r.accepted && <div><span className="text-green-700 dark:text-green-400">{r.accepted}</span></div>}
-                </div>
-              ))}
+              {matched.map((r) => {
+                const checked = selectedIds.has(r.id);
+                return (
+                  <label key={r.id} className="flex items-start gap-2 rounded-md border p-2 text-[11px] leading-relaxed cursor-pointer hover:bg-muted/30">
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={() => toggleId(r.id)}
+                      className="mt-0.5 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] font-medium text-muted-foreground mb-0.5">
+                        {r.group}{r.isNewParagraph ? " (New paragraph)" : ""}
+                      </div>
+                      {r.original && <div><span className="line-through text-red-600 dark:text-red-400">{r.original}</span></div>}
+                      {r.accepted && <div><span className="text-green-700 dark:text-green-400">{r.accepted}</span></div>}
+                    </div>
+                  </label>
+                );
+              })}
               {unmatched.length > 0 && (
                 <div className="rounded-md border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-900/20 p-2 text-[10px] text-amber-800 dark:text-amber-200 space-y-1">
-                  <p className="font-medium">Couldn't locate {unmatched.length} change{unmatched.length === 1 ? "" : "s"} in your project (edited text no longer matches, spans formatting, or is in a table):</p>
+                  <p className="font-medium">Couldn't locate {unmatched.length} change{unmatched.length === 1 ? "" : "s"} in your project (edited text no longer matches or is in a table):</p>
                   {unmatched.map((r) => (
                     <div key={r.id} className="truncate">• {r.accepted || r.original}</div>
                   ))}
@@ -141,8 +170,8 @@ export function ImportChangesDialog({ open: controlledOpen, onOpenChange }: Impo
         )}
 
         <DialogFooter>
-          <Button type="button" onClick={applyAll} disabled={matched.length === 0}>
-            Apply {matched.length} matched change{matched.length === 1 ? "" : "s"}
+          <Button type="button" onClick={applyAll} disabled={selectedMatched.length === 0}>
+            Apply {selectedMatched.length} selected change{selectedMatched.length === 1 ? "" : "s"}
           </Button>
         </DialogFooter>
       </DialogContent>

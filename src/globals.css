@@ -30,6 +30,28 @@
   src: url('/fonts/texgyrepagella-bold.otf') format('opentype');
 }
 
+@counter-style parens-decimal {
+  system: numeric;
+  symbols: "0" "1" "2" "3" "4" "5" "6" "7" "8" "9";
+  prefix: "(";
+  suffix: ") ";
+}
+
+@counter-style parens-lower-alpha {
+  system: alphabetic;
+  symbols: "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z";
+  prefix: "(";
+  suffix: ") ";
+}
+
+@counter-style parens-lower-roman {
+  system: additive;
+  range: 1 3999;
+  additive-symbols: 1000 "m", 900 "cm", 500 "d", 400 "cd", 100 "c", 90 "xc", 50 "l", 40 "xl", 10 "x", 9 "ix", 5 "v", 4 "iv", 1 "i";
+  prefix: "(";
+  suffix: ") ";
+}
+
 body {
   /* Interface font — configurable in Settings → Appearance. */
   font-family: var(--ui-font, Arial, Helvetica, sans-serif);
@@ -303,6 +325,35 @@ textarea::placeholder {
   .prose ol[data-regime="upper-roman"] ol ol      { list-style-type: lower-alpha; }
   .prose ol[data-regime="upper-roman"] ol ol ol   { list-style-type: lower-roman; }
   .prose ol[data-regime="upper-roman"] ol ol ol ol { list-style-type: decimal; }
+
+  /* Parenthetical regimes standard in Indian legal pleadings */
+  .prose ol[data-regime="parens-lower-alpha"]            { list-style-type: parens-lower-alpha; }
+  .prose ol[data-regime="parens-lower-alpha"] ol         { list-style-type: parens-lower-roman; }
+  .prose ol[data-regime="parens-lower-alpha"] ol ol      { list-style-type: parens-decimal; }
+  .prose ol[data-regime="parens-lower-alpha"] ol ol ol   { list-style-type: upper-alpha; }
+  .prose ol[data-regime="parens-lower-alpha"] ol ol ol ol { list-style-type: upper-roman; }
+
+  .prose ol[data-regime="parens-lower-roman"]            { list-style-type: parens-lower-roman; }
+  .prose ol[data-regime="parens-lower-roman"] ol         { list-style-type: parens-lower-alpha; }
+  .prose ol[data-regime="parens-lower-roman"] ol ol      { list-style-type: parens-decimal; }
+  .prose ol[data-regime="parens-lower-roman"] ol ol ol   { list-style-type: upper-alpha; }
+  .prose ol[data-regime="parens-lower-roman"] ol ol ol ol { list-style-type: upper-roman; }
+
+  .prose ol[data-regime="parens-decimal"]            { list-style-type: parens-decimal; }
+  .prose ol[data-regime="parens-decimal"] ol         { list-style-type: parens-lower-alpha; }
+  .prose ol[data-regime="parens-decimal"] ol ol      { list-style-type: parens-lower-roman; }
+  .prose ol[data-regime="parens-decimal"] ol ol ol   { list-style-type: upper-alpha; }
+  .prose ol[data-regime="parens-decimal"] ol ol ol ol { list-style-type: upper-roman; }
+
+  /* Custom bullet styles */
+  .prose ul[data-bullet="dash"],
+  .prose ul[data-bullet="dash"] ul {
+    list-style-type: "–  ";
+  }
+  .prose ul[data-bullet="square"],
+  .prose ul[data-bullet="square"] ul {
+    list-style-type: square;
+  }
   .prose blockquote {
     @apply border-l-4 border-muted-foreground/50 pl-4 italic text-muted-foreground;
     position: relative;
@@ -487,4 +538,27 @@ textarea::placeholder {
   margin-top: 0.5em;
   margin-bottom: 0.2em;
   line-height: 1.25;
+}
+
+/* Thin, modern app-themed scrollbars across the workspace */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--primary) / 0.28);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.55);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }

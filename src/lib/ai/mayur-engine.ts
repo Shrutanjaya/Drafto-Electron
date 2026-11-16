@@ -113,6 +113,8 @@ export function getMayurSectionMeta(
         id: "grounds",
         title: "Grounds",
         targetPaths: ["grounds"],
+        supportsDeriveFromFields: true,
+        deriveHint: "Construct Grounds from already-filled List of Dates & Synopsis",
       };
     case "synopsis":
       return {
@@ -426,6 +428,27 @@ When a passage in the draft is an extract or quotation (e.g. from a judgment, st
    - Single <br> is permitted ONLY for line breaks within a single continuous block (such as lines of an advocate's postal address or a statutory stanza).
 `;
 
+  const listRule = `
+=== COMPLEX LISTS & NUMBERING REGIMES (<ol data-regime="..." data-bullet="...">) ===
+Drafto's rich-text editor and Word export engine support specialized numbering regimes and bullet styles for Indian legal drafting:
+1. ORDERED LIST REGIMES (carry as data-regime on <ol>):
+   - Parenthetical lowercase letters (a), (b), (c)... -> <ol data-regime="parens-lower-alpha"><li>...</li></ol>
+   - Parenthetical roman numerals (i), (ii), (iii)... -> <ol data-regime="parens-lower-roman"><li>...</li></ol>
+   - Parenthetical numbers (1), (2), (3)... -> <ol data-regime="parens-decimal"><li>...</li></ol>
+   - Plain lowercase letters a., b., c.... -> <ol data-regime="lower-alpha"><li>...</li></ol>
+   - Plain lowercase roman numerals i., ii., iii.... -> <ol data-regime="lower-roman"><li>...</li></ol>
+   - Plain uppercase letters A., B., C.... -> <ol data-regime="upper-alpha"><li>...</li></ol>
+   - Plain uppercase roman numerals I., II., III.... -> <ol data-regime="upper-roman"><li>...</li></ol>
+   - Standard numbers 1., 2., 3.... -> standard <ol><li>...</li></ol>
+   - Strip duplicate leading literal markers (e.g. "(a)", "1.") from inside <li> so Drafto's automatic counter numbers them cleanly.
+2. BULLETED LIST STYLES (carry as data-bullet on <ul>):
+   - En-dash (–) or hyphen (-) bullets -> <ul data-bullet="dash"><li>...</li></ul>
+   - Square (▪ or ■) bullets -> <ul data-bullet="square"><li>...</li></ul>
+   - Round (•) bullets -> standard <ul><li>...</li></ul>
+3. NESTED LISTS:
+   - When a list is nested inside another list item, nest it cleanly inside the parent <li> (e.g. <li>Main point<ol data-regime="..."><li>Sub-point</li></ol></li>).
+`;
+
   let sectionSpecificRules = "";
 
   if (sectionId === "lod" || sectionId === "master") {
@@ -519,6 +542,7 @@ When a passage in the draft is an extract or quotation (e.g. from a judgment, st
     paragraphRule,
     headingRule,
     quoteRule,
+    listRule,
     sectionSpecificRules,
     ``,
     `Respond ONLY with the single fenced \`\`\`json block containing { "operations": [ ... ], "message": "..." }.`,
@@ -710,10 +734,18 @@ function buildDeriveFromFieldsPrompt(
 ): string {
   const meta = getMayurSectionMeta(sectionId, courtType);
   const basePrompt = buildConstructFromRawPrompt(sectionId, courtType, undefined, userGuidance);
+
+  let specificSourceGuidance = `from the already-populated fields in the current project snapshot (such as the Impugned Order, Memo of Parties, List of Dates, and Grounds)`;
+  if (sectionId === "grounds") {
+    specificSourceGuidance = `directly from the already-populated fields in the current project snapshot — specifically the List of Dates & Events, Synopsis, Impugned Order details, and Memo of Parties. Analyze the chronological events, factual grievances, and lower court findings to formulate comprehensive, legally rigorous grounds challenging the Impugned Order`;
+  } else if (sectionId === "qol") {
+    specificSourceGuidance = `directly from the already-populated fields in the current project snapshot — specifically the Grounds of Petition (if drafted), List of Dates & Events, Synopsis, and Impugned Order details`;
+  }
+
   return [
     basePrompt,
     ``,
-    `NOTE: Construct "${meta.title}" directly from the already-populated fields in the current project snapshot (such as the Impugned Order, Memo of Parties, List of Dates, and Grounds) even if no external <case_material> files are attached.`,
+    `NOTE: Construct "${meta.title}" ${specificSourceGuidance} even if no external <case_material> files are attached.`,
   ].join("\n");
 }
 
@@ -1549,7 +1581,7 @@ export async function executeMayurTask(opts: RunMayurOptions): Promise<RunMayurR
       inputTokens += ext.addedIn;
       outputTokens += ext.addedOut;
       totalTokens += ext.addedIn + ext.addedOut;
-    } else if (sectionId === "grounds" && mode === "construct") {
+    } else if (sectionId === "grounds" && (mode === "construct" || mode === "derive")) {
       const ext = await extendGroundsIfNeeded(
         filteredOps,
         wasTruncated,

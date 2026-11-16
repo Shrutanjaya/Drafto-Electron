@@ -18,6 +18,7 @@ import {
   ArrowRightLeft,
   GitFork,
   FileUp,
+  Pencil,
 } from "lucide-react";
 import { saveAs } from "file-saver";
 
@@ -227,7 +228,7 @@ function ProjectNameField({
 
   if (editing) {
     return (
-      <div className="flex min-w-0 flex-1 justify-center px-2">
+      <div className="flex min-w-0 flex-1 justify-center px-3">
         <Input
           ref={inputRef}
           autoFocus
@@ -238,7 +239,7 @@ function ProjectNameField({
             if (e.key === "Enter") { e.preventDefault(); commit(true); }
             if (e.key === "Escape") { e.preventDefault(); setDraft(name); setEditing(false); }
           }}
-          className="project-name-field w-full max-w-[420px]"
+          className="project-name-field h-7 w-full max-w-[420px] rounded-full border-primary/40 bg-background px-3.5 text-center text-xs font-medium tracking-tight shadow-xs focus-visible:ring-1"
           aria-label="Project name"
         />
       </div>
@@ -246,17 +247,19 @@ function ProjectNameField({
   }
 
   return (
-    <div className="flex min-w-0 flex-1 justify-center px-2">
+    <div className="flex min-w-0 flex-1 justify-center px-3">
       <button
         type="button"
         onClick={() => { busyRef.current = false; setEditing(true); }}
-        title={filePath || "Not saved yet — this name will be used when you save"}
+        title={filePath || "Not saved yet — click to name this project"}
         className={cn(
-          "project-name-field max-w-[420px] truncate rounded px-2 py-0.5 hover:bg-muted",
-          chosen ? "text-foreground" : "italic text-muted-foreground"
+          "project-name-field group inline-flex max-w-[420px] items-center gap-1.5 rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-xs tracking-tight transition-all hover:border-primary/30 hover:bg-muted/75 hover:shadow-xs cursor-pointer",
+          chosen ? "font-semibold text-foreground" : "italic text-muted-foreground font-normal"
         )}
       >
-        {name}
+        <FileText className="h-3.5 w-3.5 shrink-0 text-primary/70 transition-colors group-hover:text-primary" />
+        <span className="truncate">{name}</span>
+        <Pencil className="h-2.5 w-2.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-60" />
       </button>
     </div>
   );

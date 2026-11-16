@@ -309,13 +309,13 @@ const WP_SECTIONS: Section[] = [
     label: "Facts",
     tab: "Petition",
     hint: "Para-wise narration",
-    paths: ["wp.facts"],
+    paths: ["wp.factsRows", "wp.facts", "oa.factsRows", "oa.facts"],
     dependsOn: ["lod"],
     effort: "large",
     model: "sonnet",
-    isFilled: (v) => html(v?.wp?.facts),
+    isFilled: (v) => ((v as any)?.wp?.factsRows?.length > 0) || ((v as any)?.oa?.factsRows?.length > 0) || html(v?.wp?.facts) || html((v as any)?.oa?.facts),
     playbook:
-      "Draft the Facts as an HTML ordered list — <ol><li>…</li></ol>, one <li> per numbered paragraph.\n" +
+      "Draft the Facts as structured rows in wp.factsRows (or oa.factsRows for CAT) or an HTML ordered list — <ol><li>…</li></ol>, one item per numbered paragraph.\n" +
       "- Follow the chronology of the List of Dates, citing each annexure where it belongs.",
   },
   {

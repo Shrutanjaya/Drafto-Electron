@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Sparkles, ListPlus } from "lucide-react";
 import { LoDTable } from "@/components/custom/lod-table";
 import { cn } from "@/lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FormField, FormControl } from "@/components/ui/form";
 import {
   annexureModeOf,
   annexureModePath as getAnnexureModePath,
@@ -17,6 +19,14 @@ import {
   appendNewLodRowsToFactsRows,
   convertFactsHtmlToRows,
 } from "@/lib/wp/facts-mode";
+
+const WP_FACTS_STYLES = [
+  { value: "lower-alpha", label: "a., b., c." },
+  { value: "lower-roman", label: "i., ii., iii." },
+  { value: "upper-alpha", label: "A., B., C." },
+  { value: "upper-roman", label: "I., II., III." },
+  { value: "decimal", label: "1., 2., 3." },
+];
 
 interface FactsSectionProps {
   factsPath?: string;
@@ -46,9 +56,12 @@ export function FactsSection({
   const lod = useWatch({ control: form.control, name: "listOfDates" }) || [];
   const factsRows = useWatch({ control: form.control, name: factsPath as any }) || [];
   const [tableRevision, setTableRevision] = React.useState(0);
+  const hasMigratedRef = React.useRef(false);
 
-  // Auto-migrate legacy monolithic facts HTML to factsRows on load if factsRows is empty
+  // Auto-migrate legacy monolithic facts HTML to factsRows on load if factsRows is empty (only once)
   useEffect(() => {
+    if (hasMigratedRef.current) return;
+    hasMigratedRef.current = true;
     const currentRows = form.getValues(factsPath as any) || [];
     const storedHtml = form.getValues(storedFactsPath as any) || "";
     if (currentRows.length === 0 && typeof storedHtml === "string" && storedHtml.trim()) {
@@ -109,6 +122,7 @@ export function FactsSection({
     }
     const newRows = factsRowsFromLod(proj, currentRows);
     form.setValue(factsPath as any, newRows as any, { shouldDirty: true });
+    window.dispatchEvent(new CustomEvent("drafto-table-reload", { detail: { path: factsPath } }));
     setTableRevision((v) => v + 1);
   };
 
@@ -117,8 +131,35 @@ export function FactsSection({
     const currentRows = form.getValues(factsPath as any) || [];
     const updated = appendNewLodRowsToFactsRows(proj, currentRows);
     form.setValue(factsPath as any, updated as any, { shouldDirty: true });
+    window.dispatchEvent(new CustomEvent("drafto-table-reload", { detail: { path: factsPath } }));
     setTableRevision((v) => v + 1);
   };
+
+  const defaultNumberingPicker = courtType !== "OriginalApplicationCAT" ? (
+    <FormField
+      control={form.control}
+      name={"wp.numbering.facts" as any}
+      render={({ field }) => (
+        <div className="inline-flex items-center gap-1.5 text-xs">
+          <span className="text-[11px] font-medium text-muted-foreground">Sub-para:</span>
+          <Select onValueChange={field.onChange} value={field.value || "lower-alpha"}>
+            <FormControl>
+              <SelectTrigger className="h-6 w-[100px] px-2 text-[11px]">
+                <SelectValue />
+              </SelectTrigger>
+            </FormControl>
+            <SelectContent>
+              {WP_FACTS_STYLES.map((o) => (
+                <SelectItem key={o.value} value={o.value} className="text-xs">
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+    />
+  ) : null;
 
   return (
     <div className={cn("flex h-full flex-col gap-2", className)}>
@@ -153,7 +194,7 @@ export function FactsSection({
               </button>
             </div>
           </div>
-          {headerExtra}
+          {headerExtra || defaultNumberingPicker}
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">

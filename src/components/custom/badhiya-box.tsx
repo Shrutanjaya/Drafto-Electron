@@ -1,24 +1,26 @@
 
 "use client"
 
-import { useEditor, EditorContent } from '@tiptap/react'
+import { useEditor, EditorContent, BubbleMenu } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Bold from '@tiptap/extension-bold'
 import Italic from '@tiptap/extension-italic'
 import { markInputRule, markPasteRule } from '@tiptap/core'
 import Underline from '@tiptap/extension-underline'
 import Highlight from '@tiptap/extension-highlight'
-import { useContext, useEffect, useRef } from 'react'
+import { useContext, useEffect, useRef, useState, memo, useMemo } from 'react'
 import { EditorContext } from './editor-provider'
 import { useFieldReveal } from './field-reveal-provider'
 import { useCanEdit } from '@/providers/entitlement-provider'
 import { escapeRegExp } from '@/lib/find-replace'
+import { cn } from '@/lib/utils'
 import TextAlign from '@tiptap/extension-text-align'
 import { Paragraph } from '@tiptap/extension-paragraph'
 import ListItem from '@tiptap/extension-list-item'
+import BulletList from '@tiptap/extension-bullet-list'
 import OrderedList from '@tiptap/extension-ordered-list'
 import Blockquote from '@tiptap/extension-blockquote'
-import { Extension } from '@tiptap/core'
+import { Extension, wrappingInputRule } from '@tiptap/core'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { joinTextblockBackward } from '@tiptap/pm/commands'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
@@ -27,6 +29,25 @@ import TableRow from '@tiptap/extension-table-row'
 import TableHeader from '@tiptap/extension-table-header'
 import TableCell from '@tiptap/extension-table-cell'
 import { AnnexureBadge } from './annexure-badge-node'
+import { moveTableRow } from './editor-toolbar'
+import {
+  ArrowUpToLine,
+  ArrowDownToLine,
+  ArrowLeftToLine,
+  ArrowRightToLine,
+  ChevronsUp,
+  ChevronsDown,
+  Columns2,
+  Rows2,
+  TableCellsMerge,
+  TableCellsSplit,
+  Trash2,
+  Bold as BoldIcon,
+  Italic as ItalicIcon,
+  Underline as UnderlineIcon,
+  Highlighter,
+  Quote,
+} from 'lucide-react'
 
 
 interface BadhiyaBoxProps {
@@ -35,6 +56,8 @@ interface BadhiyaBoxProps {
   disabled?: boolean
   onTab?: (shiftKey: boolean) => void
   onCtrlSpace?: () => void
+  onCtrlEnter?: (editor: any) => void
+  onMoveRow?: (direction: -1 | 1) => void
   /** RHF field path; when set, the editor registers itself for Find & Replace navigation. */
   path?: string
   /** When true, the editor grabs keyboard focus once ready (e.g. a freshly-inserted row). */
@@ -112,13 +135,22 @@ const ItalicStarOnly = Italic.extend({
   addPasteRules() { return [markPasteRule({ find: italicStarPaste, type: this.type })]; },
 });
 
-// Custom extension to handle Tab key and Ctrl+Space
+// Custom extension to handle Tab key, Ctrl+Space, and table shortcuts
 const TabHandler = Extension.create({
   name: 'tabHandler',
 
   addKeyboardShortcuts() {
     return {
       Tab: ({ editor }) => {
+        // When inside a table, Tab navigates between cells. At the end of the table,
+        // it automatically appends a new row and jumps into it!
+        if (editor.isActive('table')) {
+          const moved = editor.commands.goToNextCell();
+          if (!moved) {
+            editor.chain().focus().addRowAfter().goToNextCell().run();
+          }
+          return true;
+        }
         const onTab = (editor as any).options.editorProps?.onTab;
         if (onTab) {
           onTab(false);
@@ -137,6 +169,10 @@ const TabHandler = Extension.create({
         return false; // fall through to the default sink-list-item behaviour
       },
       'Shift-Tab': ({ editor }) => {
+        if (editor.isActive('table')) {
+          editor.commands.goToPreviousCell();
+          return true;
+        }
         const onTab = (editor as any).options.editorProps?.onTab;
         if (onTab) {
           onTab(true);
@@ -148,6 +184,64 @@ const TabHandler = Extension.create({
         const onCtrlSpace = (editor as any).options.editorProps?.onCtrlSpace;
         if (onCtrlSpace) {
           onCtrlSpace();
+          return true;
+        }
+        return false;
+      },
+      'Ctrl-Enter': ({ editor }) => {
+        const onCtrlEnter = (editor as any).options.editorProps?.onCtrlEnter;
+        if (onCtrlEnter) {
+          onCtrlEnter(editor);
+          return true;
+        }
+        return false;
+      },
+      'Alt-ArrowUp': ({ editor }) => {
+        if (editor.isActive('table')) {
+          return moveTableRow(editor, -1);
+        }
+        const onMoveRow = (editor as any).options.editorProps?.onMoveRow;
+        if (onMoveRow) {
+          onMoveRow(-1);
+          return true;
+        }
+        return false;
+      },
+      'Alt-ArrowDown': ({ editor }) => {
+        if (editor.isActive('table')) {
+          return moveTableRow(editor, 1);
+        }
+        const onMoveRow = (editor as any).options.editorProps?.onMoveRow;
+        if (onMoveRow) {
+          onMoveRow(1);
+          return true;
+        }
+        return false;
+      },
+      'Mod-Alt-ArrowDown': ({ editor }) => {
+        if (editor.isActive('table')) {
+          editor.chain().focus().addRowAfter().run();
+          return true;
+        }
+        return false;
+      },
+      'Mod-Alt-ArrowUp': ({ editor }) => {
+        if (editor.isActive('table')) {
+          editor.chain().focus().addRowBefore().run();
+          return true;
+        }
+        return false;
+      },
+      'Mod-Alt-ArrowRight': ({ editor }) => {
+        if (editor.isActive('table')) {
+          editor.chain().focus().addColumnAfter().run();
+          return true;
+        }
+        return false;
+      },
+      'Mod-Alt-ArrowLeft': ({ editor }) => {
+        if (editor.isActive('table')) {
+          editor.chain().focus().addColumnBefore().run();
           return true;
         }
         return false;
@@ -309,7 +403,7 @@ const ListEditingKeys = Extension.create({
   },
 });
 
-export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onCtrlSpace, path, autoFocus }: BadhiyaBoxProps) => {
+const BadhiyaBoxInner = ({ value, onChange, disabled: disabledProp, onTab, onCtrlSpace, onCtrlEnter, onMoveRow, path, autoFocus }: BadhiyaBoxProps) => {
   // Read-only (lapsed subscription) locks the rich-text editor too — fieldset/
   // capture-phase guards can't disable tiptap's contentEditable, so honor it here.
   const canEdit = useCanEdit();
@@ -321,13 +415,28 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
   // external-value sync below must treat it as "own content", not a reset.
   const lastEmitted = useRef<string | null>(null);
 
+  // Keep latest callbacks in refs so useEditor never invokes stale handlers
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const onTabRef = useRef(onTab);
+  onTabRef.current = onTab;
+  const onCtrlSpaceRef = useRef(onCtrlSpace);
+  onCtrlSpaceRef.current = onCtrlSpace;
+  const onCtrlEnterRef = useRef(onCtrlEnter);
+  onCtrlEnterRef.current = onCtrlEnter;
+  const onMoveRowRef = useRef(onMoveRow);
+  onMoveRowRef.current = onMoveRow;
+
+  const bubblePluginKey = useMemo(
+    () => new PluginKey(`bubbleMenu_${path || Math.random().toString(36).slice(2)}`),
+    [path]
+  );
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        bulletList: {
-          keepMarks: true,
-          keepAttributes: false,
-        },
+        // Replaced below with a version that remembers its bullet style (round, dash, square).
+        bulletList: false,
         // Replaced below with a version that remembers its numbering regime.
         orderedList: false,
         // Replaced below with a ListItem that permits a leading blockquote, so the
@@ -367,6 +476,43 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
           };
         },
       }),
+      BulletList.extend({
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            bullet: {
+              default: 'disc',
+              parseHTML: (element: HTMLElement) => element.getAttribute('data-bullet') || 'disc',
+              renderHTML: (attributes: Record<string, any>) =>
+                attributes.bullet && attributes.bullet !== 'disc'
+                  ? { 'data-bullet': attributes.bullet }
+                  : {},
+            },
+          };
+        },
+        addInputRules() {
+          return [
+            // Standard round bullet: "* " or "+ " or "- "
+            wrappingInputRule({
+              find: /^\s*([*+\-])\s$/,
+              type: this.type,
+              getAttributes: () => ({ bullet: 'disc' }),
+            }),
+            // En-dash bullet: "– " or "-- " or "— "
+            wrappingInputRule({
+              find: /^\s*(?:–|--|—)\s$/,
+              type: this.type,
+              getAttributes: () => ({ bullet: 'dash' }),
+            }),
+            // Square bullet: "▪ " or "■ "
+            wrappingInputRule({
+              find: /^\s*([▪■])\s$/,
+              type: this.type,
+              getAttributes: () => ({ bullet: 'square' }),
+            }),
+          ];
+        },
+      }).configure({ keepMarks: true, keepAttributes: false }),
       OrderedList.extend({
         addAttributes() {
           return {
@@ -378,6 +524,41 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
                 attributes.regime ? { 'data-regime': attributes.regime } : {},
             },
           };
+        },
+        addInputRules() {
+          const makeRule = (find: RegExp, regime: string | null, getStart?: (m: RegExpMatchArray) => number) => {
+            return wrappingInputRule({
+              find,
+              type: this.type,
+              getAttributes: (match) => ({
+                ...(regime ? { regime } : {}),
+                ...(getStart ? { start: getStart(match) } : {}),
+              }),
+              joinPredicate: (match, node) => {
+                if (getStart) return node.childCount + (node.attrs.start || 1) === getStart(match);
+                return !node.attrs.regime || node.attrs.regime === regime;
+              },
+            });
+          };
+
+          return [
+            // Standard decimal: "1. " or "2. "
+            makeRule(/^(\d+)\.\s$/, null, (m) => +m[1]),
+            // Parenthetical decimal: "(1) " or "(2) "
+            makeRule(/^\((\d+)\)\s$/, 'parens-decimal', (m) => +m[1]),
+            // Parenthetical lowercase alpha: "(a) "
+            makeRule(/^\(([a-hj-z])\)\s$/, 'parens-lower-alpha'),
+            // Parenthetical lowercase roman: "(i) ", "(ii) ", "(iv) ", etc.
+            makeRule(/^\(([ivxlcdm]+)\)\s$/i, 'parens-lower-roman'),
+            // Lowercase alpha: "a. ", "b. ", etc.
+            makeRule(/^([a-hj-z])\.\s$/, 'lower-alpha'),
+            // Lowercase roman: "i. ", "ii. ", "iv. ", etc.
+            makeRule(/^([ivxlcdm]+)\.\s$/i, 'lower-roman'),
+            // Uppercase alpha: "A. ", "B. ", etc.
+            makeRule(/^([A-HJ-Z])\.\s$/, 'upper-alpha'),
+            // Uppercase roman: "I. ", "II. ", etc.
+            makeRule(/^([IVXLCDM]+)\.\s$/, 'upper-roman'),
+          ];
         },
       }).configure({ keepMarks: true, keepAttributes: false }),
       Underline,
@@ -416,7 +597,7 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
       // the form (see annotateTableColRatios above).
       const html = annotateTableColRatios(editor.getHTML(), editor.view.dom as HTMLElement)
       lastEmitted.current = html
-      onChange(html)
+      onChangeRef.current?.(html)
     },
     onFocus: ({ editor }) => {
       setActiveEditor(editor);
@@ -424,10 +605,12 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
     editable: !disabled,
     editorProps: {
       attributes: {
-        class: 'prose dark:prose-invert min-h-[40px] w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+        class: 'prose dark:prose-invert min-h-[40px] w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs caret-foreground ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
       },
-      onTab: onTab,
-      onCtrlSpace: onCtrlSpace,
+      onTab: (shiftKey: boolean) => onTabRef.current?.(shiftKey),
+      onCtrlSpace: () => onCtrlSpaceRef.current?.(),
+      onCtrlEnter: (editor: any) => onCtrlEnterRef.current?.(editor),
+      onMoveRow: (direction: -1 | 1) => onMoveRowRef.current?.(direction),
     },
   })
 
@@ -456,7 +639,12 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
     // fired, and the empty string was written back over the user's text.
     // A genuine empty value is "", which still syncs normally.
     if (typeof value !== "string") return;
-    if (value !== editor.getHTML() && value !== lastEmitted.current) {
+    if (value === lastEmitted.current) return;
+
+    // Normalize HTML to avoid spurious resets caused by class="mb-2.5" or whitespace differences
+    const cleanVal = value.replace(/\s*class="[^"]*"/g, '').replace(/\s+/g, ' ').trim();
+    const cleanEditor = editor.getHTML().replace(/\s*class="[^"]*"/g, '').replace(/\s+/g, ' ').trim();
+    if (cleanVal !== cleanEditor) {
       editor.commands.setContent(hydrateTableColWidths(value), false);
     }
   }, [value, editor]);
@@ -496,7 +684,203 @@ export const BadhiyaBox = ({ value, onChange, disabled: disabledProp, onTab, onC
     return () => fieldReveal.unregister(path);
   }, [editor, path, fieldReveal]);
 
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handleDown = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setContextMenu(null);
+    };
+    document.addEventListener("mousedown", handleDown);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleDown);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [contextMenu]);
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    if (disabled || !editor) return;
+    const cell = (e.target as HTMLElement)?.closest("td, th");
+    if (cell && editor.isActive("table")) {
+      e.preventDefault();
+      const x = Math.min(e.clientX, window.innerWidth - 220);
+      const y = Math.min(e.clientY, window.innerHeight - 340);
+      setContextMenu({ x, y });
+    } else {
+      setContextMenu(null);
+    }
+  };
+
   return (
-    <EditorContent editor={editor} />
-  )
-}
+    <div onContextMenu={handleContextMenu} className="relative w-full">
+      <EditorContent editor={editor} />
+      {contextMenu && editor && editor.isActive("table") && (
+        <div
+          ref={contextMenuRef}
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          className="fixed z-50 min-w-[200px] rounded-md border bg-popover text-popover-foreground shadow-lg py-1 text-xs animate-in fade-in-50 zoom-in-95"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-2 py-1 font-semibold text-[10px] uppercase tracking-wider text-muted-foreground border-b mb-1">
+            Table Actions
+          </div>
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent text-left cursor-pointer"
+            onClick={() => { editor.chain().focus().addRowBefore().run(); setContextMenu(null); }}
+          >
+            <ArrowUpToLine className="h-3.5 w-3.5 text-muted-foreground" /> Add row above
+          </button>
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent text-left cursor-pointer"
+            onClick={() => { editor.chain().focus().addRowAfter().run(); setContextMenu(null); }}
+          >
+            <ArrowDownToLine className="h-3.5 w-3.5 text-muted-foreground" /> Add row below
+          </button>
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent text-left cursor-pointer"
+            onClick={() => { editor.chain().focus().addColumnBefore().run(); setContextMenu(null); }}
+          >
+            <ArrowLeftToLine className="h-3.5 w-3.5 text-muted-foreground" /> Add column left
+          </button>
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent text-left cursor-pointer"
+            onClick={() => { editor.chain().focus().addColumnAfter().run(); setContextMenu(null); }}
+          >
+            <ArrowRightToLine className="h-3.5 w-3.5 text-muted-foreground" /> Add column right
+          </button>
+          <div className="border-t my-1" />
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent text-left cursor-pointer"
+            onClick={() => { moveTableRow(editor, -1); setContextMenu(null); }}
+          >
+            <ChevronsUp className="h-3.5 w-3.5 text-muted-foreground" /> Move row up
+          </button>
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent text-left cursor-pointer"
+            onClick={() => { moveTableRow(editor, 1); setContextMenu(null); }}
+          >
+            <ChevronsDown className="h-3.5 w-3.5 text-muted-foreground" /> Move row down
+          </button>
+          <div className="border-t my-1" />
+          {editor.can().mergeCells() && (
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent text-left cursor-pointer"
+              onClick={() => { editor.chain().focus().mergeCells().run(); setContextMenu(null); }}
+            >
+              <TableCellsMerge className="h-3.5 w-3.5 text-muted-foreground" /> Merge cells
+            </button>
+          )}
+          {editor.can().splitCell() && (
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-accent text-left cursor-pointer"
+              onClick={() => { editor.chain().focus().splitCell().run(); setContextMenu(null); }}
+            >
+              <TableCellsSplit className="h-3.5 w-3.5 text-muted-foreground" /> Split cell
+            </button>
+          )}
+          <div className="border-t my-1" />
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-destructive/10 text-destructive text-left cursor-pointer"
+            onClick={() => { editor.chain().focus().deleteRow().run(); setContextMenu(null); }}
+          >
+            <Rows2 className="h-3.5 w-3.5" /> Delete row
+          </button>
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-destructive/10 text-destructive text-left cursor-pointer"
+            onClick={() => { editor.chain().focus().deleteColumn().run(); setContextMenu(null); }}
+          >
+            <Columns2 className="h-3.5 w-3.5" /> Delete column
+          </button>
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-destructive/10 text-destructive text-left cursor-pointer"
+            onClick={() => { editor.chain().focus().deleteTable().run(); setContextMenu(null); }}
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete table
+          </button>
+        </div>
+      )}
+      {editor && !disabled && (
+        <BubbleMenu
+          editor={editor}
+          pluginKey={bubblePluginKey}
+          tippyOptions={{ duration: 150, zIndex: 40 }}
+          shouldShow={({ editor, from, to }) => {
+            return from !== to && !editor.isActive('table');
+          }}
+          className="flex items-center gap-0.5 rounded-md border bg-popover/95 p-1 text-popover-foreground shadow-md backdrop-blur-xs select-none"
+        >
+          <button
+            type="button"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleBold().run(); }}
+            className={cn("p-1 rounded hover:bg-muted text-xs transition-colors cursor-pointer", editor.isActive('bold') && "bg-muted font-bold text-primary")}
+            title="Bold (Ctrl+B)"
+          >
+            <BoldIcon className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleItalic().run(); }}
+            className={cn("p-1 rounded hover:bg-muted text-xs transition-colors cursor-pointer", editor.isActive('italic') && "bg-muted text-primary")}
+            title="Italic (Ctrl+I)"
+          >
+            <ItalicIcon className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleUnderline().run(); }}
+            className={cn("p-1 rounded hover:bg-muted text-xs transition-colors cursor-pointer", editor.isActive('underline') && "bg-muted text-primary")}
+            title="Underline (Ctrl+U)"
+          >
+            <UnderlineIcon className="h-3.5 w-3.5" />
+          </button>
+          <div className="h-3 w-px bg-border mx-0.5" />
+          <button
+            type="button"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleHighlight({ color: '#fef08a' }).run(); }}
+            className={cn("p-1 rounded hover:bg-muted text-xs transition-colors cursor-pointer", editor.isActive('highlight') && "bg-muted text-primary")}
+            title="Highlight"
+          >
+            <Highlighter className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => { e.preventDefault(); editor.chain().focus().toggleBlockquote().run(); }}
+            className={cn("p-1 rounded hover:bg-muted text-xs transition-colors cursor-pointer", editor.isActive('blockquote') && "bg-muted text-primary")}
+            title="Quote"
+          >
+            <Quote className="h-3.5 w-3.5" />
+          </button>
+        </BubbleMenu>
+      )}
+    </div>
+  );
+};
+
+// `path` encodes `${name}.${index}.event`, so any row-index change already
+// invalidates memo and refreshes the callback refs inside BadhiyaBoxInner.
+export const BadhiyaBox = memo(BadhiyaBoxInner, (prev, next) => {
+  return (
+    prev.value === next.value &&
+    prev.disabled === next.disabled &&
+    prev.path === next.path &&
+    prev.autoFocus === next.autoFocus
+  );
+});

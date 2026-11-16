@@ -993,9 +993,10 @@ export async function generateScWpPetitionDocx(
   const headerParagraphs = createScWpHeader(projectData.caseType);
 
   // 2. 3-column Memo of Parties table (identical to High Court WP)
-  const partyPosition = (role: "Petitioner" | "Respondent", index: number, total: number) => {
-    if (total === 1) return `…${role}`;
-    return `…${role} No. ${index + 1}`;
+  const partyPosition = (role: "Petitioner" | "Respondent", index: number, total: number, isProforma?: boolean) => {
+    const label = role === "Respondent" && isProforma ? "Proforma Respondent" : role;
+    if (total === 1) return `…${label}`;
+    return `…${label} No. ${index + 1}`;
   };
 
   const headerRow = new TableRow({
@@ -1019,7 +1020,7 @@ export async function generateScWpPetitionDocx(
           verticalAlign: VerticalAlign.TOP,
           margins: defaultCellMargins,
         }),
-        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun(partyPosition(role, i, parties.length))], spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.BOTTOM, margins: defaultCellMargins }),
+        new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun(partyPosition(role, i, parties.length, p.isProforma))], spacing: tableParagraphSpacing })], verticalAlign: VerticalAlign.BOTTOM, margins: defaultCellMargins }),
       ],
     }));
 
@@ -1124,7 +1125,7 @@ export async function generateScWpPetitionDocx(
     || transposeLodToFacts(projectData, "P");
   const factsWithPageRanges = injectAnnexurePageRangesIntoFacts(rawFacts, projectData, annexurePageRanges);
   const factsResult = parseHtml(factsWithPageRanges, undefined, undefined, SC_WP_FACTS_LIST_GEOM);
-  applyScWpFactsCascade(factsResult.numbering, wpNumbering.facts);
+  applyScWpFactsCascade(factsResult.numbering, (projectData as any).wp?.numbering?.facts || wpNumbering.facts);
   allNumberingConfigs.push(...factsResult.numbering);
   const hasFacts = (rawFacts || "").replace(/<[^>]+>/g, "").trim().length > 0;
   const factsParagraphs: (Paragraph | Table)[] = [

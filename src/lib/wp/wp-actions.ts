@@ -39,8 +39,8 @@ import { cascadeFor, enumLabel, type EnumStyle } from "./wp-numbering";
 import { wpAnnexureOrder, annexLabel, cmAnnexureOrder, cmAnnexLabel, cmAnnexBodySentence, cmAnnexIndexText, type CmAnnexEntry } from "./wp-annexures";
 import { resolveFactsHtml } from "./facts-mode";
 import { factsAnnexureSentenceParts, factsAnnexureSentenceHtml, withAnnexureCustomText, inlineHtml } from "./wp-facts";
-import { getWpNumbering, getWpOutputFormatting, getWpVakFormatting, getWpFiledBy } from "./wp-settings";
-import { vakalatnamaOpening, vakalatnamaAuthorities, vakalatnamaPartyLabel, VAKALATNAMA_FEES_LINE } from "@/lib/vakalatnama";
+import { getWpNumbering, getWpOutputFormatting, getWpVakFormatting, getWpFiledBy, getWpTitleFormatting } from "./wp-settings";
+import { vakalatnamaOpening, vakalatnamaAuthorities, vakalatnamaPartyLabel, VAKALATNAMA_FEES_LINE, vakalatnamaIndexTitle } from "@/lib/vakalatnama";
 
 const cellMargins = { top: 0, bottom: 0, left: 115, right: 115 };
 const tableSpacing = { before: 120, after: 120 };
@@ -125,6 +125,21 @@ function annexIndexRuns(pNumber: number, annex: Annexure): (TextRun | string)[] 
 // True if the rich-text HTML has any visible text.
 function htmlHasText(html?: string): boolean {
   return !!(html || "").replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim();
+}
+
+function htmlToPlainText(html?: string): string {
+  return (html || "")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/(?:p|div|li)>/gi, " ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function escapeHtmlText(s: string): string {
@@ -322,7 +337,7 @@ export async function generateWpMemoOfParties(project: DraftoProject, includeSig
         ...(p.through?.trim() ? [new Paragraph({ children: [smartTextRun({ text: p.through.trim(), italics: true })], spacing: tableSpacing })] : []),
         ...(p.address ? [new Paragraph({ text: p.address, spacing: tableSpacing })] : []),
       ], verticalAlign: VerticalAlign.TOP, margins: cellMargins }),
-      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun(partyPosition(role, i, parties.length))], spacing: tableSpacing })], verticalAlign: VerticalAlign.BOTTOM, margins: cellMargins }),
+      new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun(partyPosition(role, i, parties.length, p.isProforma))], spacing: tableSpacing })], verticalAlign: VerticalAlign.BOTTOM, margins: cellMargins }),
     ]}));
 
   const versusRow = new TableRow({ children: [
@@ -453,17 +468,40 @@ export async function generateWpPetition(project: DraftoProject, opts?: { includ
   numbering.push(...para1.numbering);
 
   const facts = parseHtml(resolveFactsHtml(project) || "");
-  applyFactsCascade(facts.numbering, num.facts);
+  applyFactsCascade(facts.numbering, (project as any).wp?.numbering?.facts || num.facts);
   numbering.push(...facts.numbering);
 
   const groundsParagraphs = groundsBlocks(project, num.grounds, nb, numbering);
 
+  const titleFmt = getWpTitleFormatting();
+  const titleBlocks: (Paragraph | Table)[] =
+    titleFmt.style === "inline"
+      ? [
+          new Paragraph({
+            alignment: AlignmentType.JUSTIFIED,
+            spacing: { before: 240 },
+            children: [
+              smartTextRun({
+                text: `Writ Petition under Article ${article} of the Constitution of India praying that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and ${reliefs
+                  .map((h, i) => `[${enumLabel(i, num.prayers)}] ${htmlToPlainText(h)}`)
+                  .join(" ")}`.trim(),
+                bold: true,
+                ...(titleFmt.caps === "allCaps" ? { allCaps: true } : {}),
+                ...(titleFmt.caps === "smallCaps" ? { smallCaps: true } : {}),
+              }),
+            ],
+          }),
+        ]
+      : [
+          centeredBold(`Writ Petition under Article ${article} of the Constitution of India`, { before: 240 }),
+          new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun("PRAYING FOR THE FOLLOWING RELIEFS:")] }),
+          ...htmlListItems(reliefsTopRef, reliefs, numbering),
+        ];
+
   const children: (Paragraph | Table)[] = [
     ...createWpHeader(project.caseType),
     ...createWpPartiesHeader(petHeader, resHeader),
-    centeredBold(`Writ Petition under Article ${article} of the Constitution of India`, { before: 240 }),
-    new Paragraph({ alignment: AlignmentType.CENTER, children: [smartTextRun("PRAYING FOR THE FOLLOWING RELIEFS:")] }),
-    ...htmlListItems(reliefsTopRef, reliefs, numbering),
+    ...titleBlocks,
     // Salutation (indented, italic)
     ...createSalutation(["To", "The Hon’ble Chief Justice of the Delhi High Court", "And His Companion Justices of the Hon’ble High Court of Delhi"]),
     new Paragraph({ children: [smartTextRun({ text: `The ${g.Pet} most respectfully ${g.submits} that:`, bold: true })] }),
@@ -881,7 +919,7 @@ export function wpIndexItems(project: DraftoProject): { key: string; runs: (Text
       date: (annex.date && String(annex.date).trim()) || "-",
     }));
   });
-  items.push({ key: "vakalatnama", runs: [smartTextRun("Vakalatnama")], date: "-" });
+  items.push({ key: "vakalatnama", runs: [smartTextRun(vakalatnamaIndexTitle("Vakalatnama", project.vakalatnamaWithBoardResolution, project.vakalatnamaWithAuthorityLetter))], date: "-" });
   items.push({ key: "courtfee", runs: [smartTextRun("Court Fee")], date: "-" });
   items.push({ key: "proofofservice", runs: [smartTextRun("Proof of Service")], date: "-" });
   return items;

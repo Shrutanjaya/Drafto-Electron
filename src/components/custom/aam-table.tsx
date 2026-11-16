@@ -337,7 +337,7 @@ function AamTableInner({ name, defaultRows = 10, disabled = false, labelMode = "
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
           >
-            <Table>
+            <Table wrapperClassName="overflow-visible">
               <TableHeader>
                 <TableRow className="border-none">
                   <TableHead className="w-[30px] p-0 text-xs"></TableHead>

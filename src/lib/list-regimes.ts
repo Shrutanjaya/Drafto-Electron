@@ -38,6 +38,8 @@ export interface ListRegime {
   id: string;
   // Five levels deep, which is as far as the editor and the generators go.
   levels: DocxListFormat[];
+  // When true, numbers/letters are enclosed in parentheses: (a), (i), (1)
+  isParenthetical?: boolean;
 }
 
 export const LIST_REGIMES: ListRegime[] = [
@@ -47,6 +49,10 @@ export const LIST_REGIMES: ListRegime[] = [
   { id: "lower-roman", levels: ["lowerRoman", "lowerLetter", "decimal", "upperLetter", "upperRoman"] },
   { id: "upper-alpha", levels: ["upperLetter", "lowerLetter", "lowerRoman", "decimal", "upperRoman"] },
   { id: "upper-roman", levels: ["upperRoman", "upperLetter", "lowerLetter", "lowerRoman", "decimal"] },
+  // Parenthetical regimes standard in Indian court pleadings and statutory clauses
+  { id: "parens-lower-alpha", levels: ["lowerLetter", "lowerRoman", "decimal", "upperLetter", "upperRoman"], isParenthetical: true },
+  { id: "parens-lower-roman", levels: ["lowerRoman", "lowerLetter", "decimal", "upperLetter", "upperRoman"], isParenthetical: true },
+  { id: "parens-decimal", levels: ["decimal", "lowerLetter", "lowerRoman", "upperLetter", "upperRoman"], isParenthetical: true },
 ];
 
 export const DEFAULT_LIST_REGIME = "decimal";
@@ -55,7 +61,9 @@ export function listRegime(id: string | null | undefined): ListRegime {
   return LIST_REGIMES.find(r => r.id === id) || LIST_REGIMES[0];
 }
 
-// "1. → a. → i." — the first three levels, which is what the menu shows.
+// "1. → a. → i." or "(a) → (i) → (1)" — the first three levels, which is what the menu shows.
 export function regimePreview(regime: ListRegime): string {
-  return regime.levels.slice(0, 3).map(f => PREVIEW[f]).join(" → ");
+  const p = (fmt: DocxListFormat) => regime.isParenthetical ? `(${PREVIEW[fmt].replace(/\.$/, "")})` : PREVIEW[fmt];
+  return regime.levels.slice(0, 3).map(f => p(f)).join(" → ");
 }
+

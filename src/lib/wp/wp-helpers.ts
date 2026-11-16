@@ -306,7 +306,8 @@ export function createWpFiledBy(
 }
 
 // Position label for a party in the Memo of Parties.
-export function partyPosition(role: "Petitioner" | "Respondent", index: number, total: number): string {
-  if (total <= 1) return `…${role}`;
-  return `…${role} No. ${index + 1}`;
+export function partyPosition(role: "Petitioner" | "Respondent", index: number, total: number, isProforma?: boolean): string {
+  const label = role === "Respondent" && isProforma ? "Proforma Respondent" : role;
+  if (total <= 1) return `…${label}`;
+  return `…${label} No. ${index + 1}`;
 }

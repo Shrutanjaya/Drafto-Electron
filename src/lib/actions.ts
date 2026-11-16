@@ -1592,7 +1592,7 @@ export async function generateSlpDocx(
                     new Paragraph(r.address),
                 ] }),
                 new TableCell({ children: [new Paragraph({ text: r.positionInEarlierCourt, alignment: AlignmentType.CENTER })] }),
-                new TableCell({ children: [new Paragraph({ text: respondents.length === 1 ? "Respondent" : `Respondent No. ${i + 1}`, alignment: AlignmentType.CENTER })] }),
+                new TableCell({ children: [new Paragraph({ text: r.isProforma ? (respondents.length === 1 ? "Proforma Respondent" : `Proforma Respondent No. ${i + 1}`) : (respondents.length === 1 ? "Respondent" : `Respondent No. ${i + 1}`), alignment: AlignmentType.CENTER })] }),
             ]
         }));
         return new Table({
@@ -1991,7 +1991,7 @@ export async function generateSlpDocx(
             || transposeLodToFacts(projectData, "A");
         const appealFactsHtml = injectAnnexurePageRangesIntoFacts(rawAppealFacts, projectData, annexurePageRanges);
         const appealFactsResult = parseHtml(appealFactsHtml, undefined, undefined, SC_WP_FACTS_LIST_GEOM);
-        applyScWpFactsCascade(appealFactsResult.numbering);
+        applyScWpFactsCascade(appealFactsResult.numbering, (projectData as any).wp?.numbering?.facts || "lower-alpha");
         allNumberingConfigs.push(...appealFactsResult.numbering);
         const hasAppealFacts = rawAppealFacts.replace(/<[^>]+>/g, "").trim().length > 0;
         appealFactsParagraphs = hasAppealFacts && appealFactsResult.paragraphs.length > 0
@@ -4256,9 +4256,19 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                         // out here as well as on the system-generated path —
                         // omitting it made the Index short by the length of
                         // every translated copy, and shifted everything after it.
+                        let extraVakPages = 0;
+                        if (meta.id === 'vakalatnama') {
+                            for (const extraKey of ['vakalatnamaBoardResolution', 'vakalatnamaAuthorityLetter']) {
+                                const ef = formData.get(extraKey) as File | null;
+                                if (ef && ef instanceof File) {
+                                    const eb = await ef.arrayBuffer();
+                                    if (eb.byteLength > 0) extraVakPages += (await PDFDocument.load(eb)).getPageCount();
+                                }
+                            }
+                        }
                         docPageCounts.set(meta.id, {
                             id: meta.id,
-                            pageCount: pdf.getPageCount(),
+                            pageCount: pdf.getPageCount() + extraVakPages,
                             shouldCombineWithNext: pairedWithNext(meta.id, fileMetas),
                         });
                         continue;
@@ -4771,6 +4781,19 @@ export async function generatePdf(formData: FormData, signal?: AbortSignal, onPr
                     const fileBuffer = await userFile.arrayBuffer();
                     if (fileBuffer.byteLength > 0) {
                         pdfToMerge = await PDFDocument.load(fileBuffer);
+                        if (meta.id === 'vakalatnama') {
+                            for (const extraKey of ['vakalatnamaBoardResolution', 'vakalatnamaAuthorityLetter']) {
+                                const ef = formData.get(extraKey) as File | null;
+                                if (ef && ef instanceof File) {
+                                    const eb = await ef.arrayBuffer();
+                                    if (eb.byteLength > 0) {
+                                        const extraPdf = await PDFDocument.load(eb);
+                                        const cp = await pdfToMerge.copyPages(extraPdf, extraPdf.getPageIndices());
+                                        cp.forEach((p) => pdfToMerge!.addPage(p));
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         throw new Error("Uploaded file is empty.");
                     }

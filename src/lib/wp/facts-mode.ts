@@ -192,7 +192,7 @@ export function factsRowsFromLod(project: DraftoProject, existingFactsRows: LodR
       : (existingRow?.annexures ? [...existingRow.annexures] : []);
 
     out.push({
-      id: lod.id,
+      id: lod.id || `lod_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       date: "",
       event: transposeToSentence(lod.date || "", text),
       annexures,
@@ -216,7 +216,7 @@ export function appendNewLodRowsToFactsRows(project: DraftoProject, existingRows
     if ((!text && !hasAnnex) || existingIds.has(lod.id)) continue;
 
     toAppend.push({
-      id: lod.id,
+      id: lod.id || `lod_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       date: "",
       event: transposeToSentence(lod.date || "", text),
       annexures: mode === "lod" ? (lod.annexures ? [...lod.annexures] : []) : [],
@@ -265,8 +265,55 @@ export function convertFactsHtmlToRows(html: string): LodRow[] {
   }];
 }
 
-/** Lowercase the first real letter, stepping over any leading tags. */
+const PROTECTED_LEGAL_NOUNS = new Set([
+  "petitioner",
+  "petitioners",
+  "respondent",
+  "respondents",
+  "applicant",
+  "applicants",
+  "appellant",
+  "appellants",
+  "plaintiff",
+  "plaintiffs",
+  "defendant",
+  "defendants",
+  "court",
+  "tribunal",
+  "bench",
+  "registry",
+  "union",
+  "state",
+  "government",
+  "govt",
+  "ministry",
+  "department",
+  "commissioner",
+  "collector",
+  "magistrate",
+  "director",
+  "chairman",
+  "secretary",
+  "president",
+  "governor",
+  "officer",
+  "authority",
+  "board",
+  "corporation",
+]);
+
+/** 
+ * Lowercase the first real letter, stepping over any leading tags,
+ * UNLESS the first word is a protected legal proper noun (e.g. Petitioner, High Court).
+ */
 function lowerFirstLetter(html: string): string {
+  const match = html.match(/^(\s*(?:<[^>]+>\s*)*)([A-Za-z]+)/);
+  if (match) {
+    const firstWord = match[2].toLowerCase();
+    if (PROTECTED_LEGAL_NOUNS.has(firstWord) || /^hon(?:'|\u2019)?ble/i.test(match[2])) {
+      return html; // Preserve uppercase for proper legal nouns
+    }
+  }
   return html.replace(/^(\s*(?:<[^>]+>\s*)*)([A-Z])/, (_m, tags, ch) => `${tags}${ch.toLowerCase()}`);
 }
 
@@ -278,11 +325,21 @@ function isBlankHtml(html: string): boolean {
 /**
  * "12.03.2021" + "<p>The order was passed.</p>" → "<p>On 12.03.2021, the order
  * was passed.</p>"
+ * If the event already starts with the literal date itself, duplicate date is avoided.
  */
 export function transposeToSentence(date: string, html: string): string {
   const d = (date || "").trim();
   const t = (html || "").trim();
   if (!d || isBlankHtml(t)) return t;
+
+  const plainText = t.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+
+  // If the event text already starts with this exact date (e.g. "12.03.2021" or "On 12.03.2021")
+  const escapedDate = d.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const alreadyStartsWithDate = new RegExp(`^(?:on\\s+)?${escapedDate}\\b`, "i").test(plainText);
+  if (alreadyStartsWithDate) {
+    return t;
+  }
 
   const open = t.match(/^<p(?:\s[^>]*)?>/i);
   if (open) {

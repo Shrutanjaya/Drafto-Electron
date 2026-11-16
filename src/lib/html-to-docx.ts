@@ -1,5 +1,5 @@
 
-import { AlignmentType, Indent, Paragraph, TextRun, UnderlineType, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, LineRuleType, TableLayoutType } from "docx";
+import { AlignmentType, Indent, Paragraph, TextRun, UnderlineType, Table, TableRow, TableCell, WidthType, BorderStyle, ShadingType, LineRuleType, TableLayoutType, TabStopType, LevelFormat } from "docx";
 import { convertToSmartQuotes } from "./docx-helpers";
 import { listRegime } from "./list-regimes";
 import { normaliseEmphasisLabel } from "./quote-emphasis";
@@ -226,7 +226,7 @@ function htmlToTree(html: string): (SimpleNode | string)[] {
 }
 
 // Process the tree to create docx paragraphs and numbering configs
-function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: number }, listLevel = 0, inBlockquote = false, olRef?: string, spacing?: ParagraphSpacing, defaultNumbering?: { reference: string; level: number; claimed?: boolean }, exportHighlight = false, blockIndent?: { left: number }): ParseResult {
+function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: number }, listLevel = 0, inBlockquote = false, olRef?: string, spacing?: ParagraphSpacing, defaultNumbering?: { reference: string; level: number; claimed?: boolean }, exportHighlight = false, blockIndent?: { left: number }, olDepth = 0): ParseResult {
     const result: ParseResult = { paragraphs: [], numbering: [] };
 
     // Buffer consecutive inline/string nodes so that loose inline content — e.g.
@@ -444,19 +444,27 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 const tableRows = rowsData.map(cells => {
                     let col = 0;
                     const docxCells = cells.map(c => {
-                        const cellResult = treeToDocx(c.cellNode.children, olCounterRef, 0, false, undefined, spacing, undefined, exportHighlight);
+                        // User-drawn tables in legal drafting require compact single line-spacing
+                        // (240 twips = 1.0) with subtle padding (40 twips = 2pt after/before) rather than
+                        // inheriting the bloated 1.5 line body spacing with 12pt paragraph gap.
+                        const cellSpacing: ParagraphSpacing = {
+                            line: 240, // 1.0 single line spacing
+                            before: 30, // ~1.5pt space before
+                            after: 30,  // ~1.5pt space after
+                        };
+                        const cellResult = treeToDocx(c.cellNode.children, olCounterRef, 0, false, undefined, cellSpacing, undefined, exportHighlight);
                         result.numbering.push(...cellResult.numbering);
                         // Ensure at least one paragraph in the cell
                         const cellChildren = cellResult.paragraphs.length > 0
                             ? cellResult.paragraphs
-                            : [new Paragraph('')];
+                            : [new Paragraph({ children: [new TextRun("")], spacing: cellSpacing })];
                         let widthDxa = 0;
                         for (let k = 0; k < c.span && col + k < colWidths.length; k++) widthDxa += colWidths[col + k];
                         col += c.span;
                         return new TableCell({
                             children: cellChildren as any,
                             borders: allBorders,
-                            margins: WORD_DEFAULT_CELL_MARGINS,
+                            margins: { top: 60, bottom: 60, left: 115, right: 115 },
                             width: { size: widthDxa || Math.round(TABLE_TOTAL_TWIPS / Math.max(1, columnCount)), type: WidthType.DXA },
                             ...(c.span > 1 ? { columnSpan: c.span } : {}),
                             ...(c.rowSpan > 1 ? { rowSpan: c.rowSpan } : {}),
@@ -506,6 +514,11 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                     // later paragraphs of one fact, say — lines up with the
                     // item's own text rather than sliding back to the margin.
                     paragraphProps.indent = { left: blockIndent.left };
+                } else if (defaultNumbering?.claimed) {
+                    // Multi-paragraph grounds or facts: continuation paragraphs
+                    // must indent flush under the numbered first line rather
+                    // than receiving an erroneous second number.
+                    paragraphProps.indent = { left: blockIndent?.left ?? (quoteListGeom.itemLeft ?? 720) };
                 }
                 if (spacing) {
                     paragraphProps.spacing = spacing;
@@ -515,8 +528,9 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 if (plainText.trim() && lastIsTable()) {
                     paragraphProps.spacing = { ...(paragraphProps.spacing ?? {}), before: TABLE_GAP_BEFORE_TWIPS };
                 }
-                if (defaultNumbering && !paragraphProps.numbering) {
-                    paragraphProps.numbering = defaultNumbering;
+                if (defaultNumbering && !defaultNumbering.claimed && !paragraphProps.numbering) {
+                    paragraphProps.numbering = { reference: defaultNumbering.reference, level: defaultNumbering.level };
+                    defaultNumbering.claimed = true;
                 }
                 result.paragraphs.push(new Paragraph(paragraphProps));
                 break;
@@ -685,43 +699,60 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 }
                 break;
             }
-            case 'ul':
-                const ulResult = treeToDocx(node.children, olCounterRef, listLevel + 1, currentInBlockquote, undefined, spacing, defaultNumbering, exportHighlight);
+            case 'ul': {
+                const bulletType = node.attributes['data-bullet'] || 'disc';
+                let activeUlRef: string | undefined = undefined;
+                if (bulletType === 'dash' || bulletType === 'square') {
+                    activeUlRef = `bullet-${bulletType}-${olCounterRef.value++}`;
+                    const bulletChar = bulletType === 'dash' ? '–' : '▪';
+                    result.numbering.push({
+                        reference: activeUlRef,
+                        levels: [0, 1, 2, 3, 4].map(level => ({
+                            level,
+                            format: LevelFormat.BULLET,
+                            text: bulletChar,
+                            alignment: AlignmentType.START,
+                        })),
+                    });
+                }
+                const ulResult = treeToDocx(node.children, olCounterRef, listLevel + 1, currentInBlockquote, activeUlRef, spacing, defaultNumbering, exportHighlight, undefined, 0);
                 result.paragraphs.push(...ulResult.paragraphs);
                 result.numbering.push(...ulResult.numbering);
                 break;
-            case 'ol':
-                // Only create a new numbering definition for a top-level <ol>
-                if (listLevel === 0) {
-                    // Which glyph each level uses is the list's own choice, made
-                    // in the editor and carried on the list as data-regime; a
-                    // list without one is the traditional 1. → a. → i.
-                    // A list that names its regime gets an "olx-" reference so
-                    // that a section-wide cascade (the writ petition's Facts
-                    // style) leaves the user's explicit choice alone.
+            }
+            case 'ol': {
+                let activeOlRef = olRef;
+                let nextOlDepth = olDepth;
+                const hasExplicitRegime = !!node.attributes['data-regime'];
+                const isUnderUl = !activeOlRef || activeOlRef.startsWith('bullet-');
+                // Create a new numbering definition if:
+                // 1. Top-level list (listLevel === 0)
+                // 2. Nested under a <ul> where activeOlRef is unset or a bullet ref
+                // 3. Has an explicit data-regime chosen by user
+                if (listLevel === 0 || isUnderUl || hasExplicitRegime) {
                     const regime = listRegime(node.attributes['data-regime']);
-                    const isExplicit = !!node.attributes['data-regime'];
-                    currentOlRef = `${isExplicit ? 'olx' : 'ol'}-${olCounterRef.value++}`;
-                    // TipTap serializes a list resumed after a break as <ol start="N">
-                    // (typing "2." after a paragraph restarts numbering at 2). Word
-                    // needs that as the level's start value, else the resumed list
-                    // prints "1." again even though the editor shows "2.".
+                    const isExplicit = hasExplicitRegime;
+                    activeOlRef = `${isExplicit ? 'olx' : 'ol'}-${olCounterRef.value++}`;
                     const startAt = Math.max(1, parseInt(node.attributes.start || '1', 10) || 1);
                     result.numbering.push({
-                        reference: currentOlRef,
+                        reference: activeOlRef,
                         levels: regime.levels.map((format, level) => ({
                             level,
                             format,
-                            text: `%${level + 1}.`,
+                            text: regime.isParenthetical ? `(%${level + 1})` : `%${level + 1}.`,
                             alignment: AlignmentType.START,
                             ...(level === 0 ? { start: startAt } : {}),
                         })),
                     });
+                    nextOlDepth = 0;
+                } else {
+                    nextOlDepth = olDepth + 1;
                 }
-                const olResult = treeToDocx(node.children, olCounterRef, listLevel + 1, currentInBlockquote, currentOlRef, spacing, defaultNumbering, exportHighlight);
+                const olResult = treeToDocx(node.children, olCounterRef, listLevel + 1, currentInBlockquote, activeOlRef, spacing, defaultNumbering, exportHighlight, undefined, nextOlDepth);
                 result.paragraphs.push(...olResult.paragraphs);
                 result.numbering.push(...olResult.numbering);
                 break;
+            }
             case 'li': {
                 // The item's first paragraph is its own (numbered) text; nested
                 // lists, quotes, TABLES and any FURTHER paragraphs are emitted
@@ -777,10 +808,14 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                          // top-level `hanging` prop is ignored by the docx library, which
                          // is why wrapped list lines previously slid back under the number.
                          listParaProps.indent = { left: indentValue, hanging: hangingValue };
+                         listParaProps.tabStops = [
+                             { type: TabStopType.LEFT, position: indentValue }
+                         ];
                      }
 
                      if (currentOlRef) {
-                         listParaProps.numbering = { reference: currentOlRef, level: markerLevel };
+                         const numberingLevel = Math.min(olDepth, 4);
+                         listParaProps.numbering = { reference: currentOlRef, level: numberingLevel };
                      } else {
                          listParaProps.bullet = { level: markerLevel };
                      }
@@ -809,6 +844,7 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                     const childResult = treeToDocx(
                         [bc], olCounterRef, listLevel, currentInBlockquote, currentOlRef, spacing, undefined, exportHighlight,
                         (bc.tagName === 'p' || bc.tagName === 'table') ? itemTextIndent : undefined,
+                        olDepth,
                     );
                     result.paragraphs.push(...childResult.paragraphs);
                     result.numbering.push(...childResult.numbering);
@@ -816,7 +852,7 @@ function treeToDocx(nodes: (SimpleNode | string)[], olCounterRef: { value: numbe
                 break;
             }
             default:
-                 const defaultResult = treeToDocx(node.children, olCounterRef, listLevel, currentInBlockquote, olRef, spacing, defaultNumbering, exportHighlight);
+                 const defaultResult = treeToDocx(node.children, olCounterRef, listLevel, currentInBlockquote, olRef, spacing, defaultNumbering, exportHighlight, blockIndent, olDepth);
                  result.paragraphs.push(...defaultResult.paragraphs);
                  result.numbering.push(...defaultResult.numbering);
         }

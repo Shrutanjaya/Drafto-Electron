@@ -19,7 +19,7 @@ import { cascadeFor, enumLabel, type EnumStyle } from "@/lib/wp/wp-numbering";
 import { wpAnnexureOrder } from "@/lib/wp/wp-annexures";
 import { resolveFactsHtml } from "@/lib/wp/facts-mode";
 import { factsAnnexureSentenceHtml, withAnnexureCustomText, inlineHtml } from "@/lib/wp/wp-facts";
-import { vakalatnamaOpening, vakalatnamaAuthorities, vakalatnamaPartyLabel, VAKALATNAMA_FEES_LINE } from "@/lib/vakalatnama";
+import { vakalatnamaOpening, vakalatnamaAuthorities, vakalatnamaPartyLabel, VAKALATNAMA_FEES_LINE, vakalatnamaIndexTitle } from "@/lib/vakalatnama";
 import { oaBench } from "@/lib/oa/oa-benches";
 import { getSettings } from "@/components/dialogs/settings-dialog";
 import { getOaFiledBy, getOaFiledByLayout, getOaFiledByLeftPct, getOaSignature, getOaMarginsIn, getOaOutputFormatting, getOaVakFormatting, getOaForceLastPageBreak } from "@/lib/oa/oa-settings";
@@ -616,7 +616,7 @@ function buildOaMemo(project: DraftoProject): Child[] {
   const rows = (parties: typeof project.petitioners, role: string) => parties.map((pt, i) => new TableRow({ children: [
     new TableCell({ children: [new Paragraph({ text: `${i + 1}.`, spacing: tableSpacing })], verticalAlign: VerticalAlign.TOP, margins: cellMargins }),
     new TableCell({ children: [new Paragraph({ children: [smartTextRun({ text: pt.name || "[Name]", bold: true })], spacing: tableSpacing }), ...(pt.through?.trim() ? [new Paragraph({ children: [smartTextRun({ text: pt.through.trim(), italics: true })], spacing: tableSpacing })] : []), ...(pt.address ? [new Paragraph({ text: pt.address, spacing: tableSpacing })] : [])], verticalAlign: VerticalAlign.TOP, margins: cellMargins }),
-    new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun(parties.length <= 1 ? `…${role}` : `…${role} No. ${i + 1}`)], spacing: tableSpacing })], verticalAlign: VerticalAlign.BOTTOM, margins: cellMargins }),
+    new TableCell({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [smartTextRun((() => { const effectiveRole = role === "Respondent" && pt.isProforma ? "Proforma Respondent" : role; return parties.length <= 1 ? `…${effectiveRole}` : `…${effectiveRole} No. ${i + 1}`; })())], spacing: tableSpacing })], verticalAlign: VerticalAlign.BOTTOM, margins: cellMargins }),
   ] }));
   const table = new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, columnWidths: [1000, 6500, 2500], borders: NO_BORDERS, rows: [
     new TableRow({ children: [new TableCell({ children: [centeredBoldCell("S. No.")], margins: cellMargins }), new TableCell({ children: [centeredBoldCell("Particulars")], margins: cellMargins }), new TableCell({ children: [centeredBoldCell("Position")], margins: cellMargins })] }),
@@ -749,9 +749,7 @@ function buildOaIndex(project: DraftoProject, pageRanges?: Record<string, string
   const sgIdx = oaSigning(project);
   items.push({
     key: "vakalatnama",
-    text: sgIdx.authorityLetters
-      ? "Vakalatnama(s) and Authority Letter(s)"
-      : (sgIdx.separateVakalatnamas ? "Vakalatnama(s)" : "Vakalatnama"),
+    text: vakalatnamaIndexTitle(sgIdx.separateVakalatnamas ? "Vakalatnama(s)" : "Vakalatnama", project.vakalatnamaWithBoardResolution, sgIdx.authorityLetters || project.vakalatnamaWithAuthorityLetter),
   });
   items.push({ key: "courtFee", text: "Court Fee" });
   items.push({ key: "proofOfService", text: "Proof of Service" });

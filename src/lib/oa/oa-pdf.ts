@@ -206,6 +206,15 @@ export async function generateOaPdf(
         }
       }
     }
+    for (const [enabled, entry, extraTitle] of [
+      [project.vakalatnamaWithBoardResolution, project.vakalatnamaBoardResolution, "Board Resolution"],
+      [project.vakalatnamaWithAuthorityLetter, project.vakalatnamaAuthorityLetter, "Authority Letter"],
+    ] as const) {
+      if (!enabled || !entry) continue;
+      const b = await fileBytes(entry?.file, entry?.filePath);
+      const src = b ? await pdfFromBytes(b) : null;
+      if (src) items.push({ key: "vakalatnama", title: extraTitle, pdf: src, paginated: true });
+    }
 
     // ── Filing documents ──
     for (const [key, title, up] of [

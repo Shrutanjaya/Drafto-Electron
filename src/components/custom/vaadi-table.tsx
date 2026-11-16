@@ -28,6 +28,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import React, { useEffect, useState } from "react"
 import { Textarea } from "../ui/textarea"
+import { Checkbox } from "../ui/checkbox"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip"
 
 type VaadiTableName =
   | "petitioners"
@@ -140,6 +142,31 @@ const SortableCard = ({
           <GripVertical className="h-3.5 w-3.5" />
         </Button>
         <span className="text-xs font-semibold text-muted-foreground">{roleLabel} No. {index + 1}</span>
+        {name.endsWith("respondents") && (
+          <FormField
+            control={form.control}
+            name={`${name}.${index}.isProforma` as any}
+            render={({ field }) => (
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <label className="ml-2 inline-flex items-center gap-1 text-[11px] font-normal text-muted-foreground hover:text-foreground cursor-pointer select-none">
+                      <Checkbox
+                        checked={!!field.value}
+                        onCheckedChange={(checked) => field.onChange(!!checked)}
+                        className="h-3.5 w-3.5"
+                      />
+                      <span>Proforma</span>
+                    </label>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[240px] text-xs">
+                    Mark as Proforma Respondent — printed as &ldquo;Proforma Respondent No. {index + 1}&rdquo; in the Memo of Parties.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          />
+        )}
         <div className="flex-grow" />
         <Button
           type="button"

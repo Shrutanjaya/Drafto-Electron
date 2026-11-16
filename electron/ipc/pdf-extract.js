@@ -178,7 +178,7 @@ function parseDocxStyles(stylesXml) {
 function parseDocxNumbering(numberingXml) {
   const abstractNums = new Map(); // abstractNumId -> Map(ilvl -> { numFmt, lvlText })
   const numMap = new Map(); // numId -> abstractNumId
-  if (!numberingXml) return { getListKind: () => "ol" };
+  if (!numberingXml) return { getListKind: () => "ol", getListMeta: () => ({ kind: "ol" }) };
 
   const absRe = /<w:abstractNum\b([^>]*)>([\s\S]*?)<\/w:abstractNum>/gi;
   let m;
@@ -192,7 +192,9 @@ function parseDocxNumbering(numberingXml) {
       const ilvl = parseInt(parseAttr(lm[1], "w:ilvl") || "0", 10);
       const fmtM = lm[2].match(/<w:numFmt\b[^>]*w:val="([^"]*)"/i);
       const numFmt = fmtM ? fmtM[1] : "decimal";
-      lvls.set(ilvl, { numFmt });
+      const lvlTextM = lm[2].match(/<w:lvlText\b[^>]*w:val="([^"]*)"/i);
+      const lvlText = lvlTextM ? lvlTextM[1] : "";
+      lvls.set(ilvl, { numFmt, lvlText });
     }
     abstractNums.set(absId, lvls);
   }
@@ -207,13 +209,44 @@ function parseDocxNumbering(numberingXml) {
   }
 
   return {
-    getListKind(numId, ilvl = 0) {
+    getListMeta(numId, ilvl = 0) {
       const absId = numMap.get(String(numId));
-      if (!absId) return "ol";
+      if (!absId) return { kind: "ol" };
       const lvls = abstractNums.get(absId);
       const info = lvls?.get(ilvl) || lvls?.get(0);
-      if (info && /^bullet$/i.test(info.numFmt)) return "ul";
-      return "ol";
+      if (!info) return { kind: "ol" };
+
+      const numFmt = (info.numFmt || "").toLowerCase();
+      const lvlText = info.lvlText || "";
+
+      // Bullet check
+      if (numFmt === "bullet" || /^[•▪■–—-]$/.test(lvlText.trim())) {
+        let bullet = "disc";
+        if (/[–—-]/.test(lvlText)) bullet = "dash";
+        else if (/[▪■\uF0A7\uF0A8\u25AA\u25FE]/.test(lvlText)) bullet = "square";
+        return { kind: "ul", bullet };
+      }
+
+      // Ordered list regime check
+      const hasParens = /^\s*\(.*%\d+.*\)\s*$/.test(lvlText) || /^\s*\(/.test(lvlText);
+      let regime = null;
+
+      if (numFmt === "lowerletter") {
+        regime = hasParens ? "parens-lower-alpha" : "lower-alpha";
+      } else if (numFmt === "lowerroman") {
+        regime = hasParens ? "parens-lower-roman" : "lower-roman";
+      } else if (numFmt === "decimal") {
+        regime = hasParens ? "parens-decimal" : null;
+      } else if (numFmt === "upperletter") {
+        regime = "upper-alpha";
+      } else if (numFmt === "upperroman") {
+        regime = "upper-roman";
+      }
+
+      return { kind: "ol", regime };
+    },
+    getListKind(numId, ilvl = 0) {
+      return this.getListMeta(numId, ilvl).kind;
     },
   };
 }
@@ -362,7 +395,8 @@ function parseParagraphXml(pXml, styles, numbering) {
     }
   }
 
-  const listKind = numId ? numbering.getListKind(numId, ilvl) : null;
+  const listMeta = numId ? numbering.getListMeta(numId, ilvl) : null;
+  const listKind = listMeta ? listMeta.kind : (numId ? numbering.getListKind(numId, ilvl) : null);
 
   return {
     html: inlineHtml,
@@ -370,6 +404,7 @@ function parseParagraphXml(pXml, styles, numbering) {
     isQuote,
     isList: !!numId,
     listKind,
+    listMeta,
     ilvl,
   };
 }
@@ -440,13 +475,13 @@ function tokenizeBlocks(xmlFragment) {
 
 function renderBlocksToHtml(blocks, styles, numbering) {
   const out = [];
-  let activeListKind = null; // "ol" | "ul" | null
+  const listStack = []; // array of { kind: "ol" | "ul", ilvl: number }
   let activeQuoteParas = []; // paragraphs currently inside an open blockquote
 
-  const closeListIfOpen = () => {
-    if (activeListKind) {
-      out.push(`</${activeListKind}>`);
-      activeListKind = null;
+  const closeAllLists = () => {
+    while (listStack.length > 0) {
+      const top = listStack.pop();
+      out.push(`</li></${top.kind}>`);
     }
   };
 
@@ -472,7 +507,7 @@ function renderBlocksToHtml(blocks, styles, numbering) {
       if (!parsed.html) continue;
 
       if (parsed.headingLevel != null) {
-        closeListIfOpen();
+        closeAllLists();
         flushQuoteIfOpen();
         const hTag = `h${Math.min(Math.max(parsed.headingLevel, 1), 3)}`;
         const cleanHeading = parsed.html.replace(/<\/?(?:b|strong)>/gi, "");
@@ -480,29 +515,60 @@ function renderBlocksToHtml(blocks, styles, numbering) {
       } else if (parsed.isList) {
         flushQuoteIfOpen();
         const kind = parsed.listKind || "ol";
-        if (activeListKind !== kind) {
-          closeListIfOpen();
-          out.push(`<${kind}>`);
-          activeListKind = kind;
+        const ilvl = parsed.ilvl || 0;
+        const meta = parsed.listMeta;
+        let attr = "";
+        if (kind === "ol" && meta?.regime) {
+          attr = ` data-regime="${meta.regime}"`;
+        } else if (kind === "ul" && meta?.bullet && meta.bullet !== "disc") {
+          attr = ` data-bullet="${meta.bullet}"`;
         }
-        out.push(`<li>${parsed.html}</li>`);
+
+        if (listStack.length === 0) {
+          listStack.push({ kind, ilvl });
+          out.push(`<${kind}${attr}><li>${parsed.html}`);
+        } else {
+          const top = listStack[listStack.length - 1];
+          if (ilvl > top.ilvl) {
+            // Indent: open nested list inside the current li
+            listStack.push({ kind, ilvl });
+            out.push(`<${kind}${attr}><li>${parsed.html}`);
+          } else if (ilvl < top.ilvl) {
+            // Outdent: unwind open sub-lists
+            while (listStack.length > 0 && listStack[listStack.length - 1].ilvl > ilvl) {
+              const popped = listStack.pop();
+              out.push(`</li></${popped.kind}>`);
+            }
+            out.push(`</li><li>${parsed.html}`);
+          } else {
+            // Same level
+            if (top.kind !== kind) {
+              out.push(`</li></${top.kind}>`);
+              listStack.pop();
+              listStack.push({ kind, ilvl });
+              out.push(`<${kind}${attr}><li>${parsed.html}`);
+            } else {
+              out.push(`</li><li>${parsed.html}`);
+            }
+          }
+        }
       } else if (parsed.isQuote) {
-        closeListIfOpen();
+        closeAllLists();
         activeQuoteParas.push(parsed.html);
       } else {
-        closeListIfOpen();
+        closeAllLists();
         flushQuoteIfOpen();
         out.push(`<p>${parsed.html}</p>`);
       }
     } else if (blk.type === "tbl") {
-      closeListIfOpen();
+      closeAllLists();
       flushQuoteIfOpen();
       const tblHtml = parseTableXml(blk.xml, styles, numbering);
       if (tblHtml) out.push(tblHtml);
     }
   }
 
-  closeListIfOpen();
+  closeAllLists();
   flushQuoteIfOpen();
   return out.join("\n");
 }

@@ -17,6 +17,8 @@ import { getSettings } from "@/components/dialogs/settings-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { saveAs } from "file-saver";
 import { incrementGenerationCount } from "@/lib/firebase/usage-service";
+import { vakalatnamaIndexTitle } from "@/lib/vakalatnama";
+import { VakalatnamaExtrasControl } from "./vakalatnama-extras-control";
 import {
   PaperbookGeneratorView,
   type PaperbookItem,
@@ -269,7 +271,7 @@ export function WpPdfGenerationDialog({
     id: "petition",
     label: "Writ Petition Affidavit",
     sNo: sNoCounter++,
-    particulars: `Writ Petition under Article ${project.wp?.articleBasis || "226"} of the Constitution of India, with affidavit`,
+    particulars: "Affidavit for the Writ Petition",
     notes: getItemNotes(
       "Petition auto-generated. Signed/notarized affidavit required.",
       "affidavit"
@@ -374,6 +376,19 @@ export function WpPdfGenerationDialog({
     return idx >= 0 ? `wp.customCms.${idx}.signedAffidavit` : "";
   };
 
+  const wpCmAffidavitLabel = (title: string): string => {
+    const clean = (title || "").trim();
+    if (!clean) return "Affidavit for the CM";
+    const stripped = clean.replace(
+      /^Application\s+(?:under\s+.*?\s+)?(?=(?:seeking|for|to|praying|condoning|directing|staying)\b)/i,
+      ""
+    );
+    if (stripped !== clean) {
+      return `Affidavit for the CM ${stripped}`;
+    }
+    return `Affidavit for the CM (${clean})`;
+  };
+
   cms.forEach((cm, i) => {
     const affPath = cmAffidavitPath(cm.key);
     const affVal = !cm.key.startsWith("custom:")
@@ -386,7 +401,7 @@ export function WpPdfGenerationDialog({
       id: `cm:${i}`,
       label: `${wpCmTitle(cm)} — Affidavit`,
       sNo: sNoCounter++,
-      particulars: `C.M. No. ____ of ${year}: ${wpCmTitle(cm)}, with affidavit`,
+      particulars: wpCmAffidavitLabel(cm.title),
       notes: getItemNotes(
         "Application auto-generated. Signed affidavit required.",
         [`cm:${i}`, `customcm:${cm.key.replace(/^custom:/, "")}`]
@@ -402,13 +417,19 @@ export function WpPdfGenerationDialog({
   const vakVal = project.wp?.uploads?.signedVakalatnama;
   const hasVak = hasUsableFile(vakVal);
   const vakFileName = vakVal?.file?.name || fileNameOf(vakVal?.filePath);
+  const vakTitle = vakalatnamaIndexTitle(
+    "Vakalatnama",
+    project.vakalatnamaWithBoardResolution,
+    project.vakalatnamaWithAuthorityLetter
+  );
 
   tailItems.push({
     id: "vakalatnama",
-    label: "Vakalatnama",
+    label: vakTitle,
     sNo: sNoCounter++,
-    particulars: "Vakalatnama",
+    particulars: vakTitle,
     notes: getItemNotes("Signed copy required.", "vakalatnama"),
+    extra: <VakalatnamaExtrasControl pickFile={pickFile} />,
     status: hasVak ? "user_uploaded" : "mandatory_missing",
     fileName: vakFileName,
     onUpload: () => handlePick("wp.uploads.signedVakalatnama"),

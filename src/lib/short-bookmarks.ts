@@ -28,11 +28,11 @@ export function shortAnnexureTitle(raw: string): string {
 }
 
 /**
- * Inspects a compiled SLoD PDF's text page-by-page to find the 0-based page index
- * where the "LIST OF DATES" section actually begins. Returns -1 if not found.
+ * Inspects a compiled PDF's text page-by-page to find the 0-based page index
+ * where a heading matching `pattern` appears. Returns -1 if not found.
  * Uses lazy dynamic import so pdfjs-dist never interferes with app startup or React context.
  */
-export async function findLodPageOffset(pdfBytes: Uint8Array): Promise<number> {
+export async function findHeadingPageOffset(pdfBytes: Uint8Array, pattern: RegExp): Promise<number> {
   try {
     const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.js");
     const workerUrl = await import("pdfjs-dist/legacy/build/pdf.worker.min.js?url");
@@ -49,14 +49,22 @@ export async function findLodPageOffset(pdfBytes: Uint8Array): Promise<number> {
         .join(" ")
         .replace(/\s+/g, " ")
         .trim();
-      if (/LIST\s+OF\s+DATES/i.test(pageText)) {
+      if (pattern.test(pageText)) {
         return i - 1; // 0-based offset
       }
     }
   } catch (err) {
-    console.warn("findLodPageOffset with dynamic pdfjs failed:", err);
+    console.warn("findHeadingPageOffset with dynamic pdfjs failed:", err);
   }
   return -1;
+}
+
+/**
+ * Inspects a compiled SLoD PDF's text page-by-page to find the 0-based page index
+ * where the "LIST OF DATES" section actually begins. Returns -1 if not found.
+ */
+export async function findLodPageOffset(pdfBytes: Uint8Array): Promise<number> {
+  return findHeadingPageOffset(pdfBytes, /LIST\s+OF\s+DATES/i);
 }
 
 /**

@@ -115,6 +115,7 @@ export const vaadiTableItemSchema = z.object({
   name: z.string().default(""),
   address: z.string().default(""),
   positionInEarlierCourt: z.string().default(""),
+  isProforma: z.boolean().default(false),
   // CAT: each Applicant signs their own last page / vakalatnama / affidavit, so
   // each needs their own deponent particulars. Ignored by SLP and WP.
   relationship: z.string().default(""),
@@ -220,6 +221,10 @@ export const draftoProjectSchema = z.object({
   intraCourtAppealStatus: z.enum(["", "no_appeal_lies", "appeal_lies_but"]).default(""),
   intraCourtAppealReason: z.string().default(""),
   para1BContent: z.string().default(""),
+  vakalatnamaWithBoardResolution: z.boolean().default(false),
+  vakalatnamaWithAuthorityLetter: z.boolean().default(false),
+  vakalatnamaBoardResolution: z.any().optional(),
+  vakalatnamaAuthorityLetter: z.any().optional(),
   splitSynopsisAndLod: z.boolean().default(true),
 
   // ── Writ Petition (PIL) ─────────────────────────────────────────────────
@@ -572,6 +577,12 @@ export const draftoProjectSchema = z.object({
     factsRows: z.array(lodTableItemSchema).default([]),
     annexureMode: z.enum(["lod", "facts"]).default("lod"),
     factsEdited: z.boolean().default(false),
+    // Per-section sub-paragraph numbering styles.
+    numbering: z.object({
+      facts: z.enum(["decimal", "lower-alpha", "upper-alpha", "lower-roman", "upper-roman"]).default("lower-alpha"),
+      grounds: z.enum(["decimal", "lower-alpha", "upper-alpha", "lower-roman", "upper-roman"]).default("lower-alpha"),
+      prayers: z.enum(["lower-alpha", "upper-alpha", "lower-roman", "upper-roman"]).default("lower-alpha"),
+    }).default({}),
     // Transposition bookkeeping: LoD row ids already carried into Facts (drives
     // the append-only "add new rows" action) and a fingerprint of the LoD at the
     // last (re)generation (drives the staleness warning in the pre-flight check).

@@ -42,6 +42,8 @@ import { isScWpFamily, annexurePrefix } from "@/lib/court-family";
 import { getScWpIaList } from "@/lib/sc-wp/sc-wp-actions";
 import { wpAnnexureOrderFromLods } from "@/lib/wp/wp-annexures";
 import { annexureRowsOf, annexureModeOf, factsRowsOf, factsRowsPath } from "@/lib/wp/facts-mode";
+import { getPartyGrammar } from "@/lib/party-grammar";
+import { VakalatnamaExtrasControl } from "./vakalatnama-extras-control";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { useEntitlement, useExportPermission } from "@/providers/entitlement-provider";
@@ -971,6 +973,12 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         
         formData.append('fileMetas', JSON.stringify(fileMetas));
         formData.append('projectData', JSON.stringify(projectData));
+        if (projectData.vakalatnamaWithBoardResolution && projectData.vakalatnamaBoardResolution?.file instanceof File) {
+            formData.append('vakalatnamaBoardResolution', projectData.vakalatnamaBoardResolution.file, projectData.vakalatnamaBoardResolution.file.name);
+        }
+        if (projectData.vakalatnamaWithAuthorityLetter && projectData.vakalatnamaAuthorityLetter?.file instanceof File) {
+            formData.append('vakalatnamaAuthorityLetter', projectData.vakalatnamaAuthorityLetter.file, projectData.vakalatnamaAuthorityLetter.file.name);
+        }
         formData.append('settings', JSON.stringify(getSettings()));
         formData.append('enableOcr', String(enableOcr));
         
@@ -1440,7 +1448,9 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
         if (iaItemIds.has(item.id)) return;
 
         let displayTitle = item.label;
-        if (item.id.startsWith('impugnedOrder_')) {
+        if (item.id === 'vakalatnama') {
+            displayTitle = getPartyGrammar(mainFormValues).vakalatnamaLabel;
+        } else if (item.id.startsWith('impugnedOrder_')) {
             if (impugnedOrderCount <= 1) {
                 displayTitle = "Impugned Order";
             } else {
@@ -1798,15 +1808,22 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                                                     leftWrap ? "items-start" : "items-center"
                                                 )}
                                             >
-                                                <span
-                                                    className={cn(
-                                                        "text-foreground font-medium",
-                                                        leftWrap ? "min-w-0 flex-1 break-words leading-tight" : "truncate"
+                                                <div className="min-w-0 flex-1">
+                                                    <span
+                                                        className={cn(
+                                                            "text-foreground font-medium block",
+                                                            leftWrap ? "break-words leading-tight" : "truncate"
+                                                        )}
+                                                        title={entry.title}
+                                                    >
+                                                        {entry.title}
+                                                    </span>
+                                                    {item.id === 'vakalatnama' && (
+                                                        <FormProvider {...mainForm}>
+                                                            <VakalatnamaExtrasControl />
+                                                        </FormProvider>
                                                     )}
-                                                    title={entry.title}
-                                                >
-                                                    {entry.title}
-                                                </span>
+                                                </div>
                                                 <div className={cn("shrink-0 flex items-center gap-1", leftWrap && "mt-0.5")}>
                                                     {isLocked ? (
                                                         <ActionPill

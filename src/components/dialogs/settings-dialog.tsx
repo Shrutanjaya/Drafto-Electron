@@ -190,6 +190,8 @@ interface SettingsData {
   // keep a concise List of Dates and a Facts table of its own.
   wpFactsFromLod: boolean;
   oaFactsFromLod: boolean;
+  wpTitleStyle: 'points' | 'inline';
+  wpTitleCaps: 'none' | 'smallCaps' | 'allCaps';
 
   // Mayur AI — multi-LLM bring-your-own API key (stored locally via safeStorage)
   aiPluginEnabled: boolean;
@@ -875,6 +877,8 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
     slpAffidavitAnnexureRef: 'actual' as const,
     wpFactsFromLod: true,
     oaFactsFromLod: true,
+    wpTitleStyle: 'points' as const,
+    wpTitleCaps: 'none' as const,
     aiPluginEnabled: true,
     aiProvider: 'gemini',
     aiClaudeBinaryPath: "",
@@ -1073,6 +1077,8 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
           slpAffidavitAnnexureRef: (parsed.slpAffidavitAnnexureRef === 'blank' ? 'blank' : 'actual') as 'actual' | 'blank',
           wpFactsFromLod: parsed.wpFactsFromLod ?? true,
           oaFactsFromLod: parsed.oaFactsFromLod ?? true,
+          wpTitleStyle: (parsed.wpTitleStyle === 'inline' ? 'inline' : 'points') as 'points' | 'inline',
+          wpTitleCaps: (parsed.wpTitleCaps === 'smallCaps' || parsed.wpTitleCaps === 'allCaps' ? parsed.wpTitleCaps : 'none') as 'none' | 'smallCaps' | 'allCaps',
           aiPluginEnabled: parsed.aiPluginEnabled ?? true,
           aiProvider: normalizeAiProvider(parsed.aiProvider),
           aiClaudeBinaryPath: parsed.aiClaudeBinaryPath ?? "",
@@ -2756,6 +2762,34 @@ export function SettingsDialog({ children }: { children: React.ReactNode }) {
                       ]}
                     />
                   </SettingRow>
+                </SettingsGroup>
+                <SettingsGroup
+                  title="Writ Petition title"
+                  info={"Point-wise: prints \"Writ Petition under <Article> of the Constitution of India\" centered, followed by \"PRAYING FOR THE FOLLOWING RELIEFS:\" and the numbered/lettered reliefs.\n\nSame sentence: combines the title and all reliefs into a single bold, justified paragraph (\"Writ Petition under <Article> of the Constitution of India praying that this Hon’ble Court may be pleased to issue an appropriate writ, order or direction and [a]...\")."}
+                >
+                  <SettingRow label="Title reliefs layout">
+                    <SegGroup
+                      value={settings.wpTitleStyle}
+                      onChange={(v) => setSettings((prev) => ({ ...prev, wpTitleStyle: v as 'points' | 'inline' }))}
+                      options={[
+                        { value: 'points', label: 'Point-wise' },
+                        { value: 'inline', label: 'Same sentence' },
+                      ]}
+                    />
+                  </SettingRow>
+                  {settings.wpTitleStyle === 'inline' && (
+                    <SettingRow label="Capitalization">
+                      <SegGroup
+                        value={settings.wpTitleCaps}
+                        onChange={(v) => setSettings((prev) => ({ ...prev, wpTitleCaps: v as 'none' | 'smallCaps' | 'allCaps' }))}
+                        options={[
+                          { value: 'none', label: 'Normal' },
+                          { value: 'smallCaps', label: 'Small Caps' },
+                          { value: 'allCaps', label: 'All Caps' },
+                        ]}
+                      />
+                    </SettingRow>
+                  )}
                 </SettingsGroup>
                     </div>
 
@@ -4957,6 +4991,8 @@ export function getSettings(): SettingsData {
     slpAffidavitAnnexureRef: 'actual' as const,
     wpFactsFromLod: true,
     oaFactsFromLod: true,
+    wpTitleStyle: 'points' as const,
+    wpTitleCaps: 'none' as const,
     aiPluginEnabled: true,
     aiProvider: 'gemini' as AiProvider,
     aiClaudeBinaryPath: "",
@@ -5156,6 +5192,8 @@ export function getSettings(): SettingsData {
         slpAffidavitAnnexureRef: (parsed.slpAffidavitAnnexureRef === 'blank' ? 'blank' : 'actual') as 'actual' | 'blank',
         wpFactsFromLod: parsed.wpFactsFromLod ?? true,
         oaFactsFromLod: parsed.oaFactsFromLod ?? true,
+        wpTitleStyle: (parsed.wpTitleStyle === 'inline' ? 'inline' : 'points') as 'points' | 'inline',
+        wpTitleCaps: (parsed.wpTitleCaps === 'smallCaps' || parsed.wpTitleCaps === 'allCaps' ? parsed.wpTitleCaps : 'none') as 'none' | 'smallCaps' | 'allCaps',
         aiPluginEnabled: parsed.aiPluginEnabled ?? true,
         aiProvider: normalizeAiProvider(parsed.aiProvider),
         aiClaudeBinaryPath: parsed.aiClaudeBinaryPath ?? "",

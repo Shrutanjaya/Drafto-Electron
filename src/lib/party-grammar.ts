@@ -1,4 +1,5 @@
 import { isAppeal } from "./court-family";
+import { vakalatnamaIndexTitle } from "./vakalatnama";
 
 export type PartyBaseNoun = "Petitioner" | "Appellant" | "Applicant";
 
@@ -109,13 +110,22 @@ export function getPartyGrammar(
         : "Petitioner");
 
   const { petitioners, respondents } = getEffectiveParties(project);
-  return buildPartyGrammarFromCounts(countParties(petitioners), countParties(respondents), baseNoun);
+  return buildPartyGrammarFromCounts(
+    countParties(petitioners),
+    countParties(respondents),
+    baseNoun,
+    {
+      withBoardResolution: (project as any)?.vakalatnamaWithBoardResolution,
+      withAuthorityLetter: (project as any)?.vakalatnamaWithAuthorityLetter,
+    },
+  );
 }
 
 export function buildPartyGrammarFromCounts(
   petCount: number,
   resCount: number,
   baseNoun: PartyBaseNoun = "Petitioner",
+  vakalatnamaOpts?: { withBoardResolution?: boolean; withAuthorityLetter?: boolean },
 ): PartyGrammar {
   const multiPet = petCount > 1;
   const multiRes = resCount > 1;
@@ -145,7 +155,11 @@ export function buildPartyGrammarFromCounts(
     they: multiPet ? "they" : "he",
     them: multiPet ? "them" : "him",
     possessive: multiPet ? `${baseNoun}s’` : `${baseNoun}’s`,
-    vakalatnamaLabel: multiPet ? "Vakalatnamas" : "Vakalatnama",
+    vakalatnamaLabel: vakalatnamaIndexTitle(
+      multiPet ? "Vakalatnamas" : "Vakalatnama",
+      vakalatnamaOpts?.withBoardResolution,
+      vakalatnamaOpts?.withAuthorityLetter,
+    ),
   };
 }
 

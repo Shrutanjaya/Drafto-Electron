@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { PlusCircle, Trash2, FileText, GripVertical, Info, FileUp, Plus, Heading } from "lucide-react"
+import { PlusCircle, Trash2, FileText, GripVertical, Info, FileUp, Plus, Heading, Paperclip } from "lucide-react"
 import { InlineAnnexuresStrip, AddAnnexureButton } from "./inline-annexures"
 import { BadhiyaBox } from "./badhiya-box"
 import { annexureNumbering } from "@/lib/annexure-numbering"
@@ -71,13 +71,14 @@ const SortableRow = ({ id, children }: { id: string, children: React.ReactNode }
   };
 
   return (
-    <TableRow ref={setNodeRef} style={style} {...attributes} className="border-none">
+    <TableRow ref={setNodeRef} style={style} className="border-none">
       <TableCell className="p-0 align-top pt-1">
         <Button
           type="button"
           variant="ghost"
           size="icon"
           className="h-7 w-7 cursor-grab"
+          {...attributes}
           {...listeners}
         >
           <GripVertical className="h-4 w-4" />
@@ -282,7 +283,7 @@ function LoDTableInner({
     const observer = new MutationObserver(measure);
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
     return () => observer.disconnect();
-  }, [allLods]);
+  }, []);
   
   const courtType = useWatch({ control: form.control, name: "courtType" });
   const prefix = annexPrefixFor(courtType);
@@ -326,15 +327,15 @@ function LoDTableInner({
 
   const getRowAnnexures = (lod: any) => {
     if (lod?.annexures && lod.annexures.length > 0) return lod.annexures;
-    if (name !== "listOfDates" && annexureModeOf(form.getValues()) === "lod") {
-      const match = (form.getValues("listOfDates") || []).find((l: any) => l.id === lod.id);
+    if (lod?.id && name !== "listOfDates" && annexureModeOf(form.getValues()) === "lod") {
+      const match = (form.getValues("listOfDates") || []).find((l: any) => l?.id === lod.id);
       return match?.annexures || [];
     }
     return [];
   };
 
   const hasAnyAnnexures = useMemo(() => {
-    return allLods.some((lod: any) => getRowAnnexures(lod).length > 0);
+    return (allLods || []).some((lod: any) => lod && getRowAnnexures(lod).length > 0);
   }, [allLods, name]);
   
   const sensors = useSensors(
@@ -360,6 +361,38 @@ function LoDTableInner({
   const insertHeadingAt = (index: number) => {
     const id = `item_${Date.now()}`;
     insert(index, { id, isHeading: true, heading: "", date: "", event: "", annexures: [] });
+  };
+
+  const handleSplitRow = (index: number, editor: any) => {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    const doc = editor.state.doc;
+    const isAtEnd = to >= doc.content.size - 1;
+
+    if (isAtEnd) {
+      insert(index + 1, { id: `lod_${Date.now()}`, date: "", event: "", annexures: [] });
+      return;
+    }
+
+    // Extract content after selection
+    const textAfter = doc.textBetween(from, doc.content.size, "\n").trim();
+    // Delete content from cursor to end in current editor
+    editor.chain().deleteRange({ from, to: doc.content.size }).run();
+
+    // Insert new row after current with the remaining content
+    insert(index + 1, {
+      id: `lod_${Date.now()}`,
+      date: "",
+      event: textAfter ? `<p>${textAfter}</p>` : "",
+      annexures: [],
+    });
+  };
+
+  const handleMoveRow = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target >= 0 && target < fields.length) {
+      move(index, target);
+    }
   };
 
   const InsertHeadingStrip = ({ at }: { at: number }) => (
@@ -426,7 +459,7 @@ function LoDTableInner({
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
           >
-            <Table>
+            <Table wrapperClassName="overflow-visible">
               <TableHeader>
                 <TableRow className="border-none">
                   <TableHead className="w-[30px] p-0 text-xs"></TableHead>
@@ -459,7 +492,7 @@ function LoDTableInner({
               >
                 <TableBody>
                   {fields.map((item, index) => {
-                    const currentLod = allLods[index];
+                    const currentLod = allLods[index] || item;
                     const isHeading = allowHeadings && !!currentLod?.isHeading;
 
                     if (isHeading) {
@@ -468,7 +501,7 @@ function LoDTableInner({
                           {allowHeadings && <InsertHeadingStrip at={index} />}
                           <SortableRow id={item.id}>
                             <TableCell className="font-medium text-xs align-middle p-0 text-center text-muted-foreground">
-                              {headingLabelFor(allLods as any, index, factsHeadingStyle)}
+                              {headingLabelFor((allLods && allLods.length > index ? allLods : fields) as any, index, factsHeadingStyle)}
                             </TableCell>
                             <TableCell colSpan={hideDate ? 1 : 2} className="p-0">
                               <FormField
@@ -558,6 +591,8 @@ function LoDTableInner({
                                     onChange={field.onChange}
                                     path={field.name}
                                     onCtrlSpace={() => insert(index + 1, { id: `lod_${Date.now()}`, date: "", event: "", annexures: [] })}
+                                    onCtrlEnter={(editor) => handleSplitRow(index, editor)}
+                                    onMoveRow={(dir) => handleMoveRow(index, dir)}
                                   />
                                 </FormControl>
                               </FormItem>
@@ -583,6 +618,27 @@ function LoDTableInner({
                                   />
                                 </div>
                               )}
+                            </div>
+                          )}
+
+                          {/* When in separate Facts mode with annexures marked in LoD (hideAnnexures=true), show read-only linked annexure preview pills */}
+                          {hideAnnexures && rowAnnexures.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5 px-1 py-1">
+                              {rowAnnexures.map((annex: any) => {
+                                const num = annexureNumberingMap.get(annex.id);
+                                const label = num !== undefined ? `Annexure ${prefix}-${num}` : "Annexure";
+                                return (
+                                  <span
+                                    key={annex.id}
+                                    className="inline-flex items-center gap-1 text-[11px] bg-muted/60 text-muted-foreground border rounded px-1.5 py-0.5"
+                                    title="Attached in List of Dates"
+                                  >
+                                    <Paperclip className="h-3 w-3 text-primary/70 shrink-0" />
+                                    <span className="font-medium text-foreground">{label}</span>
+                                    {annex.particulars && <span className="truncate max-w-[240px] text-muted-foreground">— {annex.particulars}</span>}
+                                  </span>
+                                );
+                              })}
                             </div>
                           )}
                         </TableCell>
@@ -644,11 +700,11 @@ function LoDTableInner({
            variant="ghost"
            size="sm"
            className="h-7 text-xs text-muted-foreground hover:text-foreground gap-1.5 px-2"
-           title="Import dates and annexures from another project"
+           title="Borrow dates and annexures from another project"
            onClick={() => window.dispatchEvent(new CustomEvent("drafto-open-import-dialog"))}
          >
            <FileUp className="h-3.5 w-3.5" />
-           Import from Project…
+           Borrow List of Dates
          </Button>
        </div>
     </div>

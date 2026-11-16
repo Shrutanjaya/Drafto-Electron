@@ -63,3 +63,17 @@ export const VAKALATNAMA_FEES_LINE = "Agreed subject to the terms of fees.";
 export function vakalatnamaPartyLabel(noun: "Petitioner" | "Applicant", index?: number, total = 1): string {
   return total > 1 && index !== undefined ? `${noun} No. ${index + 1}` : noun;
 }
+
+/** Combined Index / Bookmark title when Board Resolution and/or Authority Letter accompany the Vakalatnama. */
+export function vakalatnamaIndexTitle(
+  baseLabel = "Vakalatnama",
+  withBoardResolution?: boolean,
+  withAuthorityLetter?: boolean,
+): string {
+  const extras: string[] = [];
+  if (withBoardResolution) extras.push("Board Resolution");
+  if (withAuthorityLetter) extras.push("Authority Letter");
+  if (extras.length === 0) return baseLabel;
+  if (extras.length === 1) return `${baseLabel} and ${extras[0]}`;
+  return `${baseLabel}, ${extras[0]} and ${extras[1]}`;
+}

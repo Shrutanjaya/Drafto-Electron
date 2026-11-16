@@ -11,6 +11,8 @@ import {
   Underline as UnderlineIcon,
   List,
   ListOrdered,
+  IndentDecrease,
+  IndentIncrease,
   Quote,
   AlignLeft,
   AlignCenter,
@@ -50,7 +52,7 @@ import { Bookmark } from 'lucide-react';
 // Move the table row containing the cursor up or down by one, preserving cell
 // content (TipTap ships no moveRow command). Deletes the row node and reinserts
 // it past its sibling; positions are recomputed relative to the post-delete doc.
-function moveTableRow(editor: Editor, dir: -1 | 1): boolean {
+export function moveTableRow(editor: Editor, dir: -1 | 1): boolean {
   const { state } = editor;
   const { $from } = state.selection;
   let rowDepth = -1;
@@ -98,8 +100,6 @@ export const EditorToolbar = () => {
     const [customCols, setCustomCols] = useState(3);
     const [showAnnexurePicker, setShowAnnexurePicker] = useState(false);
     const [annexSearch, setAnnexSearch] = useState("");
-    const pickerRef = useRef<HTMLDivElement>(null);
-    const tableMenuRef = useRef<HTMLDivElement>(null);
 
     const form = useFormContext<DraftoProject>();
     const courtType = useWatch({ control: form?.control, name: "courtType" }) || "SLP";
@@ -157,19 +157,6 @@ export const EditorToolbar = () => {
       setAnnexSearch("");
     };
 
-    useEffect(() => {
-        const handleClickOutside = (e: MouseEvent) => {
-            if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-                setShowHighlightPicker(false);
-            }
-            if (tableMenuRef.current && !tableMenuRef.current.contains(e.target as Node)) {
-                setShowTableMenu(false);
-            }
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-
   const applyHighlight = (color: string) => {
     if (!editor) return;
     if (color === 'none') {
@@ -188,6 +175,36 @@ export const EditorToolbar = () => {
   const toggleUnderline = () => editor?.chain().focus().toggleUnderline().run()
   const toggleBulletList = () => editor?.chain().focus().toggleBulletList().run()
   const toggleOrderedList = () => editor?.chain().focus().toggleOrderedList().run()
+
+  const BULLET_STYLES = [
+    { id: 'disc', label: '•  Round' },
+    { id: 'dash', label: '–  En-dash' },
+    { id: 'square', label: '▪  Square' },
+  ];
+
+  const outermostBulletList = (): { pos: number; node: any } | null => {
+    if (!editor) return null;
+    const { $from } = editor.state.selection;
+    for (let depth = 1; depth <= $from.depth; depth++) {
+      const node = $from.node(depth);
+      if (node.type.name === 'bulletList') return { pos: $from.before(depth), node };
+    }
+    return null;
+  };
+
+  const currentBulletStyle = (): string => outermostBulletList()?.node.attrs.bullet || 'disc';
+
+  const applyBulletStyle = (id: string) => {
+    if (!editor) return;
+    if (!editor.isActive('bulletList')) editor.chain().focus().toggleBulletList().run();
+    const target = outermostBulletList();
+    if (!target) return;
+    const bullet = id === 'disc' ? 'disc' : id;
+    editor.view.dispatch(
+      editor.state.tr.setNodeMarkup(target.pos, undefined, { ...target.node.attrs, bullet }),
+    );
+    editor.commands.focus();
+  };
 
   // The regime lives on the OUTERMOST list of whatever the cursor is inside —
   // one list, one regime, with the levels below following from it. Picking one
@@ -247,15 +264,16 @@ export const EditorToolbar = () => {
   
   return (
     <div className={cn("flex flex-wrap items-center gap-0.5 p-0.5 border border-input rounded-md bg-muted/50", !editor && "opacity-50 pointer-events-none")}>
-      <Button variant="ghost" size="icon" onClick={toggleBold} className={cn("h-6 w-6 p-1", editor?.isActive('bold') ? 'bg-accent' : '')}><Bold /></Button>
-      <Button variant="ghost" size="icon" onClick={toggleItalic} className={cn("h-6 w-6 p-1", editor?.isActive('italic') ? 'bg-accent' : '')}><Italic /></Button>
-      <Button variant="ghost" size="icon" onClick={toggleUnderline} className={cn("h-6 w-6 p-1", editor?.isActive('underline') ? 'bg-accent' : '')}><UnderlineIcon /></Button>
+      <Button variant="ghost" size="icon" onMouseDown={(e) => e.preventDefault()} onClick={toggleBold} className={cn("h-6 w-6 p-1", editor?.isActive('bold') ? 'bg-accent' : '')} title="Bold (Ctrl+B)"><Bold /></Button>
+      <Button variant="ghost" size="icon" onMouseDown={(e) => e.preventDefault()} onClick={toggleItalic} className={cn("h-6 w-6 p-1", editor?.isActive('italic') ? 'bg-accent' : '')} title="Italic (Ctrl+I)"><Italic /></Button>
+      <Button variant="ghost" size="icon" onMouseDown={(e) => e.preventDefault()} onClick={toggleUnderline} className={cn("h-6 w-6 p-1", editor?.isActive('underline') ? 'bg-accent' : '')} title="Underline (Ctrl+U)"><UnderlineIcon /></Button>
       {/* Headings H1, H2, H3 */}
       <div className="flex items-center mx-0.5 border-l border-r border-border/60 px-0.5 gap-0.5">
         <Button
           type="button"
           variant="ghost"
           size="sm"
+          onMouseDown={(e) => e.preventDefault()}
           onClick={() => editor && applySmartHeading(editor, 1)}
           className={cn(
             "h-6 px-1.5 text-xs font-bold tracking-tight rounded-sm",
@@ -269,6 +287,7 @@ export const EditorToolbar = () => {
           type="button"
           variant="ghost"
           size="sm"
+          onMouseDown={(e) => e.preventDefault()}
           onClick={() => editor && applySmartHeading(editor, 2)}
           className={cn(
             "h-6 px-1.5 text-xs font-medium tracking-tight rounded-sm",
@@ -283,6 +302,7 @@ export const EditorToolbar = () => {
           type="button"
           variant="ghost"
           size="sm"
+          onMouseDown={(e) => e.preventDefault()}
           onClick={() => editor && applySmartHeading(editor, 3)}
           className={cn(
             "h-6 px-1.5 text-xs italic tracking-tight rounded-sm",
@@ -300,6 +320,7 @@ export const EditorToolbar = () => {
             type="button"
             variant="ghost"
             size="sm"
+            onMouseDown={(e) => e.preventDefault()}
             className="h-6 px-1.5 text-xs gap-1 text-muted-foreground hover:text-foreground"
             title="Insert dynamic Annexure Badge (e.g. Annexure P-1)"
           >
@@ -307,7 +328,7 @@ export const EditorToolbar = () => {
             <span className="text-[11px] font-medium">Badge</span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-80 p-2 space-y-2">
+        <PopoverContent align="start" collisionPadding={8} className="w-80 p-2 space-y-2">
           <div className="text-xs font-semibold text-foreground flex items-center justify-between">
             <span>Insert Annexure Badge</span>
             <span className="text-[10px] text-muted-foreground font-normal">Dynamic pointer</span>
@@ -343,16 +364,37 @@ export const EditorToolbar = () => {
           )}
         </PopoverContent>
       </Popover>
-      <Button variant="ghost" size="icon" onClick={toggleBulletList} className={cn("h-6 w-6 p-1", editor?.isActive('bulletList') ? 'bg-accent' : '')}><List /></Button>
       <div className="flex items-center">
-        <Button variant="ghost" size="icon" onClick={toggleOrderedList} className={cn("h-6 w-6 p-1 rounded-r-none", editor?.isActive('orderedList') ? 'bg-accent' : '')} title="Numbered list"><ListOrdered /></Button>
+        <Button variant="ghost" size="icon" onMouseDown={(e) => e.preventDefault()} onClick={toggleBulletList} className={cn("h-6 w-6 p-1 rounded-r-none", editor?.isActive('bulletList') ? 'bg-accent' : '')} title="Bulleted list"><List /></Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-6 w-3 rounded-l-none p-0 text-muted-foreground" title="Bullet style">
+              <ChevronDown className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" collisionPadding={8} className="min-w-[130px]">
+            {BULLET_STYLES.map((style) => (
+              <DropdownMenuItem
+                key={style.id}
+                onSelect={() => applyBulletStyle(style.id)}
+                className="justify-between gap-3 text-xs"
+              >
+                <span>{style.label}</span>
+                {currentBulletStyle() === style.id && <Check className="h-3 w-3" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <div className="flex items-center">
+        <Button variant="ghost" size="icon" onMouseDown={(e) => e.preventDefault()} onClick={toggleOrderedList} className={cn("h-6 w-6 p-1 rounded-r-none", editor?.isActive('orderedList') ? 'bg-accent' : '')} title="Numbered list"><ListOrdered /></Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-6 w-3 rounded-l-none p-0 text-muted-foreground" title="Numbering style">
               <ChevronDown className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-[150px]">
+          <DropdownMenuContent align="start" collisionPadding={8} className="min-w-[150px]">
             {LIST_REGIMES.map((regime) => (
               <DropdownMenuItem
                 key={regime.id}
@@ -366,15 +408,37 @@ export const EditorToolbar = () => {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      <Button
+        variant="ghost"
+        size="icon"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => editor?.chain().focus().liftListItem('listItem').run()}
+        disabled={!editor?.can().liftListItem('listItem')}
+        className="h-6 w-6 p-1"
+        title="Decrease indent (Shift+Tab)"
+      >
+        <IndentDecrease className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => editor?.chain().focus().sinkListItem('listItem').run()}
+        disabled={!editor?.can().sinkListItem('listItem')}
+        className="h-6 w-6 p-1"
+        title="Increase indent (Tab)"
+      >
+        <IndentIncrease className="h-3.5 w-3.5" />
+      </Button>
       <div className="flex items-center">
-        <Button variant="ghost" size="icon" onClick={() => editor?.chain().focus().toggleBlockquote().run()} className={cn("h-6 w-6 p-1 rounded-r-none", editor?.isActive('blockquote') ? 'bg-accent' : '')} title="Quote"><Quote /></Button>
+        <Button variant="ghost" size="icon" onMouseDown={(e) => e.preventDefault()} onClick={() => editor?.chain().focus().toggleBlockquote().run()} className={cn("h-6 w-6 p-1 rounded-r-none", editor?.isActive('blockquote') ? 'bg-accent' : '')} title="Quote"><Quote /></Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-6 w-3 rounded-l-none p-0 text-muted-foreground" title="Emphasis label — prints outside the quotation marks">
               <ChevronDown className="h-3 w-3" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-[190px]">
+          <DropdownMenuContent align="start" collisionPadding={8} className="min-w-[190px]">
             {EMPHASIS_PRESETS.map((label) => (
               <DropdownMenuItem key={label} onSelect={() => applyEmphasis(label)} className="justify-between gap-3 text-xs">
                 <span>({label})</span>
@@ -405,187 +469,192 @@ export const EditorToolbar = () => {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <Button variant="ghost" size="icon" onClick={() => editor?.chain().focus().setTextAlign('left').run()} className={cn("h-6 w-6 p-1", editor?.isActive({ textAlign: 'left' }) ? 'bg-accent' : '')}><AlignLeft /></Button>
-      <Button variant="ghost" size="icon" onClick={() => editor?.chain().focus().setTextAlign('center').run()} className={cn("h-6 w-6 p-1", editor?.isActive({ textAlign: 'center' }) ? 'bg-accent' : '')}><AlignCenter /></Button>
-      <Button variant="ghost" size="icon" onClick={() => editor?.chain().focus().setTextAlign('right').run()} className={cn("h-6 w-6 p-1", editor?.isActive({ textAlign: 'right' }) ? 'bg-accent' : '')}><AlignRight /></Button>
-      <Button variant="ghost" size="icon" onClick={() => editor?.chain().focus().setTextAlign('justify').run()} className={cn("h-6 w-6 p-1", editor?.isActive({ textAlign: 'justify' }) ? 'bg-accent' : '')}><AlignJustify /></Button>
-      <Button variant="ghost" size="icon" onClick={() => editor?.chain().focus().unsetAllMarks().clearNodes().run()} className="h-6 w-6 p-1"><Eraser /></Button>
-      {/* Highlight picker */}
-      <div className="relative" ref={pickerRef}>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn('h-6 w-6 p-1 relative', isHighlightActive ? 'bg-accent' : '')}
-          onClick={() => setShowHighlightPicker(p => !p)}
-          title="Highlight (Ctrl+H)"
-        >
-          <Highlighter className="h-3.5 w-3.5" />
-          <span
-            className="absolute bottom-0.5 left-0.5 right-0.5 h-1 rounded-sm"
-            style={{ backgroundColor: activeHighlightColor }}
-          />
-        </Button>
-        {showHighlightPicker && (
-          <div className="absolute top-full left-0 mt-1 z-50 flex gap-1 p-1.5 rounded-md border bg-popover shadow-md">
-            {HIGHLIGHT_COLORS.map(({ label, color }) => (
-              <button
-                key={color}
-                title={label}
-                onClick={() => applyHighlight(color)}
-                className={cn(
-                  'h-5 w-5 rounded-sm border border-border flex items-center justify-center text-[9px] transition-transform hover:scale-110',
-                  color === 'none' && 'bg-background text-foreground font-bold text-[8px]'
-                )}
-                style={{ backgroundColor: color === 'none' ? undefined : color }}
-              >
-                {color === 'none' ? '✕' : ''}
-              </button>
-            ))}
+      <Button variant="ghost" size="icon" onMouseDown={(e) => e.preventDefault()} onClick={() => editor?.chain().focus().setTextAlign('left').run()} className={cn("h-6 w-6 p-1", editor?.isActive({ textAlign: 'left' }) ? 'bg-accent' : '')}><AlignLeft /></Button>
+      <Button variant="ghost" size="icon" onMouseDown={(e) => e.preventDefault()} onClick={() => editor?.chain().focus().setTextAlign('center').run()} className={cn("h-6 w-6 p-1", editor?.isActive({ textAlign: 'center' }) ? 'bg-accent' : '')}><AlignCenter /></Button>
+      <Button variant="ghost" size="icon" onMouseDown={(e) => e.preventDefault()} onClick={() => editor?.chain().focus().setTextAlign('right').run()} className={cn("h-6 w-6 p-1", editor?.isActive({ textAlign: 'right' }) ? 'bg-accent' : '')}><AlignRight /></Button>
+      <Button variant="ghost" size="icon" onMouseDown={(e) => e.preventDefault()} onClick={() => editor?.chain().focus().setTextAlign('justify').run()} className={cn("h-6 w-6 p-1", editor?.isActive({ textAlign: 'justify' }) ? 'bg-accent' : '')}><AlignJustify /></Button>
+      <Button variant="ghost" size="icon" onMouseDown={(e) => e.preventDefault()} onClick={() => editor?.chain().focus().unsetAllMarks().clearNodes().run()} className="h-6 w-6 p-1"><Eraser /></Button>
+      {/* Highlight picker — Radix Popover with align="end" so it never overflows off-screen */}
+      <Popover open={showHighlightPicker} onOpenChange={setShowHighlightPicker}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            onMouseDown={(e) => e.preventDefault()}
+            className={cn('h-6 w-6 p-1 relative', isHighlightActive ? 'bg-accent' : '')}
+            title="Highlight (Ctrl+H)"
+          >
+            <Highlighter className="h-3.5 w-3.5" />
+            <span
+              className="absolute bottom-0.5 left-0.5 right-0.5 h-1 rounded-sm"
+              style={{ backgroundColor: activeHighlightColor }}
+            />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" sideOffset={4} collisionPadding={8} className="w-auto p-1.5 flex gap-1 bg-popover shadow-md border z-50">
+          {HIGHLIGHT_COLORS.map(({ label, color }) => (
+            <button
+              key={color}
+              title={label}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => applyHighlight(color)}
+              className={cn(
+                'h-5 w-5 rounded-sm border border-border flex items-center justify-center text-[9px] transition-transform hover:scale-110',
+                color === 'none' && 'bg-background text-foreground font-bold text-[8px]'
+              )}
+              style={{ backgroundColor: color === 'none' ? undefined : color }}
+            >
+              {color === 'none' ? '✕' : ''}
+            </button>
+          ))}
+        </PopoverContent>
+      </Popover>
+      {/* Table menu — Radix Popover with align="end" so it never overflows off-screen */}
+      <Popover open={showTableMenu} onOpenChange={setShowTableMenu}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            onMouseDown={(e) => e.preventDefault()}
+            className={cn('h-6 w-6 p-1', editor?.isActive('table') ? 'bg-accent' : '')}
+            title="Table Tools"
+          >
+            <TableIcon className="h-3.5 w-3.5" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" sideOffset={4} collisionPadding={8} className="w-56 p-1 flex flex-col bg-popover shadow-md border z-50">
+          <div className="flex items-center justify-between px-2 py-1 text-[11px] font-semibold text-muted-foreground border-b mb-1">
+            <span>Table Tools</span>
+            <span className="text-[10px] text-muted-foreground font-normal">Multi-click enabled</span>
           </div>
-        )}
-      </div>
-      {/* Table menu */}
-      <div className="relative" ref={tableMenuRef}>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn('h-6 w-6 p-1', editor?.isActive('table') ? 'bg-accent' : '')}
-          onClick={() => setShowTableMenu(p => !p)}
-          title="Table"
-        >
-          <TableIcon className="h-3.5 w-3.5" />
-        </Button>
-        {showTableMenu && (
-          <div className="absolute top-full left-0 mt-1 z-50 flex flex-col min-w-[180px] rounded-md border bg-popover shadow-md py-1">
+          <button
+            className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left rounded"
+            onClick={() => { editor?.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: false }).run(); setShowTableMenu(false); }}
+          >
+            <TableIcon className="h-3 w-3" /> Insert 2×2 table
+          </button>
+          <button
+            className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left rounded"
+            onClick={() => { editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: false }).run(); setShowTableMenu(false); }}
+          >
+            <TableIcon className="h-3 w-3" /> Insert 3×3 table
+          </button>
+          {/* Custom size */}
+          <div className="px-3 py-1.5 flex items-center gap-1.5">
+            <TableIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={customRows}
+              onChange={e => setCustomRows(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+              onClick={e => e.stopPropagation()}
+              className="w-10 h-5 text-xs text-center border border-input rounded bg-background"
+              title="Rows"
+            />
+            <span className="text-xs text-muted-foreground">×</span>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={customCols}
+              onChange={e => setCustomCols(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+              onClick={e => e.stopPropagation()}
+              className="w-10 h-5 text-xs text-center border border-input rounded bg-background"
+              title="Columns"
+            />
             <button
-              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left"
-              onClick={() => { editor?.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: false }).run(); setShowTableMenu(false); }}
+              className="text-xs px-2 py-0.5 rounded bg-primary text-primary-foreground hover:opacity-90 font-medium"
+              onClick={() => { editor?.chain().focus().insertTable({ rows: customRows, cols: customCols, withHeaderRow: false }).run(); setShowTableMenu(false); }}
             >
-              <TableIcon className="h-3 w-3" /> Insert 2×2 table
-            </button>
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left"
-              onClick={() => { editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: false }).run(); setShowTableMenu(false); }}
-            >
-              <TableIcon className="h-3 w-3" /> Insert 3×3 table
-            </button>
-            {/* Custom size */}
-            <div className="px-3 py-1.5 flex items-center gap-1.5">
-              <TableIcon className="h-3 w-3 shrink-0 text-muted-foreground" />
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={customRows}
-                onChange={e => setCustomRows(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
-                onClick={e => e.stopPropagation()}
-                className="w-10 h-5 text-xs text-center border border-input rounded bg-background"
-                title="Rows"
-              />
-              <span className="text-xs text-muted-foreground">×</span>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={customCols}
-                onChange={e => setCustomCols(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
-                onClick={e => e.stopPropagation()}
-                className="w-10 h-5 text-xs text-center border border-input rounded bg-background"
-                title="Columns"
-              />
-              <button
-                className="text-xs px-1.5 py-0.5 rounded bg-primary text-primary-foreground hover:opacity-90"
-                onClick={() => { editor?.chain().focus().insertTable({ rows: customRows, cols: customCols, withHeaderRow: false }).run(); setShowTableMenu(false); }}
-              >
-                Insert
-              </button>
-            </div>
-            <div className="border-t my-1" />
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
-              disabled={!editor?.isActive('table')}
-              onClick={() => { editor?.chain().focus().addColumnBefore().run(); setShowTableMenu(false); }}
-            >
-              <ArrowLeftToLine className="h-3 w-3" /> Add column before
-            </button>
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
-              disabled={!editor?.isActive('table')}
-              onClick={() => { editor?.chain().focus().addColumnAfter().run(); setShowTableMenu(false); }}
-            >
-              <ArrowRightToLine className="h-3 w-3" /> Add column after
-            </button>
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
-              disabled={!editor?.isActive('table')}
-              onClick={() => { editor?.chain().focus().addRowBefore().run(); setShowTableMenu(false); }}
-            >
-              <ArrowUpToLine className="h-3 w-3" /> Add row above
-            </button>
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
-              disabled={!editor?.isActive('table')}
-              onClick={() => { editor?.chain().focus().addRowAfter().run(); setShowTableMenu(false); }}
-            >
-              <ArrowDownToLine className="h-3 w-3" /> Add row below
-            </button>
-            <div className="border-t my-1" />
-            {/* Reorder the current row */}
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
-              disabled={!editor?.isActive('table')}
-              onClick={() => { if (editor) moveTableRow(editor, -1); setShowTableMenu(false); }}
-            >
-              <ChevronsUp className="h-3 w-3" /> Move row up
-            </button>
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
-              disabled={!editor?.isActive('table')}
-              onClick={() => { if (editor) moveTableRow(editor, 1); setShowTableMenu(false); }}
-            >
-              <ChevronsDown className="h-3 w-3" /> Move row down
-            </button>
-            <div className="border-t my-1" />
-            {/* Merge / split cells */}
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
-              disabled={!editor?.can().mergeCells()}
-              onClick={() => { editor?.chain().focus().mergeCells().run(); setShowTableMenu(false); }}
-            >
-              <TableCellsMerge className="h-3 w-3" /> Merge selected cells
-            </button>
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40"
-              disabled={!editor?.can().splitCell()}
-              onClick={() => { editor?.chain().focus().splitCell().run(); setShowTableMenu(false); }}
-            >
-              <TableCellsSplit className="h-3 w-3" /> Split cell
-            </button>
-            <div className="border-t my-1" />
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left text-destructive disabled:opacity-40"
-              disabled={!editor?.isActive('table')}
-              onClick={() => { editor?.chain().focus().deleteColumn().run(); setShowTableMenu(false); }}
-            >
-              <Columns2 className="h-3 w-3" /> Delete column
-            </button>
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left text-destructive disabled:opacity-40"
-              disabled={!editor?.isActive('table')}
-              onClick={() => { editor?.chain().focus().deleteRow().run(); setShowTableMenu(false); }}
-            >
-              <Rows2 className="h-3 w-3" /> Delete row
-            </button>
-            <button
-              className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left text-destructive disabled:opacity-40"
-              disabled={!editor?.isActive('table')}
-              onClick={() => { editor?.chain().focus().deleteTable().run(); setShowTableMenu(false); }}
-            >
-              <Trash2 className="h-3 w-3" /> Delete table
+              Insert
             </button>
           </div>
-        )}
-      </div>
+          <div className="border-t my-1" />
+          <button
+            className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40 rounded"
+            disabled={!editor?.isActive('table')}
+            onClick={() => { editor?.chain().focus().addColumnBefore().run(); }}
+          >
+            <ArrowLeftToLine className="h-3 w-3" /> Add column before
+          </button>
+          <button
+            className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40 rounded"
+            disabled={!editor?.isActive('table')}
+            onClick={() => { editor?.chain().focus().addColumnAfter().run(); }}
+          >
+            <ArrowRightToLine className="h-3 w-3" /> Add column after
+          </button>
+          <button
+            className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40 rounded"
+            disabled={!editor?.isActive('table')}
+            onClick={() => { editor?.chain().focus().addRowBefore().run(); }}
+          >
+            <ArrowUpToLine className="h-3 w-3" /> Add row above
+          </button>
+          <button
+            className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40 rounded"
+            disabled={!editor?.isActive('table')}
+            onClick={() => { editor?.chain().focus().addRowAfter().run(); }}
+          >
+            <ArrowDownToLine className="h-3 w-3" /> Add row below
+          </button>
+          <div className="border-t my-1" />
+          {/* Reorder the current row */}
+          <button
+            className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40 rounded"
+            disabled={!editor?.isActive('table')}
+            onClick={() => { if (editor) moveTableRow(editor, -1); }}
+          >
+            <ChevronsUp className="h-3 w-3" /> Move row up
+          </button>
+          <button
+            className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40 rounded"
+            disabled={!editor?.isActive('table')}
+            onClick={() => { if (editor) moveTableRow(editor, 1); }}
+          >
+            <ChevronsDown className="h-3 w-3" /> Move row down
+          </button>
+          <div className="border-t my-1" />
+          {/* Merge / split cells */}
+          <button
+            className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40 rounded"
+            disabled={!editor?.can().mergeCells()}
+            onClick={() => { editor?.chain().focus().mergeCells().run(); }}
+          >
+            <TableCellsMerge className="h-3 w-3" /> Merge selected cells
+          </button>
+          <button
+            className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left disabled:opacity-40 rounded"
+            disabled={!editor?.can().splitCell()}
+            onClick={() => { editor?.chain().focus().splitCell().run(); }}
+          >
+            <TableCellsSplit className="h-3 w-3" /> Split cell
+          </button>
+          <div className="border-t my-1" />
+          <button
+            className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left text-destructive disabled:opacity-40 rounded"
+            disabled={!editor?.isActive('table')}
+            onClick={() => { editor?.chain().focus().deleteColumn().run(); }}
+          >
+            <Columns2 className="h-3 w-3" /> Delete column
+          </button>
+          <button
+            className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left text-destructive disabled:opacity-40 rounded"
+            disabled={!editor?.isActive('table')}
+            onClick={() => { editor?.chain().focus().deleteRow().run(); }}
+          >
+            <Rows2 className="h-3 w-3" /> Delete row
+          </button>
+          <button
+            className="flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted/60 text-left text-destructive disabled:opacity-40 rounded"
+            disabled={!editor?.isActive('table')}
+            onClick={() => { editor?.chain().focus().deleteTable().run(); setShowTableMenu(false); }}
+          >
+            <Trash2 className="h-3 w-3" /> Delete table
+          </button>
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }
