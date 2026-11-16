@@ -127,7 +127,7 @@ export function BriefingNotePrompt() {
             <span>🎉</span> Congratulations! You just saved 2 hours of work.
           </p>
           <p className="mt-1 text-xs text-emerald-800/90 dark:text-emerald-300/90">
-            Cumulatively, you have now saved <span className="font-bold text-emerald-900 dark:text-emerald-100">{cumulativeHours}</span> hours using PaperBook.
+            Cumulatively, you have now saved <span className="font-bold text-emerald-900 dark:text-emerald-100">{cumulativeHours}</span> hours using Drafto.
           </p>
         </div>
 

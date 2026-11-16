@@ -1427,8 +1427,8 @@ export function Header({ undo, redo, canUndo, canRedo }: HeaderProps) {
   return (
     <header className="flex h-12 items-center justify-between border-b bg-card px-2">
       <div className="flex items-center gap-1">
-        <img src="./drafto-logo.png" alt="PaperBook Logo" className="h-7 w-auto translate-x-0.5" />
-        <h1 className="text-base font-bold" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>PaperBook</h1>
+        <img src="./drafto-logo.png" alt="Drafto Logo" className="h-7 w-auto translate-x-0.5" />
+        <h1 className="text-base font-bold" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>Drafto</h1>
       </div>
       <ProjectNameField
         name={projectName}

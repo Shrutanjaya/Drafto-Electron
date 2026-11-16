@@ -1987,7 +1987,7 @@ function PdfGenerationDialogContent({ onClose, onGeneratingChange }: { onClose: 
                                     ))}
                                 </ul>
                                 <p className="text-[11px] text-red-600/90 dark:text-red-400/90 pt-1">
-                                    Note: PaperBook can make mistakes. Please check the ordering of annexures and proceed based on your judgment.
+                                    Note: Drafto can make mistakes. Please check the ordering of annexures and proceed based on your judgment.
                                 </p>
                             </div>
                         </div>
