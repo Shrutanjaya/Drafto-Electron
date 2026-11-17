@@ -157,7 +157,8 @@ const getIaList = (projectData: DraftoProject) => {
         const translatedAnnexures = allAnnexures
           .filter(annex => annex.copyType === 'translated copy' || annex.copyType === 'true and translated copy')
           .map(annex => annexureNumberingMap.get(annex.id))
-          .filter(Boolean)
+          .filter((n): n is number => typeof n === 'number')
+          .sort((a, b) => a - b)
           .map(pNumber => `${annexurePrefix(projectData.courtType)}-${pNumber}`);
         
         let annexureList = '';
@@ -1271,11 +1272,26 @@ export async function generateOrDocx(projectData: DraftoProject, includeSignatur
           ...createPartiesHeader(petHeader, resHeader, getPartyGrammar(projectData).baseNoun, { multiPet: getPartyGrammar(projectData).multiPet, multiRes: getPartyGrammar(projectData).multiRes }),
           new Paragraph({ alignment: AlignmentType.CENTER, children: [ smartTextRun({ text: "OFFICE REPORT ON LIMITATION", bold: true }) ] }),
           new Paragraph({ children: [smartTextRun("1. The Special Leave Petition is within limitation.")] }),
-          new Paragraph({ children: [smartTextRun("2. The Petition is barred by time and there is a delay of __ days in filing SLP against the judgment dated ____ and application for condonation of __ days' delay has been filed.")] }),
-          new Paragraph({ children: [smartTextRun("3. There is delay of __ days in re-filing the petition and petition for condonation of __ days delay in re-filing has been/not been filed.")] }),
+          ...(() => {
+            const ioDates = (projectData.impugnedOrders || [])
+              .filter(o => o?.date)
+              .map(o => format(new Date(o.date), "dd.MM.yyyy"));
+            const ioDateText = ioDates.length > 0 ? ioDates.join(" and ") : "____";
+            const cod = projectData.standardIas?.condonationOfDelay;
+            const filingDelayStr = (cod?.active && cod.delayDays > 0) ? String(cod.delayDays) : "__";
+            const refiling = projectData.standardIas?.condonationOfDelayInRefiling;
+            const refilingRaw = refiling?.delayDays;
+            const refilingCleaned = (refilingRaw !== undefined && refilingRaw !== null && String(refilingRaw).trim() !== "" && String(refilingRaw).trim() !== "0")
+              ? String(refilingRaw).trim().replace(/\s*days?$/i, "").trim()
+              : "__";
+            const refilingDelayStr = refiling?.active ? (refilingCleaned || "__") : "__";
+            const refilingStatusText = refiling?.active ? "has been filed." : "has been/not been filed.";
+            return [
+              new Paragraph({ children: [smartTextRun(`2. The Petition is barred by time and there is a delay of ${filingDelayStr} days in filing SLP against the judgment dated ${ioDateText} and application for condonation of ${filingDelayStr} days' delay has been filed.`)] }),
+              new Paragraph({ children: [smartTextRun(`3. There is delay of ${refilingDelayStr} days in re-filing the petition and petition for condonation of ${refilingDelayStr} days delay in re-filing ${refilingStatusText}`)] }),
+            ];
+          })(),
           new Paragraph({ alignment: AlignmentType.RIGHT, children: [ smartTextRun({ text: "BRANCH OFFICER", bold: true }) ] }),
-          new Paragraph({}),
-          ...createFiledByTable(projectData.advocate.filingDate, aorName, { includeSignature, partyNoun: getPartyGrammar(projectData).Pet }),
         ],
       },
     ],
@@ -2901,6 +2917,24 @@ export async function generateIaDocx(
         }
     }
 
+    const closingPara1 = new Paragraph({
+        text: convertToSmartQuotes(`No prejudice would be caused to the ${g.Res} if this application were allowed. On the other hand, irreparable injury would be caused to the ${g.Pet} if the application were not allowed.`),
+        numbering: nextNumbering(),
+    });
+    newListSegment();
+    const closingPara2 = new Paragraph({
+        text: convertToSmartQuotes("This application is filed in good faith and in the interests of justice."),
+        numbering: nextNumbering(),
+    });
+    newListSegment();
+    const prayersPara = new Paragraph({
+        children: [
+            smartTextRun({ text: "PRAYERS", bold: true }),
+            smartTextRun({ text: ": In view of the foregoing averments, it is most respectfully prayed that this Hon'ble Court may be pleased to:" })
+        ],
+        numbering: nextNumbering(),
+    });
+
     const uniqueNumberingConfigs = [
         ...allNumberingConfigs.filter((v, i, a) => a.findIndex(t => t.reference === v.reference) === i),
         ...listSegments.map(seg => makeIaListConfig(seg.reference, seg.start)),
@@ -2979,21 +3013,9 @@ export async function generateIaDocx(
                 }),
                 openingParagraph,
                 ...customTextParagraphs,
-                 new Paragraph({
-                    text: convertToSmartQuotes(`No prejudice would be caused to the ${g.Res} if this application were allowed. On the other hand, irreparable injury would be caused to the ${g.Pet} if the application were not allowed.`),
-                    numbering: nextNumbering(),
-                }),
-                new Paragraph({
-                    text: convertToSmartQuotes("This application is filed in good faith and in the interests of justice."),
-                    numbering: nextNumbering(),
-                }),
-                 new Paragraph({
-                    children: [
-                        smartTextRun({ text: "PRAYERS", bold: true }),
-                        smartTextRun({ text: ": In view of the foregoing averments, it is most respectfully prayed that this Hon'ble Court may be pleased to:" })
-                    ],
-                    numbering: nextNumbering(),
-                }),
+                closingPara1,
+                closingPara2,
+                prayersPara,
                 prayerTable,
                 new Paragraph({
                     alignment: AlignmentType.RIGHT,

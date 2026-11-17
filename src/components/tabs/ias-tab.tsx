@@ -381,7 +381,8 @@ export function IasTab() {
     const translated = allAnnexures
       .filter(a => a.copyType === 'translated copy' || a.copyType === 'true and translated copy')
       .map(a => annexureNumberingMap.get(a.id))
-      .filter(Boolean)
+      .filter((n): n is number => typeof n === 'number')
+      .sort((a, b) => a - b)
       .map(n => `${annexPrefix}-${n}`);
     let newReason = '';
     if (translated.length > 0) {
